@@ -25,4 +25,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteTask: (taskId) => ipcRenderer.invoke('delete-task', taskId),
   getAllTasks: () => ipcRenderer.invoke('get-all-tasks'),
   getAiBriefing: (forceRefresh) => ipcRenderer.invoke('get-ai-briefing', forceRefresh),
+  analyseProduct: (payload) => ipcRenderer.invoke('analyse-product', payload),
 });

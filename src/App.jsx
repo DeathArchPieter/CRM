@@ -6,6 +6,7 @@ import ClientsView from './views/ClientsView';
 import PipelineView from './views/PipelineView';
 import SalesTrackingView from './views/SalesTrackingView';
 import RemunerationView from './views/RemunerationView';
+import ProductAnalysisView from './views/ProductAnalysisView';
 import './index.css';
 
 function App() {
@@ -23,6 +24,8 @@ function App() {
         return <SalesTrackingView />;
       case 'remuneration':
         return <RemunerationView />;
+      case 'product-analysis':
+        return <ProductAnalysisView />;
       default:
         return <DashboardView />;
     }

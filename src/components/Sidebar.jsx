@@ -1,13 +1,14 @@
 import React from 'react';
-import { LayoutDashboard, Users, GitBranch, TrendingUp, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Users, GitBranch, TrendingUp, DollarSign, FlaskConical } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-    { id: 'clients', label: 'Clients', icon: <Users size={20} /> },
-    { id: 'pipeline', label: 'Pipeline', icon: <GitBranch size={20} /> },
-    { id: 'sales', label: 'Sales Tracking', icon: <TrendingUp size={20} /> },
-    { id: 'remuneration', label: 'Remuneration', icon: <DollarSign size={20} /> },
+    { id: 'dashboard',        label: 'Dashboard',         icon: <LayoutDashboard size={20} /> },
+    { id: 'clients',          label: 'Clients',            icon: <Users size={20} /> },
+    { id: 'pipeline',         label: 'Pipeline',           icon: <GitBranch size={20} /> },
+    { id: 'sales',            label: 'Sales Tracking',     icon: <TrendingUp size={20} /> },
+    { id: 'remuneration',     label: 'Remuneration',       icon: <DollarSign size={20} /> },
+    { id: 'product-analysis', label: 'Product Analyser',   icon: <FlaskConical size={20} /> },
   ];
 
   return (

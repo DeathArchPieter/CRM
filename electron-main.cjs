@@ -355,6 +355,92 @@ function createWindow() {
     }
   });
 
+  // Gemini AI – Product Analyser
+  ipcMain.handle('analyse-product', async (event, { productText, client }) => {
+    try {
+      if (!productText || productText.trim().length < 20) {
+        return { success: false, error: 'Please paste a product description of at least 20 characters.' };
+      }
+
+      const clientSection = client
+        ? `\nCLIENT PROFILE (generate the illustration specifically for this person):\nName: ${client.fullName}\nCurrent Age: ${client.age}\nGender: ${client.gender || 'Not specified'}\n`
+        : '\nNo specific client selected — provide a generic product analysis with sample premiums for ages 25, 30, 35, 40, 45.\n';
+
+      const systemInstruction = `You are an expert financial product analyst specialising in insurance and investment products. Your job is to analyse a product brochure or summary and return a precise, structured JSON analysis. You must respond ONLY with valid JSON — no markdown, no explanation, no code fences. If data is not available in the brochure, use null for that field rather than guessing.`;
+
+      const userMessage = `Analyse the following insurance/financial product and return a JSON object matching this exact schema:
+
+{
+  "productName": "string",
+  "insurer": "string",
+  "productType": "one of: Whole Life | Term | Endowment | ILP | Critical Illness | Medical | Annuity | Other",
+  "currency": "string (e.g. SGD, USD)",
+  "summary": "2-3 sentence plain English overview of what this product does",
+  "keyFeatures": ["string"],
+  "premiumStructure": {
+    "paymentTerm": "number of years as integer, or the string 'whole life', or the string 'single'",
+    "frequency": "Monthly | Quarterly | Semi-Annually | Annually",
+    "minEntryAge": number or null,
+    "maxEntryAge": number or null,
+    "clientEntryAge": number or null,
+    "clientAnnualPremium": number or null,
+    "samplePremiums": [{"entryAge": number, "annualPremium": number}]
+  },
+  "cashbacks": [
+    {"year": number, "ageAtEvent": number or null, "description": "string", "amount": number or null, "percentOfAnnualPremium": number or null}
+  ],
+  "cashValue": [
+    {"year": number, "age": number or null, "guaranteedCV": number, "nonGuaranteedCV": number or null}
+  ],
+  "coverages": [{"type": "string", "description": "string"}],
+  "highlights": ["string — key selling points or advantages"],
+  "considerations": ["string — things a client should be aware of or potential downsides"],
+  "irrEstimate": "string describing estimated IRR or returns, or null",
+  "dataNote": "string if any assumptions were made, or null"
+}
+
+Rules:
+- If a client profile is provided, set clientEntryAge and clientAnnualPremium to that client's specific values derived from the brochure data.
+- cashValue rows must use the client's entry age to calculate age column if a client is provided.
+- All monetary values must be numbers (not strings).
+- paymentTerm must be an integer (years) if it is a fixed term, otherwise the string 'whole life' or 'single'.
+- Return ONLY the JSON object. No markdown, no explanation.
+${clientSection}
+PRODUCT BROCHURE / SUMMARY:
+${productText.trim()}`;
+
+      const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errBody}`);
+      }
+
+      const json = await response.json();
+      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+
+      // Strip markdown fences if Gemini wraps despite instruction
+      const cleaned = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      const analysis = JSON.parse(cleaned);
+
+      return { success: true, data: analysis };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   // Gemini AI Daily Briefing
   ipcMain.handle('get-ai-briefing', async (event, forceRefresh = false) => {
     try {
