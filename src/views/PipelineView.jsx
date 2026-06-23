@@ -29,12 +29,26 @@ export default function PipelineView() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState(INITIAL_FORM);
+  const [clients, setClients] = useState([]);
+  const [promptCase, setPromptCase] = useState(null);
+  const [isPromptOpen, setIsPromptOpen] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    if (window.electronAPI?.getPipeline) {
-      const res = await window.electronAPI.getPipeline();
-      if (res.success) setCases(res.data);
+    if (window.electronAPI) {
+      const promises = [];
+      if (window.electronAPI.getPipeline) promises.push(window.electronAPI.getPipeline());
+      if (window.electronAPI.getClients) promises.push(window.electronAPI.getClients());
+      
+      const results = await Promise.all(promises);
+      
+      if (window.electronAPI.getPipeline && results[0]?.success) {
+        setCases(results[0].data);
+      }
+      if (window.electronAPI.getClients && results[1]?.success) {
+        setClients(results[1].data);
+      }
     }
     setLoading(false);
   };
@@ -51,6 +65,50 @@ export default function PipelineView() {
     setEditingId(c.id);
     setFormData(c);
     setIsModalOpen(true);
+  };
+
+  const handleCaseClick = (c) => {
+    const nameLower = (c.clientName || '').toLowerCase().trim();
+    const clientExists = clients.some(cl => 
+      (cl.fullName || '').toLowerCase().trim() === nameLower ||
+      (cl.preferredName && (cl.preferredName || '').toLowerCase().trim() === nameLower)
+    );
+    
+    if (!clientExists) {
+      setPromptCase(c);
+      setIsPromptOpen(true);
+    } else {
+      openEdit(c);
+    }
+  };
+
+  const handleCreateClientAndOpen = async () => {
+    if (!promptCase) return;
+    setCreatingClient(true);
+    if (window.electronAPI?.addClient) {
+      const res = await window.electronAPI.addClient({
+        fullName: promptCase.clientName,
+        clientStatus: 'Prospect'
+      });
+      if (res.success) {
+        await load();
+        setIsPromptOpen(false);
+        openEdit(promptCase);
+      } else {
+        console.error("Failed to create client from pipeline case:", res.error);
+      }
+    }
+    setCreatingClient(false);
+  };
+
+  const handleSkipAndOpen = () => {
+    setIsPromptOpen(false);
+    openEdit(promptCase);
+  };
+
+  const handleCancelPrompt = () => {
+    setIsPromptOpen(false);
+    setPromptCase(null);
   };
 
   const handleChange = (e) => setFormData(f => ({ ...f, [e.target.name]: e.target.value }));
@@ -120,9 +178,9 @@ export default function PipelineView() {
       {loading ? (
         <div style={{ textAlign: 'center', color: 'var(--text-muted)', paddingTop: '48px' }}>Loading pipeline...</div>
       ) : view === 'kanban' ? (
-        <KanbanBoard cases={cases} onEdit={openEdit} onAddToStage={openAdd} />
+        <KanbanBoard cases={cases} onEdit={handleCaseClick} onAddToStage={openAdd} />
       ) : (
-        <TableView cases={cases} onEdit={openEdit} />
+        <TableView cases={cases} onEdit={handleCaseClick} />
       )}
 
       {/* Add / Edit Modal */}
@@ -200,6 +258,48 @@ export default function PipelineView() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Client Prompt Modal */}
+      {isPromptOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 101, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '480px', padding: '32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              Create Client Profile?
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6', margin: 0 }}>
+              There is no client profile for <strong style={{ color: 'var(--text-primary)' }}>{promptCase?.clientName}</strong> in your database. 
+              Creating one will allow you to track their policy portfolio, manage follow-up tasks, and generate AI-driven client insights.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+              <button 
+                type="button" 
+                className="btn" 
+                style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}
+                onClick={handleCancelPrompt}
+                disabled={creatingClient}
+              >
+                Cancel
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleSkipAndOpen}
+                disabled={creatingClient}
+              >
+                Skip & Open Case
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={handleCreateClientAndOpen}
+                disabled={creatingClient}
+              >
+                {creatingClient ? 'Creating...' : 'Create Profile & Open'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -2,10 +2,13 @@ import React, { useState } from 'react';
 import TitleBar from './components/TitleBar';
 import Sidebar from './components/Sidebar';
 import DashboardView from './views/DashboardView';
+import ScheduleView from './views/ScheduleView';
 import ClientsView from './views/ClientsView';
 import PipelineView from './views/PipelineView';
 import SalesTrackingView from './views/SalesTrackingView';
 import RemunerationView from './views/RemunerationView';
+import SpecialProjectsView from './views/SpecialProjectsView';
+import SpecialReportsView from './views/SpecialReportsView';
 import ProductAnalysisView from './views/ProductAnalysisView';
 import './index.css';
 
@@ -16,6 +19,8 @@ function App() {
     switch (activeTab) {
       case 'dashboard':
         return <DashboardView />;
+      case 'schedule':
+        return <ScheduleView />;
       case 'clients':
         return <ClientsView />;
       case 'pipeline':
@@ -24,6 +29,10 @@ function App() {
         return <SalesTrackingView />;
       case 'remuneration':
         return <RemunerationView />;
+      case 'special-projects':
+        return <SpecialProjectsView />;
+      case 'special-reports':
+        return <SpecialReportsView />;
       case 'product-analysis':
         return <ProductAnalysisView />;
       default:

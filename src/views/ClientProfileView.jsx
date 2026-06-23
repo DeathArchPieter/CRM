@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, Shield, User, Briefcase, Edit2, Trash2, CheckCircle2, Circle } from 'lucide-react';
+import { ArrowLeft, Plus, Shield, User, Briefcase, Edit2, Trash2, CheckCircle2, Circle, RefreshCw } from 'lucide-react';
 
 const COVERAGE_MAP = {
   'Life': ['Death', 'TPD', 'Early CI', 'Major CI'],
@@ -19,6 +19,14 @@ export default function ClientProfileView({ client, onBack }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newTaskText, setNewTaskText] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskDueTime, setNewTaskDueTime] = useState('');
+  const [newTaskDueEndTime, setNewTaskDueEndTime] = useState('');
+  const [newTaskLocation, setNewTaskLocation] = useState('');
+  const [remarksText, setRemarksText] = useState(client.notes || '');
+  const [isSavingRemarks, setIsSavingRemarks] = useState(false);
+  const [aiInsights, setAiInsights] = useState('');
+  const [insightsLoading, setInsightsLoading] = useState(false);
   
   // Modal states
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
@@ -58,18 +66,90 @@ export default function ClientProfileView({ client, onBack }) {
     setLoading(false);
   };
 
+  const loadAiInsights = async (force = false) => {
+    console.log("loadAiInsights called, force:", force);
+    if (!window.electronAPI) {
+      console.warn("window.electronAPI is not available (running in browser?)");
+      setAiInsights("Running in browser environment. Electron API is not available.");
+      return;
+    }
+    if (!window.electronAPI.getClientAiInsights) {
+      console.warn("electronAPI.getClientAiInsights is undefined. Did you restart Electron?");
+      setAiInsights("getClientAiInsights API is undefined. Please stop and restart the Electron application.");
+      return;
+    }
+    setInsightsLoading(true);
+    try {
+      console.log("Invoking getClientAiInsights IPC for client ID:", currentClient.id);
+      const res = await window.electronAPI.getClientAiInsights(currentClient.id, force);
+      console.log("IPC Response received:", res);
+      if (res.success) {
+        setAiInsights(res.data);
+      } else {
+        setAiInsights(`Error generating insights: ${res.error}`);
+      }
+    } catch (err) {
+      console.error("IPC call failed:", err);
+      setAiInsights(`Error invoking AI: ${err.message}`);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
+
+  const handleSaveRemarks = async () => {
+    console.log("handleSaveRemarks called, remarksText:", remarksText);
+    if (!window.electronAPI?.updateClient) {
+      console.warn("window.electronAPI.updateClient is not available");
+      return;
+    }
+    setIsSavingRemarks(true);
+    try {
+      const res = await window.electronAPI.updateClient({
+        ...currentClient,
+        notes: remarksText
+      });
+      console.log("updateClient response:", res);
+      if (res.success) {
+        setCurrentClient(prev => ({ ...prev, notes: remarksText }));
+        await loadAiInsights(false);
+      } else {
+        console.error("Failed to save remarks:", res.error);
+      }
+    } catch (err) {
+      console.error("Error saving remarks:", err);
+    } finally {
+      setIsSavingRemarks(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
+    loadAiInsights(false);
   }, [currentClient.id]);
+
+  useEffect(() => {
+    setRemarksText(currentClient.notes || '');
+  }, [currentClient.notes]);
 
   // Task Handlers
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
     if (window.electronAPI?.addTask) {
-      const res = await window.electronAPI.addTask({ clientId: currentClient.id, description: newTaskText });
+      const res = await window.electronAPI.addTask({ 
+        clientId: currentClient.id, 
+        description: newTaskText,
+        dueDate: newTaskDueDate || null,
+        dueTime: newTaskDueTime || null,
+        dueEndTime: newTaskDueEndTime || null,
+        location: newTaskLocation.trim() || ''
+      });
       if (res.success) {
         setNewTaskText('');
+        setNewTaskDueDate('');
+        setNewTaskDueTime('');
+        setNewTaskDueEndTime('');
+        setNewTaskLocation('');
         loadData();
       }
     }
@@ -251,18 +331,55 @@ export default function ClientProfileView({ client, onBack }) {
               Tasks & Follow-ups
             </h2>
 
-            <form onSubmit={handleAddTask} style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            <form onSubmit={handleAddTask} style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
               <input 
                 type="text" 
                 className="input-field" 
-                style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }} 
-                placeholder="New task (e.g. claim submission)"
+                style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }} 
+                placeholder="New task description..."
                 value={newTaskText}
                 onChange={(e) => setNewTaskText(e.target.value)}
+                required
               />
-              <button type="submit" className="btn btn-primary" style={{ padding: '8px 12px' }}>
-                <Plus size={16} />
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="date" 
+                  className="input-field" 
+                  style={{ flex: 1, padding: '6px 10px', fontSize: '12px', color: 'var(--text-primary)' }}
+                  value={newTaskDueDate}
+                  onChange={(e) => setNewTaskDueDate(e.target.value)}
+                  title="Due Date"
+                />
+                <input 
+                  type="time" 
+                  className="input-field" 
+                  style={{ width: '70px', padding: '6px 6px', fontSize: '11px', color: 'var(--text-primary)' }}
+                  value={newTaskDueTime}
+                  onChange={(e) => setNewTaskDueTime(e.target.value)}
+                  title="Start Time"
+                />
+                <input 
+                  type="time" 
+                  className="input-field" 
+                  style={{ width: '70px', padding: '6px 6px', fontSize: '11px', color: 'var(--text-primary)' }}
+                  value={newTaskDueEndTime}
+                  onChange={(e) => setNewTaskDueEndTime(e.target.value)}
+                  title="End Time"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  style={{ flex: 1, padding: '8px 12px', fontSize: '13px' }} 
+                  placeholder="Location / Address (Optional)"
+                  value={newTaskLocation}
+                  onChange={(e) => setNewTaskLocation(e.target.value)}
+                />
+                <button type="submit" className="btn btn-primary" style={{ padding: '8px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                  <Plus size={14} /> Add
+                </button>
+              </div>
             </form>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
@@ -278,7 +395,14 @@ export default function ClientProfileView({ client, onBack }) {
                       {task.status === 'Completed' ? <CheckCircle2 size={16} /> : <Circle size={16} />}
                     </button>
                     <div style={{ flex: 1, fontSize: '13px', color: task.status === 'Completed' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: task.status === 'Completed' ? 'line-through' : 'none', wordBreak: 'break-word' }}>
-                      {task.description}
+                      <div>{task.description}</div>
+                      {(task.dueDate || task.dueTime || task.location) && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {task.dueDate && `Due: ${new Date(task.dueDate).toLocaleDateString()}`}
+                          {task.dueTime && ` at ${task.dueTime}${task.dueEndTime ? ` - ${task.dueEndTime}` : ''}`}
+                          {task.location && ` | Loc: ${task.location}`}
+                        </div>
+                      )}
                     </div>
                     <button 
                       onClick={() => handleDeleteTask(task.id)}
@@ -298,6 +422,105 @@ export default function ClientProfileView({ client, onBack }) {
 
         {/* Right Column - Policies */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Remarks & AI Thoughts Panel */}
+          <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              
+              {/* User Remarks */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Edit2 size={16} color="var(--accent-primary)" />
+                  Your Remarks & Thoughts
+                </h3>
+                <textarea
+                  value={remarksText}
+                  onChange={(e) => setRemarksText(e.target.value)}
+                  placeholder="Record your own notes or observations about this client here..."
+                  style={{
+                    flex: 1,
+                    minHeight: '120px',
+                    background: 'var(--bg-base)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '8px',
+                    color: 'var(--text-primary)',
+                    padding: '12px',
+                    fontSize: '13px',
+                    lineHeight: '1.6',
+                    fontFamily: 'Inter, sans-serif',
+                    outline: 'none',
+                    resize: 'none'
+                  }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent-primary)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border-light)'}
+                />
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  style={{ padding: '8px 16px', fontSize: '12px', alignSelf: 'flex-end' }}
+                  onClick={handleSaveRemarks}
+                  disabled={isSavingRemarks}
+                >
+                  {isSavingRemarks ? 'Saving...' : 'Save Remarks'}
+                </button>
+              </div>
+
+              {/* AI Guidance */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderLeft: '1px solid var(--border-light)', paddingLeft: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Shield size={16} color="var(--accent-secondary)" />
+                    AI Insights & Guidance
+                  </h3>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.05)', padding: '4px 8px' }}
+                    onClick={() => loadAiInsights(true)}
+                    disabled={insightsLoading}
+                  >
+                    <RefreshCw size={11} style={{ animation: insightsLoading ? 'spin 1s linear infinite' : 'none' }} />
+                    {insightsLoading ? 'Analyzing...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {insightsLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, justifyContent: 'center' }}>
+                    {[100, 85, 95, 60].map((w, i) => (
+                      <div key={i} style={{ height: '10px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', width: `${w}%` }} />
+                    ))}
+                  </div>
+                ) : aiInsights ? (
+                  <div 
+                    style={{ 
+                      fontSize: '13px', 
+                      color: 'var(--text-secondary)', 
+                      lineHeight: '1.6', 
+                      overflowY: 'auto', 
+                      maxHeight: '180px',
+                      whiteSpace: 'pre-line' 
+                    }}
+                  >
+                    {aiInsights}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', flex: 1, opacity: 0.5 }}>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', margin: 0 }}>No AI insights generated yet.</p>
+                    <button 
+                      type="button" 
+                      className="btn btn-secondary" 
+                      style={{ padding: '6px 12px', fontSize: '11px' }}
+                      onClick={() => loadAiInsights(false)}
+                    >
+                      Generate AI Thoughts
+                    </button>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h2 style={{ fontSize: '20px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Briefcase size={20} color="var(--accent-secondary)" />

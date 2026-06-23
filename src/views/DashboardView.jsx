@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, AlertCircle, Sparkles, RefreshCw, Circle, Trash2 } from 'lucide-react';
+import { Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar } from 'lucide-react';
 
 const fmt = (v) => v ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v) : '$0';
 
@@ -36,22 +36,58 @@ export default function DashboardView() {
   const [clients, setClients] = useState([]);
   const [pipeline, setPipeline] = useState([]);
   const [pendingTasks, setPendingTasks] = useState([]);
+  const [calendarTasks, setCalendarTasks] = useState([]);
+  const [googleEvents, setGoogleEvents] = useState([]);
+  const [googleSettings, setGoogleSettings] = useState(null);
   const [briefing, setBriefing] = useState('');
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingTime, setBriefingTime] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const isSameDay = (d1, d2) => {
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  };
+
   const loadData = async () => {
     if (!window.electronAPI) { setLoading(false); return; }
-    const [cRes, pRes, tRes] = await Promise.all([
-      window.electronAPI.getClients(),
-      window.electronAPI.getPipeline(),
-      window.electronAPI.getAllTasks(),
-    ]);
-    if (cRes.success) setClients(cRes.data);
-    if (pRes.success) setPipeline(pRes.data);
-    if (tRes.success) setPendingTasks(tRes.data);
-    setLoading(false);
+    try {
+      const [cRes, pRes, tRes, ctRes, gsRes] = await Promise.all([
+        window.electronAPI.getClients(),
+        window.electronAPI.getPipeline(),
+        window.electronAPI.getAllTasks(),
+        window.electronAPI.getCalendarTasks ? window.electronAPI.getCalendarTasks() : Promise.resolve({ success: false }),
+        window.electronAPI.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
+      ]);
+      
+      if (cRes.success) setClients(cRes.data);
+      if (pRes.success) setPipeline(pRes.data);
+      if (tRes.success) setPendingTasks(tRes.data);
+      if (ctRes.success) setCalendarTasks(ctRes.data);
+      
+      if (gsRes.success && gsRes.data.connected) {
+        setGoogleSettings(gsRes.data);
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const timeMin = todayStart.toISOString();
+        const timeMax = todayEnd.toISOString();
+        
+        const geRes = await window.electronAPI.getGoogleEvents({ timeMin, timeMax });
+        if (geRes.success) {
+          setGoogleEvents(geRes.events || []);
+        }
+      } else {
+        setGoogleSettings(null);
+        setGoogleEvents([]);
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard data:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadBriefing = async (force = false) => {
@@ -75,16 +111,92 @@ export default function DashboardView() {
   const handleCompleteTask = async (task) => {
     if (window.electronAPI?.updateTask) {
       await window.electronAPI.updateTask({ id: task.id, status: 'Completed' });
-      setPendingTasks(t => t.filter(x => x.id !== task.id));
+      loadData();
+    }
+  };
+
+  const toggleTaskStatus = async (task) => {
+    if (window.electronAPI?.updateTask) {
+      const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
+      await window.electronAPI.updateTask({ id: task.id, status: newStatus });
+      loadData();
     }
   };
 
   const handleDeleteTask = async (taskId) => {
     if (window.electronAPI?.deleteTask) {
       await window.electronAPI.deleteTask(taskId);
-      setPendingTasks(t => t.filter(x => x.id !== taskId));
+      loadData();
     }
   };
+
+  const getTodayScheduleItems = () => {
+    const items = [];
+    const today = new Date();
+
+    const todayCrmTasks = calendarTasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), today));
+    
+    // Set of synced Google Event IDs to prevent duplicates
+    const syncedEventIds = new Set(calendarTasks.map(t => t.googleEventId).filter(Boolean));
+
+    const todayGoogleEvents = googleEvents.filter(e => {
+      if (syncedEventIds.has(e.id)) return false;
+      const start = e.start?.dateTime ? new Date(e.start.dateTime) : (e.start?.date ? new Date(e.start.date) : null);
+      return start && isSameDay(start, today);
+    });
+    const todayPipelineCloses = pipeline.filter(c => {
+      return c.expectedCloseDate && c.stage !== 'Closed/Lost' && isSameDay(new Date(c.expectedCloseDate), today);
+    });
+
+    todayCrmTasks.forEach(t => {
+      items.push({
+        id: `task-${t.id}`,
+        type: 'task',
+        time: t.dueTime || null,
+        title: t.description,
+        completed: t.status === 'Completed',
+        color: 'var(--accent-primary)',
+        bg: 'rgba(139,92,246,0.12)',
+        originalData: t
+      });
+    });
+
+    todayGoogleEvents.forEach(e => {
+      const timeStr = e.start?.dateTime ? new Date(e.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+      items.push({
+        id: `google-${e.id}`,
+        type: 'google',
+        time: timeStr || null,
+        title: e.summary || '(No Title)',
+        color: 'var(--accent-secondary)',
+        bg: 'rgba(6,182,212,0.12)',
+        originalData: e
+      });
+    });
+
+    todayPipelineCloses.forEach(c => {
+      items.push({
+        id: `pipeline-${c.id}`,
+        type: 'pipeline',
+        time: null,
+        title: `Close: ${c.clientName} (${c.policyName})`,
+        color: 'var(--accent-warning)',
+        bg: 'rgba(245,158,11,0.12)',
+        originalData: c
+      });
+    });
+
+    // Sort items: if they have time, sort by time. Otherwise sort by type.
+    items.sort((a, b) => {
+      if (a.time && b.time) return a.time.localeCompare(b.time);
+      if (a.time) return -1;
+      if (b.time) return 1;
+      return a.type.localeCompare(b.type);
+    });
+
+    return items;
+  };
+
 
   /* ── Derived Metrics ─────────────────────────────────────── */
   const activeClients      = clients.filter(c => c.clientStatus === 'Active');
@@ -165,9 +277,10 @@ export default function DashboardView() {
           background: 'linear-gradient(135deg, rgba(139,92,246,0.12) 0%, rgba(6,182,212,0.07) 100%)',
           border: '1px solid rgba(139,92,246,0.25)',
           position: 'relative', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
         }}>
           <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '180px', height: '180px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ padding: '7px', borderRadius: '9px', background: 'rgba(139,92,246,0.2)', color: '#a78bfa', display: 'flex' }}>
                 <Sparkles size={15} />
@@ -188,41 +301,129 @@ export default function DashboardView() {
             </button>
           </div>
           {briefingLoading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
               {[100, 82, 55].map((w, i) => (
                 <div key={i} style={{ height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', width: `${w}%` }} />
               ))}
             </div>
           ) : (
-            <p style={{ fontSize: '13px', lineHeight: '1.75', color: 'var(--text-secondary)', margin: 0 }}>
-              {briefing || 'Click Refresh to generate your daily briefing.'}
-            </p>
+            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+              <p style={{ fontSize: '13px', lineHeight: '1.75', color: 'var(--text-secondary)', margin: 0 }}>
+                {briefing || 'Click Refresh to generate your daily briefing.'}
+              </p>
+            </div>
           )}
         </div>
 
-        {/* Pipeline Funnel */}
-        <div style={cardStyle}>
+        {/* Today's Schedule */}
+        <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', height: '100%', minHeight: '220px' }}>
           <div style={sectionHeadingStyle}>
-            <GitBranch size={14} color="#a78bfa" /> Pipeline Funnel
+            <Calendar size={14} color="var(--accent-secondary)" /> Today's Schedule
           </div>
-          {pipeline.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', paddingTop: '16px' }}>No cases yet.</p>
+          {getTodayScheduleItems().length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '20px 0', gap: '8px' }}>
+              <Calendar size={24} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+              <p style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', margin: 0 }}>No events scheduled for today.</p>
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
-              {stageBreakdown.map(({ stage, count, fyc, color }) => (
-                <div key={stage}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{stage}</span>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{fmt(fyc)}</span>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color, minWidth: '16px', textAlign: 'right' }}>{count}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', maxHeight: '220px', paddingRight: '4px' }}>
+              {getTodayScheduleItems().map(item => {
+                const isTask = item.type === 'task';
+                const isGoogle = item.type === 'google';
+                const isPipeline = item.type === 'pipeline';
+                
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      padding: '8px 10px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid var(--border-light)',
+                      borderLeft: `3px solid ${item.color}`,
+                      borderRadius: '8px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
+                      e.currentTarget.style.borderColor = 'var(--border-light)';
+                    }}
+                  >
+                    {isTask && (
+                      <button
+                        onClick={() => toggleTaskStatus(item.originalData)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: item.completed ? 'var(--accent-success)' : 'var(--text-muted)',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          flexShrink: 0
+                        }}
+                        title={item.completed ? "Mark incomplete" : "Mark complete"}
+                      >
+                        {item.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+                      </button>
+                    )}
+                    
+                    {!isTask && (
+                      <div style={{ color: item.color, display: 'flex', flexShrink: 0 }}>
+                        {isGoogle ? <Calendar size={14} /> : <GitBranch size={14} />}
+                      </div>
+                    )}
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: '12px',
+                          color: 'var(--text-primary)',
+                          fontWeight: '500',
+                          textDecoration: item.completed ? 'line-through' : 'none',
+                          opacity: item.completed ? 0.6 : 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={item.title}
+                      >
+                        {item.title}
+                      </div>
+                      {isTask && item.originalData.clientName && (
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {item.originalData.clientName}
+                          {item.originalData.googleEventId && (
+                            <span style={{ fontSize: '8px', backgroundColor: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)', padding: '0px 4px', borderRadius: '3px' }} title="Synced to Google Calendar">
+                              Synced
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        color: 'var(--text-muted)',
+                        backgroundColor: 'rgba(255,255,255,0.03)',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        flexShrink: 0
+                      }}
+                    >
+                      {item.time || 'All Day'}
                     </div>
                   </div>
-                  <div style={{ height: '5px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${(count / maxCount) * 100}%`, backgroundColor: color, borderRadius: '3px', transition: 'width 0.6s ease' }} />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
