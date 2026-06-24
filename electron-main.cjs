@@ -1019,6 +1019,102 @@ Please analyze this client and provide your strategic thoughts.`;
     }
   });
 
+  ipcMain.handle('generate-outreach-playbook', async (event, productInfo) => {
+    try {
+      if (!productInfo || !productInfo.trim()) {
+        throw new Error("No product information provided");
+      }
+
+      const systemInstruction = `You are a premier financial consultancy AI at Beetsma Consultancy. Your role is to analyze a product brochure or description and generate an actionable marketing playbook for a WhatsApp outreach campaign.
+You must return your response as a valid, single JSON object. Do not include markdown code block formatting (like \`\`\`json) or other conversational preamble.
+The JSON structure MUST be exactly:
+{
+  "segments": [
+    {
+      "name": "Segment Name (e.g. Young Parents (25-40))",
+      "hook": "Key hook point (e.g. CI gap filling)",
+      "why": "Brief explanation of why this segment fits this product"
+    }
+  ],
+  "scripts": [
+    {
+      "step": 1,
+      "title": "Step 1: Title (e.g. Soft Opener)",
+      "goal": "Brief goal of this step",
+      "timeHint": "Best time to send",
+      "templateContent": "The message template. Use the exact literal text '[Client Name]' where the client's name should be substituted."
+    },
+    {
+      "step": 2,
+      "title": "Step 2: Title (e.g. Value Drop)",
+      "goal": "Brief goal of this step",
+      "timeHint": "Best time to send",
+      "templateContent": "The follow-up template. You may use '[Client Name]' if natural, or write it as a direct message body."
+    },
+    {
+      "step": 3,
+      "title": "Step 3: Title (e.g. Appointment Close)",
+      "goal": "Brief goal of this step",
+      "timeHint": "Best time to send",
+      "templateContent": "The call-to-action template to book a short sync."
+    }
+  ],
+  "routines": [
+    {
+      "time": "09:00 AM - 09:30 AM",
+      "task": "Morning batch outreach",
+      "desc": "Short task description"
+    },
+    {
+      "time": "12:00 PM - 12:30 PM",
+      "task": "Mid-day check",
+      "desc": "Short task description"
+    },
+    {
+      "time": "05:00 PM - 05:30 PM",
+      "task": "Evening follow-up",
+      "desc": "Short task description"
+    }
+  ]
+}
+Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The scripts must be highly tailored to the specific product provided.`;
+
+      const userMessage = `Here is the product brochure / summary info:\n${productInfo}`;
+
+      const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errBody}`);
+      }
+
+      const json = await response.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      const playbook = JSON.parse(text.trim());
+      
+      if (!playbook.segments || !playbook.scripts || !playbook.routines) {
+        throw new Error("Generated playbook is missing required fields (segments, scripts, routines)");
+      }
+
+      return { success: true, data: playbook };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('get-google-settings', () => {
     return {
       success: true,

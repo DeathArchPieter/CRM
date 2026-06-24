@@ -90,6 +90,26 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
   const [loading, setLoading] = useState(true);
   const [contacts, setContacts] = useState(campaign.contacts || []);
   const [clients, setClients] = useState([]);
+
+  // Resolve campaign playbook resources dynamically
+  const getPlaybookResources = () => {
+    if (campaign.playbook && campaign.playbook.segments && campaign.playbook.scripts) {
+      return {
+        segments: campaign.playbook.segments,
+        scripts: campaign.playbook.scripts.map(s => ({
+          step: s.step,
+          title: s.title,
+          goal: s.goal,
+          timeHint: s.timeHint,
+          template: (clientName) => s.templateContent.replace(/\[Client Name\]/g, clientName).replace(/\{clientName\}/g, clientName).replace(/\$\{clientName\}/g, clientName)
+        })),
+        routines: campaign.playbook.routines || []
+      };
+    }
+    return AIA_PROTECT_3_RESOURCES;
+  };
+
+  const PLAYBOOK_RESOURCES = getPlaybookResources();
   
   // Tabs & views state
   const [activeTab, setActiveTab] = useState('workspace'); // 'workspace' | 'playbook'
@@ -122,7 +142,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
     fullName: '',
     phone: '',
     email: '',
-    segment: 'Young Parents (25-40)',
+    segment: PLAYBOOK_RESOURCES.segments[0]?.name || '',
     stage: '1. Segmented',
     notes: ''
   });
@@ -202,12 +222,16 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
       return;
     }
 
+    const targetSegment = PLAYBOOK_RESOURCES.segments.find(
+      s => s.name.toLowerCase().includes('client') || s.name.toLowerCase().includes('existing')
+    )?.name || PLAYBOOK_RESOURCES.segments[0]?.name || 'Existing Clients';
+
     const newTarget = {
       id: `target-${Date.now()}`,
       fullName: client.fullName,
       phone: client.phone || '',
       email: client.email || '',
-      segment: 'Existing Clients',
+      segment: targetSegment,
       stage: '1. Segmented',
       notes: client.notes || '',
       portedClientId: client.id,
@@ -342,7 +366,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
   };
 
   const getReplacedScript = (contact, stepIndex) => {
-    const templateObj = AIA_PROTECT_3_RESOURCES.scripts.find(s => s.step === stepIndex + 1);
+    const templateObj = PLAYBOOK_RESOURCES.scripts.find(s => s.step === stepIndex + 1);
     if (!templateObj) return '';
     
     // Auto replace placeholder [Client Name]
@@ -572,7 +596,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
                   onChange={e => setFilterSegment(e.target.value)}
                 >
                   <option value="All">All Segments</option>
-                  {AIA_PROTECT_3_RESOURCES.segments.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                  {PLAYBOOK_RESOURCES.segments.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
                 </select>
               </div>
 
@@ -734,7 +758,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
             </p>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '6px' }}>
-              {AIA_PROTECT_3_RESOURCES.segments.map(seg => (
+              {PLAYBOOK_RESOURCES.segments.map(seg => (
                 <div key={seg.name} style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '14px', backgroundColor: 'rgba(255,255,255,0.01)' }}>
                   <div style={{ fontWeight: '700', fontSize: '12.5px', color: 'var(--accent-primary)', marginBottom: '8px' }}>
                     {seg.name}
@@ -760,7 +784,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
               Phase 2: The 3-Step WhatsApp Outreach Sequence
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '6px' }}>
-              {AIA_PROTECT_3_RESOURCES.scripts.map((script, idx) => (
+              {PLAYBOOK_RESOURCES.scripts.map((script, idx) => (
                 <div key={idx} style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: 'rgba(255,255,255,0.01)' }}>
                   <div>
                     <div style={{ fontWeight: '600', fontSize: '12px', color: 'var(--text-primary)' }}>{script.title}</div>
@@ -791,7 +815,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
             </p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-              {AIA_PROTECT_3_RESOURCES.routines.map(r => {
+              {PLAYBOOK_RESOURCES.routines.map(r => {
                 const today = new Date().toLocaleDateString();
                 const tickKey = `${today}-${r.time}`;
                 const isTicked = !!routineTicks[tickKey];
@@ -848,7 +872,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
           >
             <div>
               <h2 style={{ fontSize: '16px', margin: 0, color: 'var(--text-primary)' }}>
-                {AIA_PROTECT_3_RESOURCES.scripts[scriptModalData.stepIndex].title}
+                {PLAYBOOK_RESOURCES.scripts[scriptModalData.stepIndex].title}
               </h2>
               <p style={{ color: 'var(--text-muted)', fontSize: '11.5px', marginTop: '2px', marginBottom: 0 }}>
                 Target: <strong>{scriptModalData.contact.fullName}</strong> ({scriptModalData.contact.phone || 'No phone logged'})
@@ -866,7 +890,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Goal: {AIA_PROTECT_3_RESOURCES.scripts[scriptModalData.stepIndex].goal}
+                Goal: {PLAYBOOK_RESOURCES.scripts[scriptModalData.stepIndex].goal}
               </span>
 
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -967,7 +991,7 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
                     style={{ background: 'var(--bg-base)' }}
                     value={formData.segment} onChange={handleInputChange}
                   >
-                    {AIA_PROTECT_3_RESOURCES.segments.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                    {PLAYBOOK_RESOURCES.segments.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
                   </select>
                 </div>
                 <div className="input-group">

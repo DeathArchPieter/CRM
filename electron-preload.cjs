@@ -50,4 +50,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addInitiative: (initiativeData) => ipcRenderer.invoke('add-initiative', initiativeData),
   updateInitiative: (initiativeData) => ipcRenderer.invoke('update-initiative', initiativeData),
   deleteInitiative: (projectId) => ipcRenderer.invoke('delete-initiative', projectId),
+  generateOutreachPlaybook: (productInfo) => ipcRenderer.invoke('generate-outreach-playbook', productInfo),
 });

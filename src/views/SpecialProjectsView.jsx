@@ -69,6 +69,7 @@ export default function SpecialProjectsView() {
     load();
   }, []);
 
+  const [isGenerating, setIsGenerating] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProject, setNewProject] = useState({
     title: '',
@@ -81,6 +82,7 @@ export default function SpecialProjectsView() {
     productFocus: 'AIA Protect 3',
     targetAudience: 'Young Working Adults & Families',
     targetAppointments: '20',
+    productSummary: '',
     milestones: ['', '']
   });
 
@@ -187,6 +189,24 @@ export default function SpecialProjectsView() {
       const desc = newProject.description.trim() || `WhatsApp campaign for ${newProject.productFocus} targeting ${newProject.targetAudience}.`;
       const targetAppts = Number(newProject.targetAppointments) || 20;
 
+      let playbook = null;
+      if (newProject.productSummary && newProject.productSummary.trim()) {
+        setIsGenerating(true);
+        try {
+          const aiRes = await window.electronAPI.generateOutreachPlaybook(newProject.productSummary);
+          if (aiRes.success) {
+            playbook = aiRes.data;
+          } else {
+            alert("AI Playbook Generation failed: " + aiRes.error + "\n\nCreating campaign with default playbook instead.");
+          }
+        } catch (err) {
+          console.error("AI Generation error:", err);
+          alert("An unexpected error occurred during AI generation. Creating campaign with default playbook instead.");
+        } finally {
+          setIsGenerating(false);
+        }
+      }
+
       projectToAdd = {
         title,
         description: desc,
@@ -198,7 +218,8 @@ export default function SpecialProjectsView() {
         productName: newProject.productFocus,
         targetAudience: newProject.targetAudience,
         targetAppointments: targetAppts,
-        contacts: []
+        contacts: [],
+        playbook
       };
     } else {
       if (!newProject.title.trim()) return;
@@ -238,6 +259,7 @@ export default function SpecialProjectsView() {
           productFocus: 'AIA Protect 3',
           targetAudience: 'Young Working Adults & Families',
           targetAppointments: '20',
+          productSummary: '',
           milestones: ['', '']
         });
       } else {
@@ -639,6 +661,20 @@ export default function SpecialProjectsView() {
                       placeholder="e.g. Respectful WhatsApp campaign targeting young parents."
                     />
                   </div>
+
+                  <div className="input-group">
+                    <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>AI Playbook Generator (Optional Summary/Brochure)</span>
+                      <span style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: '600' }}>⚡ Gemini AI</span>
+                    </label>
+                    <textarea 
+                      className="input-field" 
+                      style={{ minHeight: '80px', fontFamily: 'inherit', resize: 'vertical', fontSize: '12px' }}
+                      value={newProject.productSummary} 
+                      onChange={e => setNewProject({...newProject, productSummary: e.target.value})}
+                      placeholder="Paste product brochure terms, target segments, or text notes here. Gemini will generate custom hooks, WhatsApp message scripts, and routines."
+                    />
+                  </div>
                 </>
               )}
 
@@ -757,12 +793,18 @@ export default function SpecialProjectsView() {
               )}
 
               {/* Form Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', alignItems: 'center' }}>
+                {isGenerating && (
+                  <span style={{ fontSize: '11.5px', color: 'var(--accent-primary)', marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="spinner-border spinner-border-sm" role="status" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid var(--accent-primary)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 0.75s linear infinite' }}></span>
+                    Generating AI Playbook...
+                  </span>
+                )}
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)} disabled={isGenerating}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Create Initiative
+                <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+                  {isGenerating ? 'Generating...' : 'Create Initiative'}
                 </button>
               </div>
             </form>
