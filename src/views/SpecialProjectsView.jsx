@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Users, Calendar, BarChart3 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Users, Calendar, BarChart3, Play } from 'lucide-react';
+import Project100Detail from './Project100Detail';
+import OutreachCampaignDetail from './OutreachCampaignDetail';
 
 const cardStyle = {
   background: 'var(--bg-surface)',
@@ -15,51 +17,57 @@ const cardStyle = {
 };
 
 export default function SpecialProjectsView() {
-  const [projects, setProjects] = useState([
-    {
-      id: 'p1',
-      title: 'MDRT Acceleration 2026',
-      description: 'Focused campaign to fast-track qualifying consultants for Million Dollar Round Table.',
-      leader: 'Pieter Beetsma',
-      status: 'In Progress', // Planning | In Progress | Completed
-      targetDate: '2026-12-31',
-      members: 4,
-      milestones: [
-        { id: 'p1-m1', label: 'Define customized target blueprints for qualifiers', completed: true },
-        { id: 'p1-m2', label: 'Conduct weekly high-net-worth (HNW) masterclasses', completed: true },
-        { id: 'p1-m3', label: 'Mid-year milestone reviews & pipeline gap analysis', completed: false },
-        { id: 'p1-m4', label: 'Final sprints & premium closing events', completed: false },
-      ]
-    },
-    {
-      id: 'p2',
-      title: 'Agency Recruitment Drive',
-      description: 'Hiring drive aiming to bring on board 5 new high-caliber associate financial consultants.',
-      leader: 'Jan Pang',
-      status: 'In Progress',
-      targetDate: '2026-09-30',
-      members: 3,
-      milestones: [
-        { id: 'p2-m1', label: 'Prepare branding decks & university outreach schedule', completed: true },
-        { id: 'p2-m2', label: 'Conduct career preview webinars', completed: false },
-        { id: 'p2-m3', label: 'First round interviews & profiling assessments', completed: false },
-      ]
-    },
-    {
-      id: 'p3',
-      title: 'HNW Legacy Preservation Campaign',
-      description: 'Special marketing push focusing on legacy index universal life products for business owners.',
-      leader: 'Yap Pei Lin',
-      status: 'Planning',
-      targetDate: '2026-11-15',
-      members: 2,
-      milestones: [
-        { id: 'p3-m1', label: 'Identify target client list from current database', completed: false },
-        { id: 'p3-m2', label: 'Create exclusive marketing brochure & estate planning booklets', completed: false },
-        { id: 'p3-m3', label: 'Launch invitation-only legacy planning seminar', completed: false },
-      ]
+  const [activeProject, setActiveProject] = useState(null);
+  const [project100Contacts, setProject100Contacts] = useState([]);
+  const [projects, setProjects] = useState([]);
+
+  const loadProject100Contacts = async () => {
+    if (window.electronAPI && window.electronAPI.getProject100Contacts) {
+      const res = await window.electronAPI.getProject100Contacts();
+      if (res.success) {
+        setProject100Contacts(res.data);
+      }
     }
-  ]);
+  };
+
+  const load = async () => {
+    try {
+      let dbInitiatives = [];
+      if (window.electronAPI && window.electronAPI.getInitiatives) {
+        const res = await window.electronAPI.getInitiatives();
+        if (res.success) {
+          dbInitiatives = res.data;
+        }
+      }
+      
+      const project100 = {
+        id: 'project-100',
+        title: 'Project 100',
+        description: 'The foundation for new financial consultants. List 100 prospects from memory or phone contacts, evaluate their potential, and convert them to active CRM clients.',
+        leader: 'Pieter Beetsma',
+        status: 'In Progress',
+        targetDate: '2026-08-31',
+        members: 1,
+        type: 'project-100',
+        milestones: [
+          { id: 'p100-m1', label: 'Build target list of 100 prospects', completed: false },
+          { id: 'p100-m2', label: 'Evaluate & score prospects by need, accessibility, income, and trust', completed: false },
+          { id: 'p100-m3', label: 'Initiate contact and secure first 10 meetings', completed: false },
+          { id: 'p100-m4', label: 'Convert opportunities to active CRM clients', completed: false }
+        ]
+      };
+
+      setProjects([project100, ...dbInitiatives]);
+    } catch (err) {
+      console.error("Failed to load initiatives:", err);
+    }
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadProject100Contacts();
+    load();
+  }, []);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProject, setNewProject] = useState({
@@ -69,27 +77,90 @@ export default function SpecialProjectsView() {
     status: 'Planning',
     targetDate: '',
     members: 1,
+    type: 'outreach', // 'outreach' | 'custom'
+    productFocus: 'AIA Protect 3',
+    targetAudience: 'Young Working Adults & Families',
+    targetAppointments: '20',
     milestones: ['', '']
   });
 
+  const getProjectMilestones = (project) => {
+    if (project.id === 'project-100') {
+      const count = project100Contacts.length;
+      const ratedCount = project100Contacts.filter(c => (c.scoreNeed + c.scoreAccessibility + c.scoreIncome + c.scoreTrust) > 0).length;
+      const contactedCount = project100Contacts.filter(c => c.stage !== 'Not Contacted').length;
+      const portedCount = project100Contacts.filter(c => c.portedClientId || c.stage === 'Ported / Converted').length;
+      
+      return [
+        { id: 'p100-m1', label: `Build target list of 100 prospects (${count}/100)`, completed: count >= 100 },
+        { id: 'p100-m2', label: `Evaluate & score prospects (${ratedCount} rated)`, completed: count > 0 && ratedCount >= Math.min(count, 50) },
+        { id: 'p100-m3', label: `Initiate contact and outreach (${contactedCount} contacted)`, completed: contactedCount >= 10 },
+        { id: 'p100-m4', label: `Convert opportunities to active CRM clients (${portedCount} ported)`, completed: portedCount >= 1 }
+      ];
+    }
+
+    if (project.type === 'outreach') {
+      const contacts = project.contacts || [];
+      const total = contacts.length;
+      const step1Count = contacts.filter(c => c.stage === 'Step 1: Opener Sent' || c.stage === 'Step 2: Info Sent' || c.stage === 'Step 3: Appt Booked').length;
+      const step2Count = contacts.filter(c => c.stage === 'Step 2: Info Sent' || c.stage === 'Step 3: Appt Booked').length;
+      const bookedCount = contacts.filter(c => c.stage === 'Step 3: Appt Booked').length;
+      const targetAppts = project.targetAppointments || 20;
+
+      return [
+        { id: `${project.id}-m1`, label: `Identify and segment campaign targets (${total} listed)`, completed: total >= 1 },
+        { id: `${project.id}-m2`, label: `Send soft openers (Step 1 WhatsApp) (${step1Count} sent)`, completed: total > 0 && step1Count >= Math.min(total, 5) },
+        { id: `${project.id}-m3`, label: `Drop brochure details (Step 2 WhatsApp) (${step2Count} shared)`, completed: total > 0 && step2Count >= Math.min(total, 3) },
+        { id: `${project.id}-m4`, label: `Secure appointments (${bookedCount} / ${targetAppts} booked)`, completed: bookedCount >= targetAppts }
+      ];
+    }
+
+    return project.milestones || [];
+  };
+
   const getProgress = (project) => {
-    if (!project.milestones.length) return 0;
-    const completedCount = project.milestones.filter(m => m.completed).length;
-    return Math.round((completedCount / project.milestones.length) * 100);
+    const milestones = getProjectMilestones(project);
+    if (!milestones.length) return 0;
+    const completedCount = milestones.filter(m => m.completed).length;
+    return Math.round((completedCount / milestones.length) * 100);
   };
 
-  const toggleMilestone = (projectId, milestoneId) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id !== projectId) return p;
-      return {
-        ...p,
-        milestones: p.milestones.map(m => m.id === milestoneId ? { ...m, completed: !m.completed } : m)
-      };
-    }));
+  const toggleMilestone = async (projectId, milestoneId) => {
+    if (projectId === 'project-100') return; // project-100 milestones are computed dynamically
+    
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+    
+    if (project.type === 'outreach') return; // outreach milestones computed dynamically too
+    
+    const updatedMilestones = project.milestones.map(m => 
+      m.id === milestoneId ? { ...m, completed: !m.completed } : m
+    );
+    
+    if (window.electronAPI && window.electronAPI.updateInitiative) {
+      const res = await window.electronAPI.updateInitiative({
+        id: projectId,
+        milestones: updatedMilestones
+      });
+      if (res.success) {
+        load();
+      }
+    }
   };
 
-  const handleDeleteProject = (id) => {
-    setProjects(prev => prev.filter(p => p.id !== id));
+  const handleDeleteProject = async (id) => {
+    if (id === 'project-100') {
+      alert("Project 100 is a core training module and cannot be deleted.");
+      return;
+    }
+    if (!window.confirm("Are you sure you want to permanently delete this initiative?")) return;
+    
+    if (window.electronAPI && window.electronAPI.deleteInitiative) {
+      const res = await window.electronAPI.deleteInitiative(id);
+      if (res.success) {
+        load();
+      }
+    }
   };
 
   const handleMilestoneInputChange = (index, value) => {
@@ -107,41 +178,81 @@ export default function SpecialProjectsView() {
     setNewProject({ ...newProject, milestones: updated });
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!newProject.title.trim()) return;
 
-    const formattedMilestones = newProject.milestones
-      .filter(m => m.trim().length > 0)
-      .map((label, idx) => ({
-        id: `custom-p-${Date.now()}-m-${idx}`,
-        label,
-        completed: false
-      }));
+    let projectToAdd;
+    if (newProject.type === 'outreach') {
+      const title = newProject.title.trim() || `${newProject.productFocus} Outreach`;
+      const desc = newProject.description.trim() || `WhatsApp campaign for ${newProject.productFocus} targeting ${newProject.targetAudience}.`;
+      const targetAppts = Number(newProject.targetAppointments) || 20;
 
-    const projectToAdd = {
-      id: `custom-p-${Date.now()}`,
-      title: newProject.title,
-      description: newProject.description,
-      leader: newProject.leader || 'Pieter Beetsma',
-      status: newProject.status,
-      targetDate: newProject.targetDate || new Date().toISOString().split('T')[0],
-      members: Number(newProject.members) || 1,
-      milestones: formattedMilestones
-    };
+      projectToAdd = {
+        title,
+        description: desc,
+        leader: newProject.leader || 'Pieter Beetsma',
+        status: newProject.status,
+        targetDate: newProject.targetDate || new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0], // 60 days
+        members: Number(newProject.members) || 1,
+        type: 'outreach',
+        productName: newProject.productFocus,
+        targetAudience: newProject.targetAudience,
+        targetAppointments: targetAppts,
+        contacts: []
+      };
+    } else {
+      if (!newProject.title.trim()) return;
+      const formattedMilestones = newProject.milestones
+        .filter(m => m.trim().length > 0)
+        .map((label, idx) => ({
+          id: `custom-p-${Date.now()}-m-${idx}`,
+          label,
+          completed: false
+        }));
 
-    setProjects([projectToAdd, ...projects]);
-    setShowAddModal(false);
-    setNewProject({
-      title: '',
-      description: '',
-      leader: '',
-      status: 'Planning',
-      targetDate: '',
-      members: 1,
-      milestones: ['', '']
-    });
+      projectToAdd = {
+        title: newProject.title,
+        description: newProject.description,
+        leader: newProject.leader || 'Pieter Beetsma',
+        status: newProject.status,
+        targetDate: newProject.targetDate || new Date().toISOString().split('T')[0],
+        members: Number(newProject.members) || 1,
+        type: 'custom',
+        milestones: formattedMilestones
+      };
+    }
+
+    if (window.electronAPI && window.electronAPI.addInitiative) {
+      const res = await window.electronAPI.addInitiative(projectToAdd);
+      if (res.success) {
+        setShowAddModal(false);
+        load();
+        setNewProject({
+          title: '',
+          description: '',
+          leader: '',
+          status: 'Planning',
+          targetDate: '',
+          members: 1,
+          type: 'outreach',
+          productFocus: 'AIA Protect 3',
+          targetAudience: 'Young Working Adults & Families',
+          targetAppointments: '20',
+          milestones: ['', '']
+        });
+      } else {
+        alert("Failed to save initiative: " + res.error);
+      }
+    }
   };
+
+  if (activeProject) {
+    if (activeProject.id === 'project-100' || activeProject === 'project-100') {
+      return <Project100Detail onBack={() => { setActiveProject(null); loadProject100Contacts(); }} />;
+    } else if (activeProject.type === 'outreach') {
+      return <OutreachCampaignDetail campaign={activeProject} onBack={() => { setActiveProject(null); load(); }} />;
+    }
+  }
 
   return (
     <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -288,7 +399,7 @@ export default function SpecialProjectsView() {
 
                 {/* Milestones list */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
-                  {project.milestones.map(m => (
+                  {getProjectMilestones(project).map(m => (
                     <div 
                       key={m.id} 
                       style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}
@@ -319,15 +430,42 @@ export default function SpecialProjectsView() {
                       <Calendar size={12} /> {project.targetDate}
                     </span>
                   </div>
-                  <button 
-                    onClick={() => handleDeleteProject(project.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
-                    onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.opacity = '1'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
-                    title="Delete project"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {project.id === 'project-100' ? (
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => setActiveProject(project)}
+                      >
+                        <Play size={10} fill="white" /> Launch Workspace
+                      </button>
+                    ) : project.type === 'outreach' ? (
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        onClick={() => setActiveProject(project)}
+                      >
+                        <Play size={10} fill="white" /> Launch Campaign
+                      </button>
+                    ) : (
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', opacity: 0.6 }}
+                        onClick={() => alert("Strategic practice initiative. Standard milestone tracking is active.")}
+                      >
+                        Open Workspace
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => handleDeleteProject(project.id)}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
+                      onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.opacity = '1'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
+                      title="Delete project"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -360,6 +498,8 @@ export default function SpecialProjectsView() {
               display: 'flex',
               flexDirection: 'column',
               gap: '16px',
+              maxHeight: '90vh',
+              overflowY: 'auto'
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -369,114 +509,252 @@ export default function SpecialProjectsView() {
             </div>
 
             <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              
+              {/* Initiative Type Selector */}
               <div className="input-group">
-                <label className="input-label">Project Title</label>
-                <input 
-                  type="text" 
-                  className="input-field" 
-                  value={newProject.title} 
-                  onChange={e => setNewProject({...newProject, title: e.target.value})}
-                  required
-                  placeholder="e.g. MDRT Acceleration 2026"
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="input-label">Description</label>
-                <textarea 
-                  className="input-field" 
-                  style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                  value={newProject.description} 
-                  onChange={e => setNewProject({...newProject, description: e.target.value})}
-                  placeholder="What is the key goal of this initiative?"
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="input-group">
-                  <label className="input-label">Project Leader</label>
-                  <input 
-                    type="text" 
-                    className="input-field" 
-                    value={newProject.leader} 
-                    onChange={e => setNewProject({...newProject, leader: e.target.value})}
-                    placeholder="e.g. Pieter Beetsma"
-                  />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Target Completion</label>
-                  <input 
-                    type="date" 
-                    className="input-field" 
-                    value={newProject.targetDate} 
-                    onChange={e => setNewProject({...newProject, targetDate: e.target.value})}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="input-group">
-                  <label className="input-label">Status</label>
-                  <select 
-                    className="input-field"
-                    style={{ background: 'var(--bg-base)' }}
-                    value={newProject.status} 
-                    onChange={e => setNewProject({...newProject, status: e.target.value})}
+                <label className="input-label">Initiative Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{
+                      border: newProject.type === 'outreach' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                      backgroundColor: newProject.type === 'outreach' ? 'rgba(139,92,246,0.1)' : 'transparent',
+                      color: newProject.type === 'outreach' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '12.5px'
+                    }}
+                    onClick={() => setNewProject({ ...newProject, type: 'outreach' })}
                   >
-                    <option value="Planning">Planning</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Completed">Completed</option>
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Active Members</label>
-                  <input 
-                    type="number" 
-                    className="input-field" 
-                    min="1"
-                    value={newProject.members} 
-                    onChange={e => setNewProject({...newProject, members: e.target.value})}
-                  />
-                </div>
-              </div>
-
-              {/* Milestones list in form */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  Milestones
-                  <button 
-                    type="button" 
-                    className="btn" 
-                    style={{ padding: '2px 6px', fontSize: '10px', height: 'auto', backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}
-                    onClick={addMilestoneInputField}
-                  >
-                    + Add
+                    🚀 Outreach Campaign
                   </button>
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}>
-                  {newProject.milestones.map((milestone, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{
+                      border: newProject.type === 'custom' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                      backgroundColor: newProject.type === 'custom' ? 'rgba(139,92,246,0.1)' : 'transparent',
+                      color: newProject.type === 'custom' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '12.5px'
+                    }}
+                    onClick={() => setNewProject({ ...newProject, type: 'custom' })}
+                  >
+                    📋 Custom Milestones
+                  </button>
+                </div>
+              </div>
+
+              {/* OUTREACH CAMPAIGN SETUP FIELDS */}
+              {newProject.type === 'outreach' && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">Campaign Name (Optional)</label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      value={newProject.title} 
+                      onChange={e => setNewProject({...newProject, title: e.target.value})}
+                      placeholder="e.g. AIA Protect 3 Launch Campaign"
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Product Focus</label>
+                      <select
+                        className="input-field"
+                        style={{ background: 'var(--bg-base)' }}
+                        value={newProject.productFocus}
+                        onChange={e => setNewProject({...newProject, productFocus: e.target.value})}
+                      >
+                        <option value="AIA Protect 3">AIA Protect 3 (CI Gap)</option>
+                        <option value="Generic CI Boost">Generic CI Booster</option>
+                        <option value="Savings Accumulator">Savings / Endowments</option>
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Primary Audience Focus</label>
                       <input 
                         type="text" 
                         className="input-field" 
-                        style={{ flex: 1, padding: '6px 10px', fontSize: '12px' }}
-                        value={milestone}
-                        placeholder={`Milestone #${idx + 1}`}
-                        onChange={e => handleMilestoneInputChange(idx, e.target.value)}
+                        value={newProject.targetAudience} 
+                        onChange={e => setNewProject({...newProject, targetAudience: e.target.value})}
+                        placeholder="e.g. Young Working Adults"
                       />
-                      {newProject.milestones.length > 1 && (
-                        <button 
-                          type="button" 
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                          onClick={() => removeMilestoneInputField(idx)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Target Booking Count</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={newProject.targetAppointments} 
+                        onChange={e => setNewProject({...newProject, targetAppointments: e.target.value})}
+                        placeholder="e.g. 20"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Target Date</label>
+                      <input 
+                        type="date" 
+                        className="input-field" 
+                        value={newProject.targetDate} 
+                        onChange={e => setNewProject({...newProject, targetDate: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Campaign Leader</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={newProject.leader} 
+                        onChange={e => setNewProject({...newProject, leader: e.target.value})}
+                        placeholder="Pieter Beetsma"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Active Members</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={newProject.members} 
+                        onChange={e => setNewProject({...newProject, members: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Description (Optional)</label>
+                    <textarea 
+                      className="input-field" 
+                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
+                      value={newProject.description} 
+                      onChange={e => setNewProject({...newProject, description: e.target.value})}
+                      placeholder="e.g. Respectful WhatsApp campaign targeting young parents."
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* CUSTOM MILESTONES SETUP FIELDS */}
+              {newProject.type === 'custom' && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">Project Title *</label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      value={newProject.title} 
+                      onChange={e => setNewProject({...newProject, title: e.target.value})}
+                      required={newProject.type === 'custom'}
+                      placeholder="e.g. MDRT Acceleration 2026"
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Description</label>
+                    <textarea 
+                      className="input-field" 
+                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
+                      value={newProject.description} 
+                      onChange={e => setNewProject({...newProject, description: e.target.value})}
+                      placeholder="What is the key goal of this initiative?"
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Project Leader</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={newProject.leader} 
+                        onChange={e => setNewProject({...newProject, leader: e.target.value})}
+                        placeholder="e.g. Pieter Beetsma"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Target Completion</label>
+                      <input 
+                        type="date" 
+                        className="input-field" 
+                        value={newProject.targetDate} 
+                        onChange={e => setNewProject({...newProject, targetDate: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Status</label>
+                      <select 
+                        className="input-field"
+                        style={{ background: 'var(--bg-base)' }}
+                        value={newProject.status} 
+                        onChange={e => setNewProject({...newProject, status: e.target.value})}
+                      >
+                        <option value="Planning">Planning</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Active Members</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={newProject.members} 
+                        onChange={e => setNewProject({...newProject, members: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Milestones list in form */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      Milestones
+                      <button 
+                        type="button" 
+                        className="btn" 
+                        style={{ padding: '2px 6px', fontSize: '10px', height: 'auto', backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}
+                        onClick={addMilestoneInputField}
+                      >
+                        + Add
+                      </button>
+                    </label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {newProject.milestones.map((milestone, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input 
+                            type="text" 
+                            className="input-field" 
+                            style={{ flex: 1, padding: '6px 10px', fontSize: '12px' }}
+                            value={milestone}
+                            placeholder={`Milestone #${idx + 1}`}
+                            onChange={e => handleMilestoneInputChange(idx, e.target.value)}
+                          />
+                          {newProject.milestones.length > 1 && (
+                            <button 
+                              type="button" 
+                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                              onClick={() => removeMilestoneInputField(idx)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Form Buttons */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
@@ -484,7 +762,7 @@ export default function SpecialProjectsView() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Create Project
+                  Create Initiative
                 </button>
               </div>
             </form>

@@ -9,7 +9,7 @@ const isDev = !app.isPackaged;
 const GEMINI_API_KEY = 'AIzaSyCQ5OFJzCD2sZQD10cMQRf1xzWLN1Q3ALc';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
 
-let db = { clients: [], policies: [], pipeline: [], tasks: [], aiBriefing: { text: '', generatedAt: null } };
+let db = { clients: [], policies: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], aiBriefing: { text: '', generatedAt: null } };
 let dbPath;
 let authServer = null;
 
@@ -28,6 +28,58 @@ function initDatabase() {
       if (!db.tasks) db.tasks = [];
       if (!db.aiBriefing) db.aiBriefing = { text: '', generatedAt: null };
       if (!db.googleCalendarSettings) db.googleCalendarSettings = { clientId: '', clientSecret: '', tokens: null, email: '' };
+      if (!db.project100Contacts) db.project100Contacts = [];
+      if (!db.initiatives || db.initiatives.length === 0) {
+        db.initiatives = [
+          {
+            id: 'p1',
+            title: 'MDRT Acceleration 2026',
+            description: 'Focused campaign to fast-track qualifying consultants for Million Dollar Round Table.',
+            leader: 'Pieter Beetsma',
+            status: 'In Progress',
+            targetDate: '2026-12-31',
+            members: 4,
+            type: 'custom',
+            milestones: [
+              { id: 'p1-m1', label: 'Define customized target blueprints for qualifiers', completed: true },
+              { id: 'p1-m2', label: 'Conduct weekly high-net-worth (HNW) masterclasses', completed: true },
+              { id: 'p1-m3', label: 'Mid-year milestone reviews & pipeline gap analysis', completed: false },
+              { id: 'p1-m4', label: 'Final sprints & premium closing events', completed: false }
+            ]
+          },
+          {
+            id: 'p2',
+            title: 'Agency Recruitment Drive',
+            description: 'Hiring drive aiming to bring on board 5 new high-caliber associate financial consultants.',
+            leader: 'Jan Pang',
+            status: 'In Progress',
+            targetDate: '2026-09-30',
+            members: 3,
+            type: 'custom',
+            milestones: [
+              { id: 'p2-m1', label: 'Prepare branding decks & university outreach schedule', completed: true },
+              { id: 'p2-m2', label: 'Conduct career preview webinars', completed: false },
+              { id: 'p2-m3', label: 'First round interviews & profiling assessments', completed: false }
+            ]
+          },
+          {
+            id: 'p3',
+            title: 'HNW Legacy Preservation Campaign',
+            description: 'Special marketing push focusing on legacy index universal life products for business owners.',
+            leader: 'Yap Pei Lin',
+            status: 'Planning',
+            targetDate: '2026-11-15',
+            members: 2,
+            type: 'custom',
+            milestones: [
+              { id: 'p3-m1', label: 'Identify target client list from current database', completed: false },
+              { id: 'p3-m2', label: 'Create exclusive marketing brochure & estate planning booklets', completed: false },
+              { id: 'p3-m3', label: 'Launch invitation-only legacy planning seminar', completed: false }
+            ]
+          }
+        ];
+        saveDatabase();
+      }
     } else {
       saveDatabase();
     }
@@ -210,6 +262,145 @@ function createWindow() {
         return { success: true };
       }
       throw new Error("Policy not found");
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Project 100 IPC Handlers
+  ipcMain.handle('get-project-100-contacts', () => {
+    try {
+      if (!db.project100Contacts) db.project100Contacts = [];
+      return { success: true, data: db.project100Contacts };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('add-project-100-contact', (event, contactData) => {
+    try {
+      if (!db.project100Contacts) db.project100Contacts = [];
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const newContact = {
+        id,
+        fullName: contactData.fullName || '',
+        phone: contactData.phone || '',
+        email: contactData.email || '',
+        category: contactData.category || 'Warm Acquaintance',
+        scoreNeed: Number(contactData.scoreNeed) || 3,
+        scoreAccessibility: Number(contactData.scoreAccessibility) || 3,
+        scoreIncome: Number(contactData.scoreIncome) || 3,
+        scoreTrust: Number(contactData.scoreTrust) || 3,
+        stage: contactData.stage || 'Not Contacted',
+        portedClientId: contactData.portedClientId || null,
+        notes: contactData.notes || '',
+        createdAt: now,
+        updatedAt: now
+      };
+      db.project100Contacts.push(newContact);
+      saveDatabase();
+      return { success: true, id };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('update-project-100-contact', (event, contactData) => {
+    try {
+      if (!db.project100Contacts) db.project100Contacts = [];
+      const index = db.project100Contacts.findIndex(c => c.id === contactData.id);
+      if (index === -1) throw new Error("Contact not found");
+      db.project100Contacts[index] = {
+        ...db.project100Contacts[index],
+        ...contactData,
+        scoreNeed: contactData.scoreNeed !== undefined ? Number(contactData.scoreNeed) : db.project100Contacts[index].scoreNeed,
+        scoreAccessibility: contactData.scoreAccessibility !== undefined ? Number(contactData.scoreAccessibility) : db.project100Contacts[index].scoreAccessibility,
+        scoreIncome: contactData.scoreIncome !== undefined ? Number(contactData.scoreIncome) : db.project100Contacts[index].scoreIncome,
+        scoreTrust: contactData.scoreTrust !== undefined ? Number(contactData.scoreTrust) : db.project100Contacts[index].scoreTrust,
+        updatedAt: new Date().toISOString()
+      };
+      saveDatabase();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('delete-project-100-contact', (event, contactId) => {
+    try {
+      if (!db.project100Contacts) db.project100Contacts = [];
+      db.project100Contacts = db.project100Contacts.filter(c => c.id !== contactId);
+      saveDatabase();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Initiatives IPC Handlers
+  ipcMain.handle('get-initiatives', () => {
+    try {
+      if (!db.initiatives) db.initiatives = [];
+      return { success: true, data: db.initiatives };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('add-initiative', (event, initiativeData) => {
+    try {
+      if (!db.initiatives) db.initiatives = [];
+      const id = initiativeData.id || `initiative-${crypto.randomUUID()}`;
+      const now = new Date().toISOString();
+      const newInitiative = {
+        id,
+        title: initiativeData.title || '',
+        description: initiativeData.description || '',
+        leader: initiativeData.leader || 'Pieter Beetsma',
+        status: initiativeData.status || 'Planning',
+        targetDate: initiativeData.targetDate || now.split('T')[0],
+        members: Number(initiativeData.members) || 1,
+        type: initiativeData.type || 'custom',
+        milestones: initiativeData.milestones || [],
+        productName: initiativeData.productName || null,
+        targetAudience: initiativeData.targetAudience || null,
+        contacts: initiativeData.contacts || [],
+        createdAt: now,
+        updatedAt: now
+      };
+      db.initiatives.push(newInitiative);
+      saveDatabase();
+      return { success: true, id };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('update-initiative', (event, initiativeData) => {
+    try {
+      if (!db.initiatives) db.initiatives = [];
+      const index = db.initiatives.findIndex(p => p.id === initiativeData.id);
+      if (index === -1) throw new Error("Initiative not found");
+      
+      db.initiatives[index] = {
+        ...db.initiatives[index],
+        ...initiativeData,
+        updatedAt: new Date().toISOString()
+      };
+      saveDatabase();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('delete-initiative', (event, projectId) => {
+    try {
+      if (!db.initiatives) db.initiatives = [];
+      db.initiatives = db.initiatives.filter(p => p.id !== projectId);
+      saveDatabase();
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }

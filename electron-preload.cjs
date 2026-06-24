@@ -38,4 +38,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteGoogleEvent: (payload) => ipcRenderer.invoke('delete-google-event', payload),
   syncAllTasks: () => ipcRenderer.invoke('sync-all-tasks'),
   openPath: (pathString) => ipcRenderer.invoke('open-path', pathString),
+  
+  // Project 100 API
+  getProject100Contacts: () => ipcRenderer.invoke('get-project-100-contacts'),
+  addProject100Contact: (contactData) => ipcRenderer.invoke('add-project-100-contact', contactData),
+  updateProject100Contact: (contactData) => ipcRenderer.invoke('update-project-100-contact', contactData),
+  deleteProject100Contact: (contactId) => ipcRenderer.invoke('delete-project-100-contact', contactId),
+
+  // Initiatives API
+  getInitiatives: () => ipcRenderer.invoke('get-initiatives'),
+  addInitiative: (initiativeData) => ipcRenderer.invoke('add-initiative', initiativeData),
+  updateInitiative: (initiativeData) => ipcRenderer.invoke('update-initiative', initiativeData),
+  deleteInitiative: (projectId) => ipcRenderer.invoke('delete-initiative', projectId),
 });

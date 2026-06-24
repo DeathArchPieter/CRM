@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, LayoutGrid, List, Trash2, Edit2, TrendingUp, DollarSign, Briefcase } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, LayoutGrid, List, Trash2, TrendingUp, DollarSign, Briefcase } from 'lucide-react';
 
 const STAGES = ['Prospect', 'Fact Finding', 'Proposal Sent', 'Case Submitted', 'Case Issued', 'Closed/Lost'];
 
@@ -30,6 +30,7 @@ export default function PipelineView() {
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [clients, setClients] = useState([]);
+  const [project100Contacts, setProject100Contacts] = useState([]);
   const [promptCase, setPromptCase] = useState(null);
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -37,23 +38,25 @@ export default function PipelineView() {
   const load = async () => {
     setLoading(true);
     if (window.electronAPI) {
-      const promises = [];
-      if (window.electronAPI.getPipeline) promises.push(window.electronAPI.getPipeline());
-      if (window.electronAPI.getClients) promises.push(window.electronAPI.getClients());
+      const promises = [
+        window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: true, data: [] }),
+        window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: true, data: [] }),
+        window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: true, data: [] })
+      ];
       
-      const results = await Promise.all(promises);
+      const [pipelineRes, clientsRes, p100Res] = await Promise.all(promises);
       
-      if (window.electronAPI.getPipeline && results[0]?.success) {
-        setCases(results[0].data);
-      }
-      if (window.electronAPI.getClients && results[1]?.success) {
-        setClients(results[1].data);
-      }
+      if (pipelineRes?.success) setCases(pipelineRes.data);
+      if (clientsRes?.success) setClients(clientsRes.data);
+      if (p100Res?.success) setProject100Contacts(p100Res.data);
     }
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    load();
+  }, []);
 
   const openAdd = (defaultStage = 'Prospect') => {
     setEditingId(null);
@@ -115,9 +118,68 @@ export default function PipelineView() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const api = editingId ? window.electronAPI.updatePipelineCase : window.electronAPI.addPipelineCase;
-    const res = await api({ ...formData, ...(editingId ? { id: editingId } : {}) });
-    if (res.success) { setIsModalOpen(false); load(); }
+    setLoading(true);
+    try {
+      // If we are creating a new case, check if the client needs to be auto-created/ported
+      if (!editingId) {
+        const clientNameLower = (formData.clientName || '').toLowerCase().trim();
+        
+        // Find matching contact in Project 100
+        const matchingProspect = project100Contacts.find(
+          p => (p.fullName || '').toLowerCase().trim() === clientNameLower
+        );
+        
+        if (matchingProspect) {
+          let clientId = matchingProspect.portedClientId;
+          
+          // Check if they already exist in clients list to prevent duplicates
+          const existingClient = clients.find(
+            c => (c.fullName || '').toLowerCase().trim() === clientNameLower
+          );
+          
+          if (existingClient) {
+            clientId = existingClient.id;
+          }
+          
+          // Auto-create client profile if not yet in database
+          if (!clientId && window.electronAPI?.addClient) {
+            const clientRes = await window.electronAPI.addClient({
+              fullName: matchingProspect.fullName,
+              preferredName: matchingProspect.fullName.split(' ')[0],
+              phone: matchingProspect.phone,
+              email: matchingProspect.email,
+              clientStatus: 'Prospect',
+              notes: `[Ported via Pipeline case creation on ${new Date().toLocaleDateString()}] N.A.S.T. priority: ${(((matchingProspect.scoreNeed || 3) + (matchingProspect.scoreAccessibility || 3) + (matchingProspect.scoreIncome || 3) + (matchingProspect.scoreTrust || 3)) / 4).toFixed(1)}/5.0.`
+            });
+            
+            if (clientRes.success) {
+              clientId = clientRes.id;
+            }
+          }
+          
+          // Update prospect in Project 100
+          if (clientId && window.electronAPI?.updateProject100Contact) {
+            await window.electronAPI.updateProject100Contact({
+              id: matchingProspect.id,
+              stage: 'Ported / Converted',
+              portedClientId: clientId
+            });
+          }
+        }
+      }
+
+      const api = editingId ? window.electronAPI.updatePipelineCase : window.electronAPI.addPipelineCase;
+      const res = await api({ ...formData, ...(editingId ? { id: editingId } : {}) });
+      if (res.success) {
+        setIsModalOpen(false);
+        load();
+      } else {
+        alert("Failed to save pipeline case: " + res.error);
+      }
+    } catch (err) {
+      console.error("Error saving pipeline case:", err);
+    }
+    setLoading(false);
   };
 
   const handleDelete = async () => {
@@ -194,7 +256,18 @@ export default function PipelineView() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Client Name *</label>
-                  <input required type="text" name="clientName" className="input-field" style={{ width: '100%' }} value={formData.clientName} onChange={handleChange} placeholder="e.g. John Tan" />
+                  <input 
+                    required 
+                    type="text" 
+                    name="clientName" 
+                    className="input-field" 
+                    style={{ width: '100%' }} 
+                    value={formData.clientName} 
+                    onChange={handleChange} 
+                    placeholder="e.g. John Tan" 
+                    list="clients-and-prospects-list"
+                    autoComplete="off"
+                  />
                 </div>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Stage</label>
@@ -243,6 +316,16 @@ export default function PipelineView() {
                 <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Notes</label>
                 <textarea name="notes" className="input-field" style={{ width: '100%', minHeight: '72px', resize: 'vertical' }} value={formData.notes} onChange={handleChange} placeholder="Awaiting medical results, follow up on..." />
               </div>
+
+              {/* Datalist for suggestions */}
+              <datalist id="clients-and-prospects-list">
+                {clients.map(c => (
+                  <option key={`c-${c.id}`} value={c.fullName}>{`Client: ${c.clientStatus || 'Active'}`}</option>
+                ))}
+                {project100Contacts.filter(p => !p.portedClientId).map(p => (
+                  <option key={`p-${p.id}`} value={p.fullName}>{`Project 100 Prospect (${p.category})`}</option>
+                ))}
+              </datalist>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -376,12 +459,6 @@ function TableView({ cases, onEdit }) {
       return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
     });
 
-  const Th = ({ label, k }) => (
-    <th onClick={() => toggle(k)} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
-      {label} {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-    </th>
-  );
-
   return (
     <div className="glass-panel" style={{ flex: 1, padding: 0, overflowY: 'auto' }}>
       {/* Filter bar */}
@@ -395,13 +472,27 @@ function TableView({ cases, onEdit }) {
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
         <thead>
           <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-light)' }}>
-            <Th label="Client" k="clientName" />
-            <Th label="Policy" k="policyName" />
-            <Th label="Type" k="policyType" />
-            <Th label="Stage" k="stage" />
-            <Th label="Est. Premium" k="estimatedPremium" />
-            <Th label="Est. FYC" k="estimatedFYC" />
-            <Th label="Close Date" k="expectedCloseDate" />
+            <th onClick={() => toggle('clientName')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Client {sortKey === 'clientName' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('policyName')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Policy {sortKey === 'policyName' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('policyType')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Type {sortKey === 'policyType' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('stage')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Stage {sortKey === 'stage' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('estimatedPremium')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Est. Premium {sortKey === 'estimatedPremium' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('estimatedFYC')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Est. FYC {sortKey === 'estimatedFYC' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
+            <th onClick={() => toggle('expectedCloseDate')} style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', fontSize: '13px', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              Close Date {sortKey === 'expectedCloseDate' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+            </th>
           </tr>
         </thead>
         <tbody>
