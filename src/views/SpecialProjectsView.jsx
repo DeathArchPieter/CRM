@@ -299,11 +299,15 @@ export default function SpecialProjectsView() {
               resolvedAudience = playbook.targetAudience;
             }
           } else {
-            alert("AI Playbook Generation failed: " + aiRes.error + "\n\nCreating campaign with default playbook instead.");
+            alert("AI Playbook Generation failed: " + aiRes.error + "\n\nPlease check your input/document and try again.");
+            setIsGenerating(false);
+            return;
           }
         } catch (err) {
           console.error("AI Generation error:", err);
-          alert("An unexpected error occurred during AI generation. Creating campaign with default playbook instead.");
+          alert("An unexpected error occurred during AI generation: " + err.message + "\n\nPlease try again.");
+          setIsGenerating(false);
+          return;
         } finally {
           setIsGenerating(false);
         }

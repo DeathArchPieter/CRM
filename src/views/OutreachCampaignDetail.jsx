@@ -101,12 +101,87 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
           title: s.title,
           goal: s.goal,
           timeHint: s.timeHint,
-          template: (clientName) => s.templateContent.replace(/\[Client Name\]/g, clientName).replace(/\{clientName\}/g, clientName).replace(/\$\{clientName\}/g, clientName)
+          template: (clientName) => {
+            const tempStr = s.templateContent || '';
+            return tempStr
+              .replace(/\[Client Name\]/g, clientName)
+              .replace(/\{clientName\}/g, clientName)
+              .replace(/\$\{clientName\}/g, clientName);
+          }
         })),
         routines: campaign.playbook.routines || []
       };
     }
-    return AIA_PROTECT_3_RESOURCES;
+
+    // Default template using dynamic productName & targetAudience if no custom playbook was parsed by AI
+    const product = campaign.productName || 'AIA Protect 3';
+    const audience = campaign.targetAudience || 'Young Working Adults & Families';
+
+    if (product === 'AIA Protect 3' && audience === 'Young Working Adults & Families') {
+      return AIA_PROTECT_3_RESOURCES;
+    }
+
+    return {
+      segments: [
+        {
+          name: 'Existing Clients',
+          hook: `Coverage review using ${product}`,
+          why: `Excellent touchpoint to recommend a ${product} upgrade to existing portfolios.`
+        },
+        {
+          name: audience,
+          hook: `Direct solution hook for ${audience}`,
+          why: `Directly targets key risk factors and budget preferences of ${audience}.`
+        },
+        {
+          name: 'Warm Referrals',
+          hook: `Introduce ${product} benefits`,
+          why: `An easy value drop of ${product} when introduced through mutual connections.`
+        }
+      ],
+      scripts: [
+        {
+          step: 1,
+          title: 'Step 1: The Soft Opener (Value-Led Hook)',
+          goal: `Start a conversation highlighting key features of ${product}.`,
+          timeHint: 'Send mid-week (Tuesday/Thursday morning).',
+          template: (clientName) => `Hey ${clientName}, hope you're having a smooth week!
+          
+I was reading through the latest industry reports and noticed a significant protection gap that many people in our demographic are exposed to.
+
+AIA recently introduced a streamlined plan, ${product}, specifically tailored for ${audience}. It's budget-friendly and offers an effortless way to upgrade.
+
+I've been preparing quick summaries for some families recently. If you're open to it, I can text over a 1-page summary to see if it makes sense for your current setup? No pressure at all.`
+        },
+        {
+          step: 2,
+          title: 'Step 2: The Follow-Up / Fulfillment (Value Drop)',
+          goal: 'Share brochure details and highlight a standout feature.',
+          timeHint: 'Sent 2–3 days later to those who responded with interest.',
+          template: () => `Great! Here is the summary brochure for ${product}.
+          
+What I personally like about it is how cost-effective the coverage is for our age group. It provides solid protection without premium waste.
+
+You can explore a basic cover boost depending on what you already have in place. Do you happen to remember off the top of your head what your current total coverage is right now?`
+        },
+        {
+          step: 3,
+          title: 'Step 3: The Call to Action (The Appointment Close)',
+          goal: 'Move from text discussion to a quick 15-minute sync.',
+          timeHint: 'Offer concrete time options.',
+          template: () => `No worries if you don't have the exact number on hand—that's exactly what I'm here for!
+          
+Let's do a quick 15-minute coffee chat or Zoom call. We can check your existing portfolio, see if you have a gap, and check how ${product} fits your budget.
+
+How does this Thursday at 3 PM or Friday at 11 AM sound for a quick catch-up?`
+        }
+      ],
+      routines: [
+        { time: '09:00 AM - 09:30 AM', task: 'The Batch Send', desc: `Send out 5 to 10 Step 1 Opener messages introducing ${product}.` },
+        { time: '12:00 PM - 12:30 PM', task: 'The Mid-Day Check', desc: 'Reply to morning answers, share brochure details, and lock in calendar invites.' },
+        { time: '05:00 PM - 05:30 PM', task: 'The Follow-Up', desc: 'Check on outstanding chats, send gentle reminders, and log appointments.' }
+      ]
+    };
   };
 
   const PLAYBOOK_RESOURCES = getPlaybookResources();
