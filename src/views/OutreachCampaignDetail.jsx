@@ -176,6 +176,19 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
     }
   };
 
+  const handleDeleteCampaign = async () => {
+    if (!window.confirm("Are you sure you want to permanently delete this campaign? All target contacts and progress data will be lost.")) return;
+
+    if (window.electronAPI && window.electronAPI.deleteInitiative) {
+      const res = await window.electronAPI.deleteInitiative(campaign.id);
+      if (res.success) {
+        onBack();
+      } else {
+        alert("Failed to delete campaign: " + res.error);
+      }
+    }
+  };
+
   const handleInputChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -490,6 +503,21 @@ export default function OutreachCampaignDetail({ campaign, onBack }) {
             </button>
           </div>
 
+          <button 
+            className="btn btn-secondary" 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              fontSize: '12.5px', 
+              color: '#ef4444', 
+              borderColor: 'rgba(239,68,68,0.2)',
+              backgroundColor: 'rgba(239,68,68,0.05)'
+            }}
+            onClick={handleDeleteCampaign}
+          >
+            <Trash2 size={15} /> Delete Campaign
+          </button>
           <button 
             className="btn btn-primary" 
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px' }}
