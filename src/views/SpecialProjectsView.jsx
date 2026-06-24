@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Users, Calendar, BarChart3, Play } from 'lucide-react';
+import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X } from 'lucide-react';
 import Project100Detail from './Project100Detail';
 import OutreachCampaignDetail from './OutreachCampaignDetail';
 
@@ -85,6 +85,77 @@ export default function SpecialProjectsView() {
     productSummary: '',
     milestones: ['', '']
   });
+
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [generatedPlaybook, setGeneratedPlaybook] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+  const [analysisSuccess, setAnalysisSuccess] = useState(false);
+
+  const handleFileSelect = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64Data = dataUrl.split(',')[1];
+      setUploadedFile({
+        base64: base64Data,
+        mimeType: file.type,
+        name: file.name,
+        size: file.size
+      });
+      setAnalysisError('');
+      setAnalysisSuccess(false);
+    };
+    reader.onerror = () => {
+      setAnalysisError('Failed to read file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAnalyzeWithAI = async () => {
+    if (!newProject.productSummary.trim() && !uploadedFile) return;
+
+    setIsAnalyzing(true);
+    setAnalysisError('');
+    setAnalysisSuccess(false);
+
+    try {
+      const payload = {
+        text: newProject.productSummary,
+        fileData: uploadedFile ? {
+          base64: uploadedFile.base64,
+          mimeType: uploadedFile.mimeType
+        } : null
+      };
+
+      const res = await window.electronAPI.generateOutreachPlaybook(payload);
+      if (res.success) {
+        const playbook = res.data;
+        setGeneratedPlaybook(playbook);
+
+        // Pre-fill the form fields!
+        const resolvedProduct = playbook.productFocus || newProject.productFocus || 'AIA Protect 3';
+        const resolvedAudience = playbook.targetAudience || newProject.targetAudience || 'Young Working Adults & Families';
+
+        setNewProject(prev => ({
+          ...prev,
+          productFocus: resolvedProduct,
+          targetAudience: resolvedAudience,
+          title: prev.title.trim() || `${resolvedProduct} Outreach`,
+          description: prev.description.trim() || `WhatsApp campaign for ${resolvedProduct} targeting ${resolvedAudience}.`
+        }));
+
+        setAnalysisSuccess(true);
+      } else {
+        setAnalysisError("AI Analysis failed: " + res.error);
+      }
+    } catch (err) {
+      console.error("AI Analysis error:", err);
+      setAnalysisError("An unexpected error occurred during AI analysis.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const getProjectMilestones = (project) => {
     if (project.id === 'project-100') {
@@ -180,22 +251,53 @@ export default function SpecialProjectsView() {
     setNewProject({ ...newProject, milestones: updated });
   };
 
+  const handleOpenAddModal = () => {
+    setUploadedFile(null);
+    setGeneratedPlaybook(null);
+    setAnalysisError('');
+    setAnalysisSuccess(false);
+    setShowAddModal(true);
+  };
+
+  const handleCloseAddModal = () => {
+    setUploadedFile(null);
+    setGeneratedPlaybook(null);
+    setAnalysisError('');
+    setAnalysisSuccess(false);
+    setShowAddModal(false);
+  };
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
 
     let projectToAdd;
     if (newProject.type === 'outreach') {
-      const title = newProject.title.trim() || `${newProject.productFocus} Outreach`;
-      const desc = newProject.description.trim() || `WhatsApp campaign for ${newProject.productFocus} targeting ${newProject.targetAudience}.`;
       const targetAppts = Number(newProject.targetAppointments) || 20;
 
-      let playbook = null;
-      if (newProject.productSummary && newProject.productSummary.trim()) {
+      let playbook = generatedPlaybook;
+      let resolvedProduct = newProject.productFocus || 'AIA Protect 3';
+      let resolvedAudience = newProject.targetAudience || 'Young Working Adults & Families';
+
+      // If they didn't analyze yet, but hit submit and provided summary/file
+      if (!playbook && ((newProject.productSummary && newProject.productSummary.trim()) || uploadedFile)) {
         setIsGenerating(true);
         try {
-          const aiRes = await window.electronAPI.generateOutreachPlaybook(newProject.productSummary);
+          const payload = {
+            text: newProject.productSummary,
+            fileData: uploadedFile ? {
+              base64: uploadedFile.base64,
+              mimeType: uploadedFile.mimeType
+            } : null
+          };
+          const aiRes = await window.electronAPI.generateOutreachPlaybook(payload);
           if (aiRes.success) {
             playbook = aiRes.data;
+            if (playbook.productFocus && (!newProject.productFocus || newProject.productFocus === 'AIA Protect 3')) {
+              resolvedProduct = playbook.productFocus;
+            }
+            if (playbook.targetAudience && (!newProject.targetAudience || newProject.targetAudience === 'Young Working Adults & Families')) {
+              resolvedAudience = playbook.targetAudience;
+            }
           } else {
             alert("AI Playbook Generation failed: " + aiRes.error + "\n\nCreating campaign with default playbook instead.");
           }
@@ -207,6 +309,18 @@ export default function SpecialProjectsView() {
         }
       }
 
+      // Sync user-customized fields back into the playbook object by copying to avoid mutation lint warnings
+      if (playbook) {
+        playbook = {
+          ...playbook,
+          productFocus: resolvedProduct,
+          targetAudience: resolvedAudience
+        };
+      }
+
+      const title = newProject.title.trim() || `${resolvedProduct} Outreach`;
+      const desc = newProject.description.trim() || `WhatsApp campaign for ${resolvedProduct} targeting ${resolvedAudience}.`;
+
       projectToAdd = {
         title,
         description: desc,
@@ -215,8 +329,8 @@ export default function SpecialProjectsView() {
         targetDate: newProject.targetDate || new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0], // 60 days
         members: Number(newProject.members) || 1,
         type: 'outreach',
-        productName: newProject.productFocus,
-        targetAudience: newProject.targetAudience,
+        productName: resolvedProduct,
+        targetAudience: resolvedAudience,
         targetAppointments: targetAppts,
         contacts: [],
         playbook
@@ -248,6 +362,10 @@ export default function SpecialProjectsView() {
       if (res.success) {
         setShowAddModal(false);
         load();
+        setUploadedFile(null);
+        setGeneratedPlaybook(null);
+        setAnalysisError('');
+        setAnalysisSuccess(false);
         setNewProject({
           title: '',
           description: '',
@@ -287,7 +405,7 @@ export default function SpecialProjectsView() {
             Initiative tracking and strategic practice campaigns
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+        <button className="btn btn-primary" onClick={handleOpenAddModal}>
           <Plus size={16} /> Add Initiative
         </button>
       </header>
@@ -335,7 +453,7 @@ export default function SpecialProjectsView() {
           <div className="glass-panel" style={{ gridColumn: '1 / -1', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
             <FolderGit2 size={36} color="var(--text-muted)" style={{ opacity: 0.5 }} />
             <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No special projects tracked yet.</p>
-            <button className="btn btn-secondary" onClick={() => setShowAddModal(true)}>Create the first one</button>
+            <button className="btn btn-secondary" onClick={handleOpenAddModal}>Create the first one</button>
           </div>
         ) : (
           projects.map(project => {
@@ -510,7 +628,7 @@ export default function SpecialProjectsView() {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '20px',
-        }} onClick={() => setShowAddModal(false)}>
+        }} onClick={handleCloseAddModal}>
           <div 
             className="glass-panel animate-fade-in" 
             style={{
@@ -582,26 +700,38 @@ export default function SpecialProjectsView() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div className="input-group">
                       <label className="input-label">Product Focus</label>
-                      <select
-                        className="input-field"
-                        style={{ background: 'var(--bg-base)' }}
-                        value={newProject.productFocus}
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        list="productFocusSuggestions"
+                        autoComplete="off"
+                        value={newProject.productFocus} 
                         onChange={e => setNewProject({...newProject, productFocus: e.target.value})}
-                      >
-                        <option value="AIA Protect 3">AIA Protect 3 (CI Gap)</option>
-                        <option value="Generic CI Boost">Generic CI Booster</option>
-                        <option value="Savings Accumulator">Savings / Endowments</option>
-                      </select>
+                        placeholder="e.g. AIA Protect 3"
+                      />
+                      <datalist id="productFocusSuggestions">
+                        <option value="AIA Protect 3" />
+                        <option value="Generic CI Booster" />
+                        <option value="Savings / Endowments" />
+                      </datalist>
                     </div>
                     <div className="input-group">
                       <label className="input-label">Primary Audience Focus</label>
                       <input 
                         type="text" 
                         className="input-field" 
+                        list="audienceSuggestions"
+                        autoComplete="off"
                         value={newProject.targetAudience} 
                         onChange={e => setNewProject({...newProject, targetAudience: e.target.value})}
                         placeholder="e.g. Young Working Adults"
                       />
+                      <datalist id="audienceSuggestions">
+                        <option value="Young Working Adults & Families" />
+                        <option value="HNW Legacy Clients" />
+                        <option value="Young Parents (25-40)" />
+                        <option value="Working Professionals" />
+                      </datalist>
                     </div>
                   </div>
 
@@ -662,10 +792,12 @@ export default function SpecialProjectsView() {
                     />
                   </div>
 
-                  <div className="input-group">
+                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>AI Playbook Generator (Optional Summary/Brochure)</span>
-                      <span style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: '600' }}>⚡ Gemini AI</span>
+                      <span style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Sparkles size={10} /> Gemini AI
+                      </span>
                     </label>
                     <textarea 
                       className="input-field" 
@@ -674,6 +806,135 @@ export default function SpecialProjectsView() {
                       onChange={e => setNewProject({...newProject, productSummary: e.target.value})}
                       placeholder="Paste product brochure terms, target segments, or text notes here. Gemini will generate custom hooks, WhatsApp message scripts, and routines."
                     />
+                    
+                    {/* File Upload Section */}
+                    <div style={{ marginTop: '4px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
+                        Or upload a brochure document (PDF, Text, or Image):
+                      </span>
+                      
+                      {!uploadedFile ? (
+                        <div 
+                          style={{
+                            border: '1px dashed var(--border-light)',
+                            borderRadius: '10px',
+                            padding: '16px',
+                            textAlign: 'center',
+                            cursor: 'pointer',
+                            background: 'rgba(255,255,255,0.01)',
+                            transition: 'border-color 0.2s ease, background 0.2s ease',
+                          }}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={e => {
+                            e.preventDefault();
+                            const file = e.dataTransfer.files?.[0];
+                            if (file) handleFileSelect(file);
+                          }}
+                          onClick={() => document.getElementById('brochure-upload').click()}
+                        >
+                          <input 
+                            type="file" 
+                            id="brochure-upload" 
+                            style={{ display: 'none' }}
+                            accept=".pdf,.txt,.png,.jpg,.jpeg"
+                            onChange={e => {
+                              const file = e.target.files?.[0];
+                              if (file) handleFileSelect(file);
+                            }}
+                          />
+                          <UploadCloud size={24} color="var(--text-muted)" style={{ margin: '0 auto 8px', opacity: 0.7 }} />
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            Drag & drop or <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>browse file</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 14px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-light)',
+                          background: 'rgba(255,255,255,0.03)'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                            <FileText size={16} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                            <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                              <span style={{ fontSize: '12px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={uploadedFile.name}>
+                                {uploadedFile.name}
+                              </span>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                {(uploadedFile.size / 1024).toFixed(1)} KB · Document loaded
+                              </span>
+                            </div>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => setUploadedFile(null)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Run Analysis / Pre-fill CTA */}
+                    {(newProject.productSummary.trim() || uploadedFile) && (
+                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            padding: '8px 12px',
+                            fontSize: '12px',
+                            borderColor: 'var(--accent-primary)',
+                            backgroundColor: 'rgba(139,92,246,0.05)',
+                            color: 'var(--accent-primary)',
+                            fontWeight: '600'
+                          }}
+                          disabled={isAnalyzing}
+                          onClick={handleAnalyzeWithAI}
+                        >
+                          {isAnalyzing ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm" role="status" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid var(--accent-primary)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 0.75s linear infinite' }}></span>
+                              Analyzing Document...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} /> Analyze & Pre-fill Form fields
+                            </>
+                          )}
+                        </button>
+                        
+                        {analysisError && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#f87171' }}>
+                            <AlertCircle size={12} /> {analysisError}
+                          </div>
+                        )}
+                        
+                        {analysisSuccess && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#34d399', fontWeight: '600' }}>
+                            <CheckCircle2 size={12} /> Playbook & form fields pre-filled from analyzed doc!
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -800,7 +1061,7 @@ export default function SpecialProjectsView() {
                     Generating AI Playbook...
                   </span>
                 )}
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddModal(false)} disabled={isGenerating}>
+                <button type="button" className="btn btn-secondary" onClick={handleCloseAddModal} disabled={isGenerating}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={isGenerating}>

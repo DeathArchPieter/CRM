@@ -1019,16 +1019,28 @@ Please analyze this client and provide your strategic thoughts.`;
     }
   });
 
-  ipcMain.handle('generate-outreach-playbook', async (event, productInfo) => {
+  ipcMain.handle('generate-outreach-playbook', async (event, payload) => {
     try {
-      if (!productInfo || !productInfo.trim()) {
-        throw new Error("No product information provided");
+      let productInfo = '';
+      let fileData = null;
+
+      if (typeof payload === 'string') {
+        productInfo = payload;
+      } else if (payload && typeof payload === 'object') {
+        productInfo = payload.text || '';
+        fileData = payload.fileData || null;
+      }
+
+      if ((!productInfo || !productInfo.trim()) && !fileData) {
+        throw new Error("No product information or file provided");
       }
 
       const systemInstruction = `You are a premier financial consultancy AI at Beetsma Consultancy. Your role is to analyze a product brochure or description and generate an actionable marketing playbook for a WhatsApp outreach campaign.
 You must return your response as a valid, single JSON object. Do not include markdown code block formatting (like \`\`\`json) or other conversational preamble.
 The JSON structure MUST be exactly:
 {
+  "productFocus": "A short, clean name of the product focus determined from the text (e.g. AIA Protect 3)",
+  "targetAudience": "A short description of the primary audience focus determined from the text (e.g. Young Parents & Families)",
   "segments": [
     {
       "name": "Segment Name (e.g. Young Parents (25-40))",
@@ -1079,14 +1091,28 @@ The JSON structure MUST be exactly:
 }
 Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The scripts must be highly tailored to the specific product provided.`;
 
-      const userMessage = `Here is the product brochure / summary info:\n${productInfo}`;
+      const parts = [];
+      if (fileData && fileData.base64) {
+        parts.push({
+          inlineData: {
+            mimeType: fileData.mimeType,
+            data: fileData.base64
+          }
+        });
+      }
+
+      let promptText = `Generate the outreach playbook JSON based on the provided product documents or details.`;
+      if (productInfo && productInfo.trim()) {
+        promptText += `\n\nHere is the additional product summary/description:\n${productInfo}`;
+      }
+      parts.push({ text: promptText });
 
       const response = await fetch(GEMINI_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemInstruction }] },
-          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          contents: [{ role: 'user', parts: parts }],
           generationConfig: {
             temperature: 0.2,
             maxOutputTokens: 2048,
