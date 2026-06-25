@@ -256,6 +256,30 @@ How does this Thursday at 3 PM or Friday at 11 AM sound for a quick catch-up?`
     }
     prevContactsLength.current = contacts.length;
   }, [contacts.length]);
+
+  // Listen for Alt + A hotkey to trigger the Add Target modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        
+        // Don't trigger if user is actively editing inside an input/textarea/select
+        const active = document.activeElement;
+        const isInput = active && (
+          active.tagName === 'INPUT' || 
+          active.tagName === 'TEXTAREA' || 
+          active.tagName === 'SELECT' ||
+          active.isContentEditable
+        );
+        
+        if (!isInput) {
+          setIsAddModalOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   
   // Temporary Highlight for Just Ported Target
   const [justPortedTargetId, setJustPortedTargetId] = useState(null);
@@ -1016,7 +1040,7 @@ How does this Thursday at 3 PM or Friday at 11 AM sound for a quick catch-up?`
               setIsAddModalOpen(true);
             }}
           >
-            <Plus size={15} /> Add Target
+            <Plus size={15} /> Add Target <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: '4px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: '3px' }}>Alt+A</span>
           </button>
         </div>
       </header>

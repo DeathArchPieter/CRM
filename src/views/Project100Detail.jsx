@@ -156,6 +156,30 @@ export default function Project100Detail({ onBack }) {
     prevContactsLength.current = contacts.length;
   }, [contacts.length]);
 
+  // Listen for Alt + A hotkey to trigger the Add Prospect modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        
+        // Don't trigger if user is actively editing inside an input/textarea/select
+        const active = document.activeElement;
+        const isInput = active && (
+          active.tagName === 'INPUT' || 
+          active.tagName === 'TEXTAREA' || 
+          active.tagName === 'SELECT' ||
+          active.isContentEditable
+        );
+        
+        if (!isInput) {
+          setIsAddModalOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -672,7 +696,7 @@ export default function Project100Detail({ onBack }) {
               setIsAddModalOpen(true);
             }}
           >
-            <Plus size={16} /> Add Prospect
+            <Plus size={16} /> Add Prospect <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: '4px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: '3px' }}>Alt+A</span>
           </button>
         </div>
       </header>
@@ -1178,6 +1202,7 @@ export default function Project100Detail({ onBack }) {
                   type="text" name="fullName" className="input-field" 
                   value={formData.fullName} onChange={handleInputChange} 
                   required placeholder="e.g. David Lim"
+                  autoFocus
                 />
               </div>
 
