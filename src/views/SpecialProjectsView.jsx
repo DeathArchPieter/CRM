@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X } from 'lucide-react';
+import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Edit2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X } from 'lucide-react';
 import Project100Detail from './Project100Detail';
 import OutreachCampaignDetail from './OutreachCampaignDetail';
 
@@ -91,6 +91,8 @@ export default function SpecialProjectsView() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisSuccess, setAnalysisSuccess] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [projectToEdit, setProjectToEdit] = useState(null);
 
   const handleFileSelect = (file) => {
     const reader = new FileReader();
@@ -265,6 +267,37 @@ export default function SpecialProjectsView() {
     setAnalysisError('');
     setAnalysisSuccess(false);
     setShowAddModal(false);
+  };
+
+  const handleEditClick = (project) => {
+    setProjectToEdit({ ...project });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!projectToEdit) return;
+
+    let updatedProject = { ...projectToEdit };
+
+    // Sync edited fields back into the playbook object if it exists by copying to avoid mutation lint warnings
+    if (updatedProject.type === 'outreach' && updatedProject.playbook) {
+      updatedProject.playbook = {
+        ...updatedProject.playbook,
+        productFocus: updatedProject.productName,
+        targetAudience: updatedProject.targetAudience
+      };
+    }
+
+    if (window.electronAPI && window.electronAPI.updateInitiative) {
+      const res = await window.electronAPI.updateInitiative(updatedProject);
+      if (res.success) {
+        setShowEditModal(false);
+        load();
+      } else {
+        alert("Failed to update initiative: " + res.error);
+      }
+    }
   };
 
   const handleFormSubmit = async (e) => {
@@ -601,15 +634,26 @@ export default function SpecialProjectsView() {
                       </button>
                     )}
                     {project.id !== 'project-100' && (
-                      <button 
-                        onClick={() => handleDeleteProject(project.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
-                        onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.opacity = '1'; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
-                        title="Delete project"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      <>
+                        <button 
+                          onClick={() => handleEditClick(project)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.opacity = '1'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
+                          title="Edit project"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteProject(project.id)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
+                          onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.opacity = '1'; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
+                          title="Delete project"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -1072,6 +1116,230 @@ export default function SpecialProjectsView() {
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={isGenerating}>
                   {isGenerating ? 'Generating...' : 'Create Initiative'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {showEditModal && projectToEdit && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15,23,42,0.8)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+        }} onClick={() => setShowEditModal(false)}>
+          <div 
+            className="glass-panel animate-fade-in" 
+            style={{
+              width: '100%',
+              maxWidth: '540px',
+              padding: '28px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              maxHeight: '90vh',
+              overflowY: 'auto'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div>
+              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Edit Initiative Details</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Update metadata for this campaign or project</p>
+            </div>
+
+            <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              
+              {projectToEdit.type === 'outreach' ? (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">Campaign Name</label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      value={projectToEdit.title} 
+                      onChange={e => setProjectToEdit({...projectToEdit, title: e.target.value})}
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Product Focus</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        list="productFocusSuggestions"
+                        autoComplete="off"
+                        value={projectToEdit.productName || ''} 
+                        onChange={e => setProjectToEdit({...projectToEdit, productName: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Primary Audience Focus</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        list="audienceSuggestions"
+                        autoComplete="off"
+                        value={projectToEdit.targetAudience || ''} 
+                        onChange={e => setProjectToEdit({...projectToEdit, targetAudience: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Target Booking Count</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={projectToEdit.targetAppointments} 
+                        onChange={e => setProjectToEdit({...projectToEdit, targetAppointments: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Target Date</label>
+                      <input 
+                        type="date" 
+                        className="input-field" 
+                        value={projectToEdit.targetDate} 
+                        onChange={e => setProjectToEdit({...projectToEdit, targetDate: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Campaign Leader</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={projectToEdit.leader} 
+                        onChange={e => setProjectToEdit({...projectToEdit, leader: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Active Members</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={projectToEdit.members} 
+                        onChange={e => setProjectToEdit({...projectToEdit, members: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Description</label>
+                    <textarea 
+                      className="input-field" 
+                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
+                      value={projectToEdit.description} 
+                      onChange={e => setProjectToEdit({...projectToEdit, description: e.target.value})}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">Project Title *</label>
+                    <input 
+                      type="text" 
+                      className="input-field" 
+                      value={projectToEdit.title} 
+                      onChange={e => setProjectToEdit({...projectToEdit, title: e.target.value})}
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label className="input-label">Description</label>
+                    <textarea 
+                      className="input-field" 
+                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
+                      value={projectToEdit.description} 
+                      onChange={e => setProjectToEdit({...projectToEdit, description: e.target.value})}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Project Leader</label>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        value={projectToEdit.leader} 
+                        onChange={e => setProjectToEdit({...projectToEdit, leader: e.target.value})}
+                        required
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Target Completion</label>
+                      <input 
+                        type="date" 
+                        className="input-field" 
+                        value={projectToEdit.targetDate} 
+                        onChange={e => setProjectToEdit({...projectToEdit, targetDate: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div className="input-group">
+                      <label className="input-label">Status</label>
+                      <select 
+                        className="input-field"
+                        style={{ background: 'var(--bg-base)' }}
+                        value={projectToEdit.status} 
+                        onChange={e => setProjectToEdit({...projectToEdit, status: e.target.value})}
+                      >
+                        <option value="Planning">Planning</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Active Members</label>
+                      <input 
+                        type="number" 
+                        className="input-field" 
+                        min="1"
+                        value={projectToEdit.members} 
+                        onChange={e => setProjectToEdit({...projectToEdit, members: e.target.value})}
+                        required
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Form Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Save Changes
                 </button>
               </div>
             </form>

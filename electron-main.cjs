@@ -7,15 +7,40 @@ const http = require('http');
 const isDev = !app.isPackaged;
 
 const GEMINI_API_KEY = 'AIzaSyCQ5OFJzCD2sZQD10cMQRf1xzWLN1Q3ALc';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
 
 let db = { clients: [], policies: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], aiBriefing: { text: '', generatedAt: null } };
 let dbPath;
+let logPath;
 let authServer = null;
+
+function writeToLogFile(message) {
+  try {
+    if (!logPath) {
+      // If called before app ready/userData is available
+      try {
+        const userDataPath = app.getPath('userData');
+        logPath = path.join(userDataPath, 'app.log');
+      } catch (e) {
+        // App might not be ready yet
+        return;
+      }
+    }
+    const timestamp = new Date().toISOString();
+    const formatted = `[${timestamp}] ${message}\n`;
+    fs.appendFileSync(logPath, formatted, 'utf8');
+  } catch (err) {
+    console.error("Failed to write to log file:", err);
+  }
+}
+
 
 function initDatabase() {
   const userDataPath = app.getPath('userData');
   dbPath = path.join(userDataPath, 'crm_data.json');
+  logPath = path.join(userDataPath, 'app.log');
+  
+  writeToLogFile("--- App Startup / initDatabase started ---");
   
   try {
     if (fs.existsSync(dbPath)) {
@@ -134,19 +159,25 @@ function createWindow() {
   // DB IPC Handlers
   // DB IPC Handlers (JSON Store)
   ipcMain.handle('get-clients', () => {
+    writeToLogFile("[IPC] get-clients started");
     try {
+      const start = Date.now();
       // Sort alphabetically by full name
       const sortedClients = [...db.clients].sort((a, b) => 
         a.fullName.localeCompare(b.fullName)
       );
+      writeToLogFile(`[IPC] get-clients completed successfully in ${Date.now() - start}ms (returned ${sortedClients.length} clients)`);
       return { success: true, data: sortedClients };
     } catch (error) {
+      writeToLogFile(`[IPC] get-clients failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
 
   ipcMain.handle('add-client', (event, clientData) => {
+    writeToLogFile(`[IPC] add-client started for ${clientData.fullName}`);
     try {
+      const start = Date.now();
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
       
@@ -167,9 +198,10 @@ function createWindow() {
       
       db.clients.push(newClient);
       saveDatabase();
-      
+      writeToLogFile(`[IPC] add-client successfully added client ID: ${id} in ${Date.now() - start}ms`);
       return { success: true, id };
     } catch (error) {
+      writeToLogFile(`[IPC] add-client failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -378,7 +410,9 @@ function createWindow() {
   });
 
   ipcMain.handle('update-initiative', (event, initiativeData) => {
+    writeToLogFile(`[IPC] update-initiative started for initiative ID: ${initiativeData.id}`);
     try {
+      const start = Date.now();
       if (!db.initiatives) db.initiatives = [];
       const index = db.initiatives.findIndex(p => p.id === initiativeData.id);
       if (index === -1) throw new Error("Initiative not found");
@@ -389,8 +423,10 @@ function createWindow() {
         updatedAt: new Date().toISOString()
       };
       saveDatabase();
+      writeToLogFile(`[IPC] update-initiative completed successfully in ${Date.now() - start}ms`);
       return { success: true };
     } catch (error) {
+      writeToLogFile(`[IPC] update-initiative failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -416,7 +452,9 @@ function createWindow() {
   });
 
   ipcMain.handle('add-pipeline-case', (event, caseData) => {
+    writeToLogFile(`[IPC] add-pipeline-case started for client: ${caseData.clientName}`);
     try {
+      const start = Date.now();
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
       const newCase = {
@@ -434,8 +472,10 @@ function createWindow() {
       };
       db.pipeline.push(newCase);
       saveDatabase();
+      writeToLogFile(`[IPC] add-pipeline-case completed successfully in ${Date.now() - start}ms, ID: ${id}`);
       return { success: true, id };
     } catch (error) {
+      writeToLogFile(`[IPC] add-pipeline-case failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -1141,6 +1181,90 @@ Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The s
     }
   });
 
+  ipcMain.handle('tweak-outreach-script', async (event, { scriptText, instruction, chatHistory = [] }) => {
+    try {
+      const systemInstruction = `You are a premier financial consultancy AI copywriter at Beetsma Consultancy. 
+Your task is to modify / tweak a WhatsApp outreach message script template according to the user's instructions.
+Keep the output message highly engaging, professional, and optimized for WhatsApp. 
+
+CRITICAL: 
+1. Maintain any placeholder tags like '[Client Name]', '{clientName}', etc. in the same style in the output so they can be dynamically replaced later.
+2. The user might want to adjust the tone (e.g. warmer, more formal, shorter, punchier, etc.) or add/remove details.
+3. You must respond ONLY with a JSON object. Do not include markdown code block formatting (like \`\`\`json) or other conversational preamble.
+The JSON structure MUST be exactly:
+{
+  "tweakedScript": "The complete modified WhatsApp message script template."
+}`;
+
+      const contents = [];
+      
+      // Add chat history if present to give context
+      if (chatHistory && chatHistory.length > 0) {
+        chatHistory.forEach(msg => {
+          if (msg.text && (msg.role === 'user' || msg.role === 'model')) {
+            contents.push({
+              role: msg.role === 'user' ? 'user' : 'model',
+              parts: [{ text: msg.text }]
+            });
+          }
+        });
+      }
+
+      // Add current user prompt
+      const promptText = `Here is the current outreach message script template:
+"""
+${scriptText}
+"""
+
+User Instruction: Modify this script based on: "${instruction}"
+
+Generate the tweaked outreach message script template in the specified JSON format.`;
+
+      contents.push({
+        role: 'user',
+        parts: [{ text: promptText }]
+      });
+
+      const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errBody}`);
+      }
+
+      const json = await response.json();
+      const responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      let parsed;
+      try {
+        parsed = JSON.parse(responseText.trim());
+      } catch (err) {
+        let cleanText = responseText.trim();
+        if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```json\s*/i, '').replace(/```$/, '');
+        }
+        parsed = JSON.parse(cleanText.trim());
+      }
+      
+      return { success: true, tweakedScript: parsed.tweakedScript };
+    } catch (error) {
+      writeToLogFile(`[IPC] tweak-outreach-script failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('get-google-settings', () => {
     return {
       success: true,
@@ -1167,6 +1291,23 @@ Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The s
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('write-log', (event, message) => {
+    writeToLogFile(message);
+    return { success: true };
+  });
+
+  ipcMain.handle('open-log-file', async () => {
+    try {
+      if (!fs.existsSync(logPath)) {
+        fs.writeFileSync(logPath, `[${new Date().toISOString()}] Log file initialized.\n`, 'utf8');
+      }
+      await shell.openPath(logPath);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   });
 

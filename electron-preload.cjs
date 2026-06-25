@@ -51,4 +51,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateInitiative: (initiativeData) => ipcRenderer.invoke('update-initiative', initiativeData),
   deleteInitiative: (projectId) => ipcRenderer.invoke('delete-initiative', projectId),
   generateOutreachPlaybook: (productInfo) => ipcRenderer.invoke('generate-outreach-playbook', productInfo),
+  tweakOutreachScript: (payload) => ipcRenderer.invoke('tweak-outreach-script', payload),
+
+  // Logging API
+  writeLog: (message) => ipcRenderer.invoke('write-log', message),
+  openLogFile: () => ipcRenderer.invoke('open-log-file'),
 });

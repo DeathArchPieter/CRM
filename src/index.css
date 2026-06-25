@@ -238,3 +238,19 @@ h1, h2, h3, h4, h5, h6 {
 .view-container {
   height: 100%;
 }
+
+/* Toast Slide-In Animation */
+@keyframes slideInRight {
+  from {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

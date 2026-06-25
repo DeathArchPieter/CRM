@@ -51,7 +51,7 @@ function App() {
         <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         
         {/* Dynamic Content Area */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '32px', backgroundColor: 'var(--bg-base)' }}>
+        <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '32px', backgroundColor: 'var(--bg-base)' }}>
           {renderView()}
         </div>
       </div>

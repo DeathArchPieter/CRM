@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   ArrowLeft, UserPlus, Star, Edit2, Trash2, Plus, Search, 
   Phone, Mail, Award, CheckCircle, RefreshCw, 
@@ -90,8 +91,8 @@ export default function Project100Detail({ onBack }) {
     notes: ''
   });
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       if (window.electronAPI) {
         const [contactsRes, pipelineRes, clientsRes] = await Promise.all([
@@ -107,13 +108,53 @@ export default function Project100Detail({ onBack }) {
     } catch (err) {
       console.error("Failed to load Project 100 workspace data:", err);
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
     loadData();
   }, []);
+
+  const scrollToBottom = () => {
+    console.log("[scrollToBottom] Project100Detail scroll sequence started");
+    const runScroll = (delay) => {
+      const container = document.getElementById('main-scroll-container');
+      if (container) {
+        const oldScrollTop = container.scrollTop;
+        container.scrollTop = container.scrollHeight + 1000;
+        console.log(`[scrollToBottom][${delay}ms] main-scroll-container: scrollHeight=${container.scrollHeight}, clientHeight=${container.clientHeight}, scrollTop was ${oldScrollTop}, now ${container.scrollTop}`);
+      }
+
+      document.documentElement.scrollTop = document.documentElement.scrollHeight;
+      document.body.scrollTop = document.body.scrollHeight;
+
+      let el = document.querySelector('.view-container');
+      while (el) {
+        if (el.scrollHeight > el.clientHeight) {
+          const oldElScrollTop = el.scrollTop;
+          el.scrollTop = el.scrollHeight + 1000;
+          console.log(`[scrollToBottom][${delay}ms] Parent element (${el.tagName}.${el.className}): scrollHeight=${el.scrollHeight}, clientHeight=${el.clientHeight}, scrollTop was ${oldElScrollTop}, now ${el.scrollTop}`);
+        }
+        el = el.parentNode;
+      }
+    };
+
+    // Run at staggered delays to capture layout settling
+    setTimeout(() => runScroll(50), 50);
+    setTimeout(() => runScroll(150), 150);
+    setTimeout(() => runScroll(300), 300);
+    setTimeout(() => runScroll(600), 600);
+  };
+
+  // Auto-scroll to bottom of prospects list when a new prospect is added
+  const prevContactsLength = useRef(contacts.length);
+  useEffect(() => {
+    if (contacts.length > prevContactsLength.current) {
+      scrollToBottom();
+    }
+    prevContactsLength.current = contacts.length;
+  }, [contacts.length]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -127,12 +168,20 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!formData.fullName.trim()) return;
 
+    // Blur active elements to settle focus
+    if (document.activeElement) {
+      document.activeElement.blur();
+    }
+    
+    // Close modal immediately to avoid focus restoration races
+    setIsAddModalOpen(false);
+
     if (window.electronAPI?.addProject100Contact) {
-      const res = await window.electronAPI.addProject100Contact(formData);
+      const formToSubmit = { ...formData };
+      resetForm();
+      const res = await window.electronAPI.addProject100Contact(formToSubmit);
       if (res.success) {
-        setIsAddModalOpen(false);
-        resetForm();
-        loadData();
+        loadData(true);
       } else {
         alert("Failed to add prospect: " + res.error);
       }
@@ -152,7 +201,7 @@ export default function Project100Detail({ onBack }) {
         setIsEditModalOpen(false);
         setSelectedContact(null);
         resetForm();
-        loadData();
+        loadData(true);
       } else {
         alert("Failed to update prospect: " + res.error);
       }
@@ -164,7 +213,7 @@ export default function Project100Detail({ onBack }) {
     if (window.electronAPI?.deleteProject100Contact) {
       const res = await window.electronAPI.deleteProject100Contact(id);
       if (res.success) {
-        loadData();
+        loadData(true);
       } else {
         alert("Failed to delete prospect: " + res.error);
       }
@@ -323,7 +372,7 @@ export default function Project100Detail({ onBack }) {
           setIsCaseModalOpen(false);
           setCaseContact(null);
           alert(`Successfully created pipeline case for ${caseContact.fullName}!`);
-          loadData();
+          loadData(true);
         } else {
           alert("Failed to create pipeline case: " + caseRes.error);
         }
@@ -353,7 +402,7 @@ export default function Project100Detail({ onBack }) {
               });
             }
             alert(`Successfully linked ${contact.fullName} to existing Client profile!`);
-            loadData();
+            loadData(true);
             return;
           }
           return;
@@ -380,7 +429,7 @@ export default function Project100Detail({ onBack }) {
             });
           }
           alert(`Successfully ported ${contact.fullName} to Client Database!`);
-          loadData();
+          loadData(true);
         } else {
           alert("Failed to create client profile: " + clientRes.error);
         }
@@ -569,7 +618,7 @@ export default function Project100Detail({ onBack }) {
     .sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: 'auto', minHeight: '100%' }}>
       
       {/* Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -618,7 +667,10 @@ export default function Project100Detail({ onBack }) {
           <button 
             className="btn btn-primary" 
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setIsAddModalOpen(true);
+            }}
           >
             <Plus size={16} /> Add Prospect
           </button>
@@ -1063,9 +1115,8 @@ export default function Project100Detail({ onBack }) {
         )}
       </div>
 
-      {/* Form Helper component for rating slider group */}
       {/* ADD PROSPECT MODAL */}
-      {isAddModalOpen && (
+      {isAddModalOpen && createPortal(
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
           backdropFilter: 'blur(8px)', zIndex: 1000,
@@ -1085,7 +1136,7 @@ export default function Project100Detail({ onBack }) {
               {/* Import Quick Selector */}
               {(availableClients.length > 0 || availablePipelineNames.length > 0) && (
                 <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '16px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Quick Import from Existing Contacts
                   </span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -1242,11 +1293,12 @@ export default function Project100Detail({ onBack }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* EDIT PROSPECT MODAL */}
-      {isEditModalOpen && (
+      {isEditModalOpen && createPortal(
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
           backdropFilter: 'blur(8px)', zIndex: 1000,
@@ -1384,11 +1436,12 @@ export default function Project100Detail({ onBack }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* CREATE PIPELINE CASE MODAL */}
-      {isCaseModalOpen && caseContact && (
+      {isCaseModalOpen && caseContact && createPortal(
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
           backdropFilter: 'blur(8px)', zIndex: 1000,
@@ -1503,7 +1556,8 @@ export default function Project100Detail({ onBack }) {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

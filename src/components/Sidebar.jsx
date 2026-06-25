@@ -56,12 +56,40 @@ export default function Sidebar({ activeTab, setActiveTab }) {
         ))}
       </nav>
       
-      <div style={{ marginTop: 'auto', padding: '16px', background: 'var(--bg-base)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Monthly Target</p>
-        <div style={{ width: '100%', height: '6px', background: 'var(--bg-surface-hover)', borderRadius: '3px', overflow: 'hidden' }}>
-          <div style={{ width: '75%', height: '100%', background: 'var(--accent-primary)' }}></div>
+      <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ padding: '16px', background: 'var(--bg-base)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Monthly Target</p>
+          <div style={{ width: '100%', height: '6px', background: 'var(--bg-surface-hover)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ width: '75%', height: '100%', background: 'var(--accent-primary)' }}></div>
+          </div>
+          <p style={{ fontSize: '12px', fontWeight: '500', marginTop: '8px', textAlign: 'right' }}>75%</p>
         </div>
-        <p style={{ fontSize: '12px', fontWeight: '500', marginTop: '8px', textAlign: 'right' }}>75%</p>
+
+        <button
+          onClick={() => {
+            if (window.electronAPI?.openLogFile) {
+              window.electronAPI.openLogFile();
+            }
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            width: '100%',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            border: '1px dashed var(--border-light)',
+            background: 'transparent',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            fontSize: '12.5px',
+            transition: 'all var(--transition-fast)'
+          }}
+          className="sidebar-btn"
+        >
+          <FileText size={15} /> Open System Logs
+        </button>
       </div>
     </div>
   );
