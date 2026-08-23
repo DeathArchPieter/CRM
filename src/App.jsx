@@ -10,6 +10,7 @@ import RemunerationView from './views/RemunerationView';
 import SpecialProjectsView from './views/SpecialProjectsView';
 import SpecialReportsView from './views/SpecialReportsView';
 import ProductAnalysisView from './views/ProductAnalysisView';
+import SettingsView from './views/SettingsView';
 import './index.css';
 
 function App() {
@@ -35,6 +36,8 @@ function App() {
         return <SpecialReportsView />;
       case 'product-analysis':
         return <ProductAnalysisView />;
+      case 'settings':
+        return <SettingsView />;
       default:
         return <DashboardView />;
     }

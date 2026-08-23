@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/purity, react-hooks/exhaustive-deps */
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { 
@@ -50,6 +51,14 @@ export default function Project100Detail({ onBack }) {
   const [pipelineCases, setPipelineCases] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Unified logging helper
+  const log = (msg) => {
+    console.log(`[Project 100] ${msg}`);
+    if (window.electronAPI?.writeLog) {
+      window.electronAPI.writeLog(`[Project 100] ${msg}`);
+    }
+  };
   
   // Search & Filter State
   const [search, setSearch] = useState('');
@@ -64,6 +73,59 @@ export default function Project100Detail({ onBack }) {
   const [selectedContact, setSelectedContact] = useState(null);
   const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
   const [caseContact, setCaseContact] = useState(null);
+
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null,
+    isAlert: false
+  });
+
+  const showCustomConfirm = (title, message, onConfirm, confirmText = 'Confirm', cancelText = 'Cancel') => {
+    setConfirmConfig({
+      isOpen: true,
+      title,
+      message,
+      confirmText,
+      cancelText,
+      onConfirm: () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        onConfirm();
+      },
+      isAlert: false
+    });
+  };
+
+  const showCustomAlert = (title, message, onClose = null) => {
+    setConfirmConfig({
+      isOpen: true,
+      title,
+      message,
+      confirmText: 'OK',
+      cancelText: '',
+      onConfirm: () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        if (onClose) onClose();
+      },
+      isAlert: true
+    });
+  };
+
+  // Auto-log modal state changes for diagnostics
+  useEffect(() => {
+    log(`isAddModalOpen changed to: ${isAddModalOpen}`);
+  }, [isAddModalOpen]);
+
+  useEffect(() => {
+    log(`isEditModalOpen changed to: ${isEditModalOpen} (selectedContact: ${selectedContact ? selectedContact.fullName : 'none'})`);
+  }, [isEditModalOpen, selectedContact]);
+
+  useEffect(() => {
+    log(`isCaseModalOpen changed to: ${isCaseModalOpen} (caseContact: ${caseContact ? caseContact.fullName : 'none'})`);
+  }, [isCaseModalOpen, caseContact]);
   
   // Pipeline case form state
   const [caseForm, setCaseForm] = useState({
@@ -92,23 +154,61 @@ export default function Project100Detail({ onBack }) {
   });
 
   const loadData = async (silent = false) => {
+    log(`loadData started (silent: ${silent})`);
     if (!silent) setLoading(true);
+    const overallStart = performance.now();
     try {
       if (window.electronAPI) {
+        const startContacts = performance.now();
+        const contactsPromise = window.electronAPI.getProject100Contacts 
+          ? window.electronAPI.getProject100Contacts() 
+          : Promise.resolve({ success: true, data: [] });
+          
+        const startPipeline = performance.now();
+        const pipelinePromise = window.electronAPI.getPipeline 
+          ? window.electronAPI.getPipeline() 
+          : Promise.resolve({ success: true, data: [] });
+
+        const startClients = performance.now();
+        const clientsPromise = window.electronAPI.getClients 
+          ? window.electronAPI.getClients() 
+          : Promise.resolve({ success: true, data: [] });
+
         const [contactsRes, pipelineRes, clientsRes] = await Promise.all([
-          window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : { success: true, data: [] },
-          window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : { success: true, data: [] },
-          window.electronAPI.getClients ? window.electronAPI.getClients() : { success: true, data: [] }
+          contactsPromise,
+          pipelinePromise,
+          clientsPromise
         ]);
 
-        if (contactsRes.success) setContacts(contactsRes.data);
-        if (pipelineRes.success) setPipelineCases(pipelineRes.data);
-        if (clientsRes.success) setClients(clientsRes.data);
+        log(`API calls completed: getProject100Contacts took ${(performance.now() - startContacts).toFixed(2)}ms, getPipeline took ${(performance.now() - startPipeline).toFixed(2)}ms, getClients took ${(performance.now() - startClients).toFixed(2)}ms`);
+
+        if (contactsRes.success) {
+          setContacts(contactsRes.data);
+          log(`setContacts succeeded: loaded ${contactsRes.data.length} contacts`);
+        } else {
+          log(`getProject100Contacts failed: ${contactsRes.error}`);
+        }
+        
+        if (pipelineRes.success) {
+          setPipelineCases(pipelineRes.data);
+          log(`setPipelineCases succeeded: loaded ${pipelineRes.data.length} cases`);
+        } else {
+          log(`getPipeline failed: ${pipelineRes.error}`);
+        }
+        
+        if (clientsRes.success) {
+          setClients(clientsRes.data);
+          log(`setClients succeeded: loaded ${clientsRes.data.length} clients`);
+        } else {
+          log(`getClients failed: ${clientsRes.error}`);
+        }
       }
     } catch (err) {
+      log(`Error in loadData: ${err.message}`);
       console.error("Failed to load Project 100 workspace data:", err);
     }
     if (!silent) setLoading(false);
+    log(`loadData finished in ${(performance.now() - overallStart).toFixed(2)}ms`);
   };
 
   useEffect(() => {
@@ -161,6 +261,7 @@ export default function Project100Detail({ onBack }) {
     const handleKeyDown = (e) => {
       if (e.altKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
+        log("Alt+A keyboard shortcut triggered");
         
         // Don't trigger if user is actively editing inside an input/textarea/select
         const active = document.activeElement;
@@ -171,6 +272,7 @@ export default function Project100Detail({ onBack }) {
           active.isContentEditable
         );
         
+        log(`Alt+A isInput: ${isInput}, active element: ${active ? active.tagName : 'none'}`);
         if (!isInput) {
           setIsAddModalOpen(true);
         }
@@ -192,6 +294,7 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!formData.fullName.trim()) return;
 
+    log(`handleAddSubmit started for: ${formData.fullName}`);
     // Blur active elements to settle focus
     if (document.activeElement) {
       document.activeElement.blur();
@@ -203,11 +306,13 @@ export default function Project100Detail({ onBack }) {
     if (window.electronAPI?.addProject100Contact) {
       const formToSubmit = { ...formData };
       resetForm();
+      const startAdd = performance.now();
       const res = await window.electronAPI.addProject100Contact(formToSubmit);
+      log(`addProject100Contact returned in ${(performance.now() - startAdd).toFixed(2)}ms (success: ${res.success})`);
       if (res.success) {
         loadData(true);
       } else {
-        alert("Failed to add prospect: " + res.error);
+        showCustomAlert("Error", "Failed to add prospect: " + res.error);
       }
     }
   };
@@ -216,32 +321,49 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!selectedContact || !formData.fullName.trim()) return;
 
+    log(`handleEditSubmit started for ID: ${selectedContact.id}, name: ${formData.fullName}`);
     if (window.electronAPI?.updateProject100Contact) {
+      const startEdit = performance.now();
       const res = await window.electronAPI.updateProject100Contact({
         ...formData,
         id: selectedContact.id
       });
+      log(`updateProject100Contact returned in ${(performance.now() - startEdit).toFixed(2)}ms (success: ${res.success})`);
       if (res.success) {
         setIsEditModalOpen(false);
         setSelectedContact(null);
         resetForm();
         loadData(true);
       } else {
-        alert("Failed to update prospect: " + res.error);
+        showCustomAlert("Error", "Failed to update prospect: " + res.error);
       }
     }
   };
 
   const handleDeleteContact = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this prospect from your Project 100 list?")) return;
-    if (window.electronAPI?.deleteProject100Contact) {
-      const res = await window.electronAPI.deleteProject100Contact(id);
-      if (res.success) {
-        loadData(true);
-      } else {
-        alert("Failed to delete prospect: " + res.error);
-      }
+    log(`handleDeleteContact triggered for contact ID: ${id}`);
+    if (document.activeElement) {
+      document.activeElement.blur();
     }
+    showCustomConfirm(
+      "Delete Prospect",
+      "Are you sure you want to delete this prospect from your Project 100 list?",
+      async () => {
+        log(`handleDeleteContact confirmed`);
+        if (window.electronAPI?.deleteProject100Contact) {
+          const startDelete = performance.now();
+          const res = await window.electronAPI.deleteProject100Contact(id);
+          log(`deleteProject100Contact returned in ${(performance.now() - startDelete).toFixed(2)}ms (success: ${res.success})`);
+          if (res.success) {
+            loadData(true);
+          } else {
+            showCustomAlert("Error", "Failed to delete prospect: " + res.error);
+          }
+        }
+      },
+      "Delete",
+      "Cancel"
+    );
   };
 
   const openEditModal = (contact) => {
@@ -333,6 +455,7 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!caseContact) return;
 
+    log(`handleCaseSubmit started for contact: ${caseContact.fullName}`);
     setLoading(true);
     try {
       let clientId = caseContact.portedClientId;
@@ -340,6 +463,7 @@ export default function Project100Detail({ onBack }) {
 
       // Step 1: If not ported to clients yet, check for match or port first!
       if (!clientId) {
+        log(`handleCaseSubmit: checking existing client by name for ${caseContact.fullName}`);
         // Look for case-insensitive exact name match in current clients list
         const existingClient = clients.find(
           c => (c.fullName || '').toLowerCase().trim() === caseContact.fullName.toLowerCase().trim()
@@ -349,7 +473,10 @@ export default function Project100Detail({ onBack }) {
           clientId = existingClient.id;
           updatedContact.portedClientId = clientId;
           updatedContact.stage = 'Ported / Converted';
+          log(`handleCaseSubmit: linked to existing client ID ${clientId}`);
         } else if (window.electronAPI?.addClient) {
+          log(`handleCaseSubmit: creating new client for ${caseContact.fullName}`);
+          const startAddClient = performance.now();
           const clientRes = await window.electronAPI.addClient({
             fullName: caseContact.fullName,
             preferredName: caseContact.fullName.split(' ')[0],
@@ -358,13 +485,14 @@ export default function Project100Detail({ onBack }) {
             clientStatus: 'Prospect',
             notes: `[Ported via Case Creation on ${new Date().toLocaleDateString()}] N.A.S.T. Priority Rank: ${getAverageScore(caseContact)}/5.0. Notes: ${caseContact.notes || 'None'}`
           });
+          log(`addClient returned in ${(performance.now() - startAddClient).toFixed(2)}ms (success: ${clientRes.success})`);
 
           if (clientRes.success) {
             clientId = clientRes.id;
             updatedContact.portedClientId = clientId;
             updatedContact.stage = 'Ported / Converted';
           } else {
-            alert("Failed to auto-create client profile: " + clientRes.error);
+            showCustomAlert("Error", "Failed to auto-create client profile: " + clientRes.error);
             setLoading(false);
             return;
           }
@@ -373,6 +501,8 @@ export default function Project100Detail({ onBack }) {
 
       // Step 2: Create pipeline case
       if (window.electronAPI?.addPipelineCase) {
+        log(`handleCaseSubmit: adding pipeline case...`);
+        const startAddCase = performance.now();
         const caseRes = await window.electronAPI.addPipelineCase({
           clientName: caseContact.fullName,
           policyName: caseForm.policyName,
@@ -383,25 +513,29 @@ export default function Project100Detail({ onBack }) {
           expectedCloseDate: caseForm.expectedCloseDate || null,
           notes: caseForm.notes
         });
+        log(`addPipelineCase returned in ${(performance.now() - startAddCase).toFixed(2)}ms (success: ${caseRes.success})`);
 
         if (caseRes.success) {
           // Step 3: Update contact in Project 100
           if (window.electronAPI?.updateProject100Contact) {
+            const startUpdateContact = performance.now();
             await window.electronAPI.updateProject100Contact({
               id: caseContact.id,
               stage: 'Ported / Converted',
               portedClientId: clientId
             });
+            log(`updateProject100Contact took ${(performance.now() - startUpdateContact).toFixed(2)}ms`);
           }
           setIsCaseModalOpen(false);
           setCaseContact(null);
-          alert(`Successfully created pipeline case for ${caseContact.fullName}!`);
+          showCustomAlert("Success", `Successfully created pipeline case for ${caseContact.fullName}!`);
           loadData(true);
         } else {
-          alert("Failed to create pipeline case: " + caseRes.error);
+          showCustomAlert("Error", "Failed to create pipeline case: " + caseRes.error);
         }
       }
     } catch (err) {
+      log(`Error in handleCaseSubmit: ${err.message}`);
       console.error("Error creating pipeline case from Project 100:", err);
     }
     setLoading(false);
@@ -409,135 +543,171 @@ export default function Project100Detail({ onBack }) {
 
   // Convert Project 100 prospect to Client Profile
   const handlePortToClients = async (contact) => {
-    if (window.confirm(`Port ${contact.fullName} to your Core Clients Database?`)) {
-      if (window.electronAPI?.addClient) {
-        // Step 1: Check if client already exists by name
-        const existingClient = clients.find(
-          c => (c.fullName || '').toLowerCase().trim() === contact.fullName.toLowerCase().trim()
-        );
+    log(`handlePortToClients triggered for contact: ${contact.fullName}`);
+    if (document.activeElement) {
+      document.activeElement.blur();
+    }
+    showCustomConfirm(
+      "Port to Clients",
+      `Port ${contact.fullName} to your Core Clients Database?`,
+      async () => {
+        log(`handlePortToClients confirmed`);
+        if (window.electronAPI?.addClient) {
+          // Step 1: Check if client already exists by name
+          log(`handlePortToClients: checking existing client by name...`);
+          const existingClient = clients.find(
+            c => (c.fullName || '').toLowerCase().trim() === contact.fullName.toLowerCase().trim()
+          );
 
-        if (existingClient) {
-          if (window.confirm(`${contact.fullName} already exists in your Clients database. Would you like to link this prospect to that existing client profile?`)) {
+          if (existingClient) {
+            showCustomConfirm(
+              "Client Already Exists",
+              `${contact.fullName} already exists in your Clients database. Would you like to link this prospect to that existing client profile?`,
+              async () => {
+                log(`handlePortToClients link confirmed`);
+                if (window.electronAPI?.updateProject100Contact) {
+                  const startLinkUpdate = performance.now();
+                  await window.electronAPI.updateProject100Contact({
+                    id: contact.id,
+                    stage: 'Ported / Converted',
+                    portedClientId: existingClient.id
+                  });
+                  log(`updateProject100Contact (link) took ${(performance.now() - startLinkUpdate).toFixed(2)}ms`);
+                }
+                showCustomAlert("Success", `Successfully linked ${contact.fullName} to existing Client profile!`);
+                loadData(true);
+              },
+              "Link Profile",
+              "Cancel"
+            );
+            return;
+          }
+
+          // Step 2: Create client if not found
+          log(`handlePortToClients: adding client profile...`);
+          const startAdd = performance.now();
+          const clientRes = await window.electronAPI.addClient({
+            fullName: contact.fullName,
+            preferredName: contact.fullName.split(' ')[0], // simple preferred name guess
+            phone: contact.phone,
+            email: contact.email,
+            clientStatus: 'Prospect',
+            notes: `[Ported from Project 100 on ${new Date().toLocaleDateString()}] N.A.S.T. Priority Rank: ${getAverageScore(contact)}/5.0. Category: ${contact.category}. Notes: ${contact.notes || 'None'}`
+          });
+          log(`addClient took ${(performance.now() - startAdd).toFixed(2)}ms (success: ${clientRes.success})`);
+
+          if (clientRes.success) {
+            const clientId = clientRes.id;
+            // Step 3: Update prospect in Project 100
             if (window.electronAPI?.updateProject100Contact) {
+              const startUpdate = performance.now();
               await window.electronAPI.updateProject100Contact({
                 id: contact.id,
                 stage: 'Ported / Converted',
-                portedClientId: existingClient.id
+                portedClientId: clientId
               });
+              log(`updateProject100Contact took ${(performance.now() - startUpdate).toFixed(2)}ms`);
             }
-            alert(`Successfully linked ${contact.fullName} to existing Client profile!`);
+            showCustomAlert("Success", `Successfully ported ${contact.fullName} to Client Database!`);
             loadData(true);
-            return;
+          } else {
+            showCustomAlert("Error", "Failed to create client profile: " + clientRes.error);
           }
-          return;
         }
-
-        // Step 2: Create client if not found
-        const clientRes = await window.electronAPI.addClient({
-          fullName: contact.fullName,
-          preferredName: contact.fullName.split(' ')[0], // simple preferred name guess
-          phone: contact.phone,
-          email: contact.email,
-          clientStatus: 'Prospect',
-          notes: `[Ported from Project 100 on ${new Date().toLocaleDateString()}] N.A.S.T. Priority Rank: ${getAverageScore(contact)}/5.0. Category: ${contact.category}. Notes: ${contact.notes || 'None'}`
-        });
-
-        if (clientRes.success) {
-          const clientId = clientRes.id;
-          // Step 3: Update prospect in Project 100
-          if (window.electronAPI?.updateProject100Contact) {
-            await window.electronAPI.updateProject100Contact({
-              id: contact.id,
-              stage: 'Ported / Converted',
-              portedClientId: clientId
-            });
-          }
-          alert(`Successfully ported ${contact.fullName} to Client Database!`);
-          loadData(true);
-        } else {
-          alert("Failed to create client profile: " + clientRes.error);
-        }
-      }
-    }
+      },
+      "Port",
+      "Cancel"
+    );
   };
 
   // Generate 10 realistic demo prospects to test out rankings, pipeline integration and porting
   const handleGenerateDemoData = async () => {
-    if (contacts.length > 0) {
-      if (!window.confirm("This will add 10 sample prospects to your current list. Do you want to continue?")) {
-        return;
-      }
-    }
+    const startDemoAction = async () => {
+      setLoading(true);
+      const sampleProspects = [
+        { fullName: "Raymond Tan (Uncle)", phone: "+65 9123 4567", email: "raymond.tan@gmail.com", category: "Family", scoreNeed: 5, scoreAccessibility: 5, scoreIncome: 4, scoreTrust: 5, stage: "Meeting Scheduled", notes: "Approaching retirement. Needs annuity and legacy planning." },
+        { fullName: "Sarah Jenkins", phone: "+65 8234 5678", email: "sarah.j@hotmail.com", category: "Close Friend", scoreNeed: 4, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Proposal Presented", notes: "Recently married and bought a condo. Looking at critical illness and mortgage insurance." },
+        { fullName: "Lim Zi Xuan (David)", phone: "+65 9345 6789", email: "david.lim@techcorp.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Ported / Converted", notes: "Software engineer earning well. Ported to client directory. High investment capacity." },
+        { fullName: "Marcus Tan", phone: "+65 8456 7890", email: "marcus.tan@u.nus.edu", category: "Colleague / Classmate", scoreNeed: 4, scoreAccessibility: 4, scoreIncome: 2, scoreTrust: 3, stage: "Contacted", notes: "Fresh grad. Good entry point for low-cost term protection." },
+        { fullName: "Chua Bee Lan", phone: "+65 9567 8901", email: "beelanchua@yahoo.com.sg", category: "Family", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Fact Finding", notes: "Aunt. Looking to compare some medical shield options." },
+        { fullName: "Jonathan Teo", phone: "+65 9678 9012", email: "j.teo.estate@gmail.com", category: "Warm Acquaintance", scoreNeed: 5, scoreAccessibility: 3, scoreIncome: 5, scoreTrust: 3, stage: "Not Contacted", notes: "Real estate agent. Strong income but no insurance portfolio reviews in 5 years." },
+        { fullName: "Clara Wong", phone: "+65 8789 0123", email: "clara.wong@outlook.com", category: "Close Friend", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "No Interest / Inactive", notes: "Currently working overseas in London, not looking to buy local policies right now." },
+        { fullName: "Edwin Seah", phone: "+65 9890 1234", email: "edwinseah@gmail.com", category: "Warm Acquaintance", scoreNeed: 4, scoreAccessibility: 3, scoreIncome: 4, scoreTrust: 3, stage: "Contacted", notes: "Met at local gym. Interested in wealth accumulation plans (ILPs)." },
+        { fullName: "Patricia Ong", phone: "+65 9901 2345", email: "patricia.ong@shiningstars.edu.sg", category: "Cold / Re-contact", scoreNeed: 4, scoreAccessibility: 2, scoreIncome: 4, scoreTrust: 2, stage: "Not Contacted", notes: "Primary school classmate. Saw she recently posted about having a newborn." },
+        { fullName: "Yap Wei Kiat", phone: "+65 8012 3456", email: "weikiat.yap@outlook.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Not Contacted", notes: "Previous department manager. High earner. Good corporate networking link." }
+      ];
 
-    setLoading(true);
-    const sampleProspects = [
-      { fullName: "Raymond Tan (Uncle)", phone: "+65 9123 4567", email: "raymond.tan@gmail.com", category: "Family", scoreNeed: 5, scoreAccessibility: 5, scoreIncome: 4, scoreTrust: 5, stage: "Meeting Scheduled", notes: "Approaching retirement. Needs annuity and legacy planning." },
-      { fullName: "Sarah Jenkins", phone: "+65 8234 5678", email: "sarah.j@hotmail.com", category: "Close Friend", scoreNeed: 4, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Proposal Presented", notes: "Recently married and bought a condo. Looking at critical illness and mortgage insurance." },
-      { fullName: "Lim Zi Xuan (David)", phone: "+65 9345 6789", email: "david.lim@techcorp.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Ported / Converted", notes: "Software engineer earning well. Ported to client directory. High investment capacity." },
-      { fullName: "Marcus Tan", phone: "+65 8456 7890", email: "marcus.tan@u.nus.edu", category: "Colleague / Classmate", scoreNeed: 4, scoreAccessibility: 4, scoreIncome: 2, scoreTrust: 3, stage: "Contacted", notes: "Fresh grad. Good entry point for low-cost term protection." },
-      { fullName: "Chua Bee Lan", phone: "+65 9567 8901", email: "beelanchua@yahoo.com.sg", category: "Family", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Fact Finding", notes: "Aunt. Looking to compare some medical shield options." },
-      { fullName: "Jonathan Teo", phone: "+65 9678 9012", email: "j.teo.estate@gmail.com", category: "Warm Acquaintance", scoreNeed: 5, scoreAccessibility: 3, scoreIncome: 5, scoreTrust: 3, stage: "Not Contacted", notes: "Real estate agent. Strong income but no insurance portfolio reviews in 5 years." },
-      { fullName: "Clara Wong", phone: "+65 8789 0123", email: "clara.wong@outlook.com", category: "Close Friend", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "No Interest / Inactive", notes: "Currently working overseas in London, not looking to buy local policies right now." },
-      { fullName: "Edwin Seah", phone: "+65 9890 1234", email: "edwinseah@gmail.com", category: "Warm Acquaintance", scoreNeed: 4, scoreAccessibility: 3, scoreIncome: 4, scoreTrust: 3, stage: "Contacted", notes: "Met at local gym. Interested in wealth accumulation plans (ILPs)." },
-      { fullName: "Patricia Ong", phone: "+65 9901 2345", email: "patricia.ong@shiningstars.edu.sg", category: "Cold / Re-contact", scoreNeed: 4, scoreAccessibility: 2, scoreIncome: 4, scoreTrust: 2, stage: "Not Contacted", notes: "Primary school classmate. Saw she recently posted about having a newborn." },
-      { fullName: "Yap Wei Kiat", phone: "+65 8012 3456", email: "weikiat.yap@outlook.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Not Contacted", notes: "Previous department manager. High earner. Good corporate networking link." }
-    ];
-
-    if (window.electronAPI?.addProject100Contact) {
-      for (const prospect of sampleProspects) {
-        // Add prospect
-        const res = await window.electronAPI.addProject100Contact(prospect);
-        
-        // Special integration logic for demo: If prospect is "David Lim", we also port him and create a closed case to show the tracking system working immediately!
-        if (res.success && prospect.fullName === "Lim Zi Xuan (David)" && window.electronAPI.addClient && window.electronAPI.addPipelineCase) {
-          const clientRes = await window.electronAPI.addClient({
-            fullName: prospect.fullName,
-            preferredName: "David",
-            phone: prospect.phone,
-            email: prospect.email,
-            clientStatus: 'Active',
-            notes: `[Ported from Project 100 Demo] N.A.S.T. Priority Rank: 4.3/5.0. Tech engineer.`
-          });
-
-          if (clientRes.success) {
-            const clientId = clientRes.id;
-            // Update stage in Project 100
-            await window.electronAPI.updateProject100Contact({
-              id: res.id,
-              stage: 'Ported / Converted',
-              portedClientId: clientId
+      if (window.electronAPI?.addProject100Contact) {
+        for (const prospect of sampleProspects) {
+          // Add prospect
+          const res = await window.electronAPI.addProject100Contact(prospect);
+          
+          // Special integration logic for demo: If prospect is "David Lim", we also port him and create a closed case to show the tracking system working immediately!
+          if (res.success && prospect.fullName === "Lim Zi Xuan (David)" && window.electronAPI.addClient && window.electronAPI.addPipelineCase) {
+            const clientRes = await window.electronAPI.addClient({
+              fullName: prospect.fullName,
+              preferredName: "David",
+              phone: prospect.phone,
+              email: prospect.email,
+              clientStatus: 'Active',
+              notes: `[Ported from Project 100 Demo] N.A.S.T. Priority Rank: 4.3/5.0. Tech engineer.`
             });
 
-            // Add a closed pipeline case (Closed Won / Case Issued) matching his name
-            await window.electronAPI.addPipelineCase({
-              clientName: prospect.fullName,
-              policyName: "Great Eastern Wealth Accumulator",
-              policyType: "ILP",
-              estimatedPremium: 6000,
-              estimatedFYC: 2400,
-              stage: "Case Issued",
-              expectedCloseDate: new Date().toISOString().split('T')[0],
-              notes: "Issued policy. $6k annual premium wealth-builder plan."
-            });
-            
-            // Add a pending pipeline case for Raymond Tan as well to demonstrate active deals
-            await window.electronAPI.addPipelineCase({
-              clientName: "Raymond Tan (Uncle)",
-              policyName: "AIA Retirement Saver",
-              policyType: "Endowment",
-              estimatedPremium: 10000,
-              estimatedFYC: 3500,
-              stage: "Proposal Sent",
-              expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
-              notes: "Proposal pitched. Waiting for feedback next week."
-            });
+            if (clientRes.success) {
+              const clientId = clientRes.id;
+              // Update stage in Project 100
+              await window.electronAPI.updateProject100Contact({
+                id: res.id,
+                stage: 'Ported / Converted',
+                portedClientId: clientId
+              });
+
+              // Add a closed pipeline case (Closed Won / Case Issued) matching his name
+              await window.electronAPI.addPipelineCase({
+                clientName: prospect.fullName,
+                policyName: "Great Eastern Wealth Accumulator",
+                policyType: "ILP",
+                estimatedPremium: 6000,
+                estimatedFYC: 2400,
+                stage: "Case Issued",
+                expectedCloseDate: new Date().toISOString().split('T')[0],
+                notes: "Issued policy. $6k annual premium wealth-builder plan."
+              });
+              
+              // Add a pending pipeline case for Raymond Tan as well to demonstrate active deals
+              await window.electronAPI.addPipelineCase({
+                clientName: "Raymond Tan (Uncle)",
+                policyName: "AIA Retirement Saver",
+                policyType: "Endowment",
+                estimatedPremium: 10000,
+                estimatedFYC: 3500,
+                stage: "Proposal Sent",
+                expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+                notes: "Proposal pitched. Waiting for feedback next week."
+              });
+            }
           }
         }
       }
+      
+      await loadData();
+      setLoading(false);
+    };
+
+    if (contacts.length > 0) {
+      if (document.activeElement) {
+        document.activeElement.blur();
+      }
+      showCustomConfirm(
+        "Generate Demo Prospects",
+        "This will add 10 sample prospects to your current list. Do you want to continue?",
+        startDemoAction,
+        "Continue",
+        "Cancel"
+      );
+    } else {
+      await startDemoAction();
     }
-    
-    await loadData();
-    setLoading(false);
   };
 
   // Helper function to calculate total score (out of 20)
@@ -1580,6 +1750,50 @@ export default function Project100Detail({ onBack }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* CUSTOM CONFIRMATION/ALERT MODAL */}
+      {confirmConfig.isOpen && createPortal(
+        <div 
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
+            backdropFilter: 'blur(8px)', zIndex: 2000,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+          }} 
+          onClick={() => !confirmConfig.isAlert && setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+        >
+          <div 
+            className="glass-panel animate-fade-in" 
+            style={{ width: '100%', maxWidth: '420px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--border-light)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-primary)' }}>{confirmConfig.title}</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', margin: 0 }}>{confirmConfig.message}</p>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+              {!confirmConfig.isAlert && (
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} 
+                  style={{ padding: '8px 16px', fontSize: '12px' }}
+                >
+                  {confirmConfig.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={confirmConfig.onConfirm} 
+                style={{ padding: '8px 16px', fontSize: '12px' }}
+              >
+                {confirmConfig.confirmText || 'Confirm'}
+              </button>
+            </div>
           </div>
         </div>,
         document.body

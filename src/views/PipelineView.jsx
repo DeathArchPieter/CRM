@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, LayoutGrid, List, Trash2, TrendingUp, DollarSign, Briefcase } from 'lucide-react';
+import DatePicker from '../components/DatePicker';
 
 const STAGES = ['Prospect', 'Fact Finding', 'Proposal Sent', 'Case Submitted', 'Case Issued', 'Closed/Lost'];
 
@@ -291,7 +292,11 @@ export default function PipelineView() {
                 </div>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Expected Close Date</label>
-                  <input type="date" name="expectedCloseDate" className="input-field" style={{ width: '100%', color: 'var(--text-primary)' }} value={formData.expectedCloseDate || ''} onChange={handleChange} />
+                  <DatePicker 
+                    name="expectedCloseDate" 
+                    value={formData.expectedCloseDate || ''} 
+                    onChange={handleChange} 
+                  />
                 </div>
               </div>
 
@@ -300,14 +305,14 @@ export default function PipelineView() {
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Est. Annual Premium</label>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                    <input type="number" name="estimatedPremium" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} value={formData.estimatedPremium} onChange={handleChange} />
+                    <input type="number" step="0.01" min="0" name="estimatedPremium" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} placeholder="0.00" value={formData.estimatedPremium} onChange={handleChange} />
                   </div>
                 </div>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Est. FYC</label>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                    <input type="number" name="estimatedFYC" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} value={formData.estimatedFYC} onChange={handleChange} />
+                    <input type="number" step="0.01" min="0" name="estimatedFYC" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} placeholder="0.00" value={formData.estimatedFYC} onChange={handleChange} />
                   </div>
                 </div>
               </div>

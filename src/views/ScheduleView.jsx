@@ -4,6 +4,7 @@ import {
   Settings, CheckCircle2, Circle, AlertCircle, Plus, Info, 
   Trash2, ExternalLink, ShieldCheck, Link2Off, Edit 
 } from 'lucide-react';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = [
@@ -1121,13 +1122,11 @@ export default function ScheduleView() {
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Location (Optional)</span>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        placeholder="Address/Venue" 
-                        style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }}
-                        value={quickAddTaskLocation}
-                        onChange={e => setQuickAddTaskLocation(e.target.value)}
+                      <AddressAutocomplete 
+                        value={quickAddTaskLocation} 
+                        onChange={e => setQuickAddTaskLocation(e.target.value)} 
+                        placeholder="Search venue or address (e.g. 048581, MBFC...)"
+                        style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
                       />
                     </div>
                     <button 
@@ -1483,12 +1482,10 @@ export default function ScheduleView() {
 
                   <div className="input-group" style={{ marginBottom: 0 }}>
                     <label className="input-label">Address / Location</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={editForm.location || ''}
-                      onChange={e => setEditForm({ ...editForm, location: e.target.value })}
-                      placeholder="e.g. 123 Main St, Singapore"
+                    <AddressAutocomplete 
+                      value={editForm.location || ''} 
+                      onChange={e => setEditForm({ ...editForm, location: e.target.value })} 
+                      placeholder="Search venue or address (e.g. 048581, MBFC...)"
                     />
                   </div>
                 </>

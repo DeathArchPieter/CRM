@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Edit2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X } from 'lucide-react';
+import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Edit2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X, Bookmark, Zap, ArrowRight } from 'lucide-react';
 import Project100Detail from './Project100Detail';
 import OutreachCampaignDetail from './OutreachCampaignDetail';
+import DatePicker from '../components/DatePicker';
 
 const cardStyle = {
   background: 'var(--bg-surface)',
@@ -16,10 +17,60 @@ const cardStyle = {
   overflow: 'hidden',
 };
 
+// Pre-built Advisory Campaign Playbook Templates
+const CAMPAIGN_TEMPLATES = [
+  {
+    id: 'tpl-ci-protect',
+    title: 'AIA Protect 3 / Major CI Protection Gap',
+    category: 'Protection',
+    productName: 'AIA Protect 3',
+    targetAudience: 'Young Working Adults & Families',
+    description: 'Target working Singaporeans facing a 74% CI protection gap with budget-friendly coverage & Health Cashback feature.',
+    productSummary: 'AIA Protect 3 focuses on Cancer, Heart Attack, and Stroke with 25% Health Cashback at age 65 and 15% extra payout for gender-specific cancers.'
+  },
+  {
+    id: 'tpl-srs-tax',
+    title: 'SRS & Year-End Tax Relief Top-Up',
+    category: 'Tax & Retirement',
+    productName: 'SRS Retirement Annuity',
+    targetAudience: 'Middle-to-High Earners ($80k+)',
+    description: 'Help clients legally reduce personal income tax by up to S$15,300/yr while building guaranteed retirement income.',
+    productSummary: 'Supplementary Retirement Scheme (SRS) tax deduction strategy combined with guaranteed single/regular premium annuity plans.'
+  },
+  {
+    id: 'tpl-child-edu',
+    title: 'Child Education & Protection Campaign',
+    category: 'Education Savings',
+    productName: 'AIA Smart Growth / Smart Junior',
+    targetAudience: 'Parents with Young Children (Ages 0-10)',
+    description: 'Secure future university tuition funds and total medical protection for growing children.',
+    productSummary: 'Guaranteed endowment savings paired with premium waiver on parent total disability or death, ensuring education funds are safe.'
+  },
+  {
+    id: 'tpl-hnw-legacy',
+    title: 'HNW Legacy Planning & IUL Campaign',
+    category: 'Wealth & Legacy',
+    productName: 'Indexed Universal Life (IUL)',
+    targetAudience: 'Business Owners & HNW Executives',
+    description: 'Multi-generational wealth preservation, estate liquidity, and market upside participation with downside protection.',
+    productSummary: 'Indexed Universal Life structure allowing S&P 500 growth linkage, 0% floor protection, and high-value legacy payouts.'
+  },
+  {
+    id: 'tpl-shield-upgrade',
+    title: 'Shield Healthcare & Rider Upgrade',
+    category: 'Healthcare',
+    productName: 'AIA HealthShield Gold Max + Rider',
+    targetAudience: 'Existing Clients with Outdated Shield Plans',
+    description: 'Review existing hospital coverage to protect against medical inflation and cap out-of-pocket co-payments.',
+    productSummary: 'Private hospital shield plan with rider covering 95% of hospital bills and annual deductible capping.'
+  }
+];
+
 export default function SpecialProjectsView() {
   const [activeProject, setActiveProject] = useState(null);
   const [project100Contacts, setProject100Contacts] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [activeTab, setActiveTab] = useState('initiatives'); // 'initiatives' | 'templates'
 
   const loadProject100Contacts = async () => {
     if (window.electronAPI && window.electronAPI.getProject100Contacts) {
@@ -64,7 +115,6 @@ export default function SpecialProjectsView() {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadProject100Contacts();
     load();
   }, []);
@@ -135,7 +185,6 @@ export default function SpecialProjectsView() {
         const playbook = res.data;
         setGeneratedPlaybook(playbook);
 
-        // Pre-fill the form fields!
         const resolvedProduct = playbook.productFocus || newProject.productFocus || 'AIA Protect 3';
         const resolvedAudience = playbook.targetAudience || newProject.targetAudience || 'Young Working Adults & Families';
 
@@ -159,6 +208,24 @@ export default function SpecialProjectsView() {
     }
   };
 
+  const handleUseTemplate = (template) => {
+    setNewProject({
+      title: `${template.productName} Outreach`,
+      description: template.description,
+      leader: 'Pieter Beetsma',
+      status: 'Planning',
+      targetDate: new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0],
+      members: 1,
+      type: 'outreach',
+      productFocus: template.productName,
+      targetAudience: template.targetAudience,
+      targetAppointments: '20',
+      productSummary: template.productSummary,
+      milestones: ['', '']
+    });
+    setShowAddModal(true);
+  };
+
   const getProjectMilestones = (project) => {
     if (project.id === 'project-100') {
       const count = project100Contacts.length;
@@ -177,9 +244,9 @@ export default function SpecialProjectsView() {
     if (project.type === 'outreach') {
       const contacts = project.contacts || [];
       const total = contacts.length;
-      const step1Count = contacts.filter(c => c.stage === 'Step 1: Opener Sent' || c.stage === 'Step 2: Info Sent' || c.stage === 'Step 3: Appt Booked').length;
-      const step2Count = contacts.filter(c => c.stage === 'Step 2: Info Sent' || c.stage === 'Step 3: Appt Booked').length;
-      const bookedCount = contacts.filter(c => c.stage === 'Step 3: Appt Booked').length;
+      const step1Count = contacts.filter(c => c.stage === '2. Opener Sent' || c.stage === '3. Info Shared' || c.stage === '4. Appt Booked' || c.stage === '5. Case Closed').length;
+      const step2Count = contacts.filter(c => c.stage === '3. Info Shared' || c.stage === '4. Appt Booked' || c.stage === '5. Case Closed').length;
+      const bookedCount = contacts.filter(c => c.stage === '4. Appt Booked' || c.stage === '5. Case Closed').length;
       const targetAppts = project.targetAppointments || 20;
 
       return [
@@ -201,12 +268,9 @@ export default function SpecialProjectsView() {
   };
 
   const toggleMilestone = async (projectId, milestoneId) => {
-    if (projectId === 'project-100') return; // project-100 milestones are computed dynamically
-    
+    if (projectId === 'project-100') return;
     const project = projects.find(p => p.id === projectId);
-    if (!project) return;
-    
-    if (project.type === 'outreach') return; // outreach milestones computed dynamically too
+    if (!project || project.type === 'outreach') return;
     
     const updatedMilestones = project.milestones.map(m => 
       m.id === milestoneId ? { ...m, completed: !m.completed } : m
@@ -224,6 +288,7 @@ export default function SpecialProjectsView() {
   };
 
   const handleDeleteProject = async (id) => {
+    if (document.activeElement) document.activeElement.blur();
     if (id === 'project-100') {
       alert("Project 100 is a core training module and cannot be deleted.");
       return;
@@ -236,21 +301,6 @@ export default function SpecialProjectsView() {
         load();
       }
     }
-  };
-
-  const handleMilestoneInputChange = (index, value) => {
-    const updatedMilestones = [...newProject.milestones];
-    updatedMilestones[index] = value;
-    setNewProject({ ...newProject, milestones: updatedMilestones });
-  };
-
-  const addMilestoneInputField = () => {
-    setNewProject({ ...newProject, milestones: [...newProject.milestones, ''] });
-  };
-
-  const removeMilestoneInputField = (index) => {
-    const updated = newProject.milestones.filter((_, i) => i !== index);
-    setNewProject({ ...newProject, milestones: updated });
   };
 
   const handleOpenAddModal = () => {
@@ -269,49 +319,16 @@ export default function SpecialProjectsView() {
     setShowAddModal(false);
   };
 
-  const handleEditClick = (project) => {
-    setProjectToEdit({ ...project });
-    setShowEditModal(true);
-  };
-
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
-    if (!projectToEdit) return;
-
-    let updatedProject = { ...projectToEdit };
-
-    // Sync edited fields back into the playbook object if it exists by copying to avoid mutation lint warnings
-    if (updatedProject.type === 'outreach' && updatedProject.playbook) {
-      updatedProject.playbook = {
-        ...updatedProject.playbook,
-        productFocus: updatedProject.productName,
-        targetAudience: updatedProject.targetAudience
-      };
-    }
-
-    if (window.electronAPI && window.electronAPI.updateInitiative) {
-      const res = await window.electronAPI.updateInitiative(updatedProject);
-      if (res.success) {
-        setShowEditModal(false);
-        load();
-      } else {
-        alert("Failed to update initiative: " + res.error);
-      }
-    }
-  };
-
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-
     let projectToAdd;
+
     if (newProject.type === 'outreach') {
       const targetAppts = Number(newProject.targetAppointments) || 20;
-
       let playbook = generatedPlaybook;
       let resolvedProduct = newProject.productFocus || 'AIA Protect 3';
       let resolvedAudience = newProject.targetAudience || 'Young Working Adults & Families';
 
-      // If they didn't analyze yet, but hit submit and provided summary/file
       if (!playbook && ((newProject.productSummary && newProject.productSummary.trim()) || uploadedFile)) {
         setIsGenerating(true);
         try {
@@ -325,28 +342,16 @@ export default function SpecialProjectsView() {
           const aiRes = await window.electronAPI.generateOutreachPlaybook(payload);
           if (aiRes.success) {
             playbook = aiRes.data;
-            if (playbook.productFocus && (!newProject.productFocus || newProject.productFocus === 'AIA Protect 3')) {
-              resolvedProduct = playbook.productFocus;
-            }
-            if (playbook.targetAudience && (!newProject.targetAudience || newProject.targetAudience === 'Young Working Adults & Families')) {
-              resolvedAudience = playbook.targetAudience;
-            }
-          } else {
-            alert("AI Playbook Generation failed: " + aiRes.error + "\n\nPlease check your input/document and try again.");
-            setIsGenerating(false);
-            return;
+            if (playbook.productFocus) resolvedProduct = playbook.productFocus;
+            if (playbook.targetAudience) resolvedAudience = playbook.targetAudience;
           }
         } catch (err) {
           console.error("AI Generation error:", err);
-          alert("An unexpected error occurred during AI generation: " + err.message + "\n\nPlease try again.");
-          setIsGenerating(false);
-          return;
         } finally {
           setIsGenerating(false);
         }
       }
 
-      // Sync user-customized fields back into the playbook object by copying to avoid mutation lint warnings
       if (playbook) {
         playbook = {
           ...playbook,
@@ -363,7 +368,7 @@ export default function SpecialProjectsView() {
         description: desc,
         leader: newProject.leader || 'Pieter Beetsma',
         status: newProject.status,
-        targetDate: newProject.targetDate || new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0], // 60 days
+        targetDate: newProject.targetDate || new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0],
         members: Number(newProject.members) || 1,
         type: 'outreach',
         productName: resolvedProduct,
@@ -403,22 +408,6 @@ export default function SpecialProjectsView() {
         setGeneratedPlaybook(null);
         setAnalysisError('');
         setAnalysisSuccess(false);
-        setNewProject({
-          title: '',
-          description: '',
-          leader: '',
-          status: 'Planning',
-          targetDate: '',
-          members: 1,
-          type: 'outreach',
-          productFocus: 'AIA Protect 3',
-          targetAudience: 'Young Working Adults & Families',
-          targetAppointments: '20',
-          productSummary: '',
-          milestones: ['', '']
-        });
-      } else {
-        alert("Failed to save initiative: " + res.error);
       }
     }
   };
@@ -437,909 +426,220 @@ export default function SpecialProjectsView() {
       {/* Header */}
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h1 className="text-gradient" style={{ fontSize: '22px', marginBottom: '2px' }}>Special Projects</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-            Initiative tracking and strategic practice campaigns
+          <h1 className="text-gradient" style={{ fontSize: '24px', marginBottom: '2px' }}>Special Projects & Campaigns</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+            Manage agency initiatives, client outreach playbooks, and strategic campaigns.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={handleOpenAddModal}>
-          <Plus size={16} /> Add Initiative
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button 
+            className={`btn ${activeTab === 'initiatives' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '13px', padding: '8px 14px' }}
+            onClick={() => setActiveTab('initiatives')}
+          >
+            Active Projects ({projects.length})
+          </button>
+          <button 
+            className={`btn ${activeTab === 'templates' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ fontSize: '13px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => setActiveTab('templates')}
+          >
+            <Bookmark size={14} /> Template Library ({CAMPAIGN_TEMPLATES.length})
+          </button>
+          <button className="btn btn-primary" onClick={handleOpenAddModal} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Plus size={16} /> New Campaign
+          </button>
+        </div>
       </header>
 
-      {/* Metrics Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-        <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
-          <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(139,92,246,0.12)', color: 'var(--accent-primary)' }}>
-            <Briefcase size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Projects</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{projects.length} Initiatives</div>
-          </div>
-        </div>
-
-        <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
-          <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)' }}>
-            <BarChart3 size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Tasks Completion</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
-              {Math.round(projects.reduce((sum, p) => sum + getProgress(p), 0) / (projects.length || 1))}% Average
+      {/* Main Content Area */}
+      {activeTab === 'initiatives' ? (
+        <>
+          {/* Metrics Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(139,92,246,0.12)', color: 'var(--accent-primary)' }}>
+                <Briefcase size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Projects</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{projects.length} Initiatives</div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
-          <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-success)' }}>
-            <CheckCircle2 size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Completed Campaigns</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
-              {projects.filter(p => p.status === 'Completed').length} Done
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Grid of Projects */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
-        {projects.length === 0 ? (
-          <div className="glass-panel" style={{ gridColumn: '1 / -1', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-            <FolderGit2 size={36} color="var(--text-muted)" style={{ opacity: 0.5 }} />
-            <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No special projects tracked yet.</p>
-            <button className="btn btn-secondary" onClick={handleOpenAddModal}>Create the first one</button>
-          </div>
-        ) : (
-          projects.map(project => {
-            const progress = getProgress(project);
-            return (
-              <div 
-                key={project.id} 
-                className="glass-panel card" 
-                style={cardStyle}
-              >
-                {/* Background glow decoration */}
-                <div style={{ 
-                  position: 'absolute', 
-                  top: '-40px', 
-                  right: '-40px', 
-                  width: '120px', 
-                  height: '120px', 
-                  borderRadius: '50%', 
-                  background: project.status === 'Completed' 
-                    ? 'radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)'
-                    : project.status === 'Planning'
-                      ? 'radial-gradient(circle, rgba(245,158,11,0.08) 0%, transparent 70%)'
-                      : 'radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)', 
-                  pointerEvents: 'none' 
-                }} />
-
-                {/* Card Top */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={project.title}>
-                      {project.title}
-                    </h3>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                      Leader: <span style={{ color: 'var(--text-secondary)' }}>{project.leader}</span>
-                    </p>
-                  </div>
-                  
-                  {/* Status Badge */}
-                  <span style={{
-                    fontSize: '10px',
-                    fontWeight: '600',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: '3px 8px',
-                    borderRadius: '12px',
-                    backgroundColor: project.status === 'Completed'
-                      ? 'rgba(16,185,129,0.15)'
-                      : project.status === 'Planning'
-                        ? 'rgba(245,158,11,0.15)'
-                        : 'rgba(139,92,246,0.15)',
-                    color: project.status === 'Completed'
-                      ? '#34d399'
-                      : project.status === 'Planning'
-                        ? '#fbbf24'
-                        : '#a78bfa',
-                    flexShrink: 0
-                  }}>
-                    {project.status}
-                  </span>
-                </div>
-
-                {/* Description */}
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0, flex: 1 }}>
-                  {project.description}
-                </p>
-
-                {/* Progress bar */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                    <span>Milestones</span>
-                    <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{progress}%</span>
-                  </div>
-                  <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                    <div style={{ 
-                      width: `${progress}%`, 
-                      height: '100%', 
-                      background: project.status === 'Completed' ? 'var(--accent-success)' : 'var(--accent-primary)',
-                      borderRadius: '3px',
-                      transition: 'width 0.4s ease'
-                    }} />
-                  </div>
-                </div>
-
-                {/* Milestones list */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
-                  {getProjectMilestones(project).map(m => (
-                    <div 
-                      key={m.id} 
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer' }}
-                      onClick={() => toggleMilestone(project.id, m.id)}
-                    >
-                      <span style={{ color: m.completed ? 'var(--accent-success)' : 'var(--text-muted)', marginTop: '2px', display: 'flex', flexShrink: 0 }}>
-                        {m.completed ? <CheckCircle2 size={14} /> : <Circle size={14} />}
-                      </span>
-                      <span style={{ 
-                        fontSize: '11.5px', 
-                        color: m.completed ? 'var(--text-muted)' : 'var(--text-secondary)',
-                        textDecoration: m.completed ? 'line-through' : 'none',
-                        lineHeight: '1.4'
-                      }}>
-                        {m.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Card Bottom / Footer info */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '12px', marginTop: 'auto' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Users size={12} /> {project.members} active
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Calendar size={12} /> {project.targetDate}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {project.id === 'project-100' ? (
-                      <button 
-                        className="btn btn-primary" 
-                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => setActiveProject(project)}
-                      >
-                        <Play size={10} fill="white" /> Launch Workspace
-                      </button>
-                    ) : project.type === 'outreach' ? (
-                      <button 
-                        className="btn btn-primary" 
-                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
-                        onClick={() => setActiveProject(project)}
-                      >
-                        <Play size={10} fill="white" /> Launch Campaign
-                      </button>
-                    ) : (
-                      <button 
-                        className="btn btn-secondary" 
-                        style={{ padding: '6px 12px', fontSize: '11px', height: 'auto', opacity: 0.6 }}
-                        onClick={() => alert("Strategic practice initiative. Standard milestone tracking is active.")}
-                      >
-                        Open Workspace
-                      </button>
-                    )}
-                    {project.id !== 'project-100' && (
-                      <>
-                        <button 
-                          onClick={() => handleEditClick(project)}
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
-                          onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent-primary)'; e.currentTarget.style.opacity = '1'; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
-                          title="Edit project"
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteProject(project.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px', opacity: 0.5 }}
-                          onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.opacity = '1'; }}
-                          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.opacity = '0.5'; }}
-                          title="Delete project"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </>
-                    )}
-                  </div>
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)' }}>
+                <BarChart3 size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Average Progress</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {Math.round(projects.reduce((sum, p) => sum + getProgress(p), 0) / (projects.length || 1))}% Completion
                 </div>
               </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Add Project Modal */}
-      {showAddModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15,23,42,0.8)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-        }} onClick={handleCloseAddModal}>
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{
-              width: '100%',
-              maxWidth: '540px',
-              padding: '28px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              maxHeight: '90vh',
-              overflowY: 'auto'
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Add New Initiative</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Track a new team project or marketing campaign</p>
             </div>
 
-            <form onSubmit={handleFormSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              
-              {/* Initiative Type Selector */}
-              <div className="input-group">
-                <label className="input-label">Initiative Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '4px' }}>
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{
-                      border: newProject.type === 'outreach' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
-                      backgroundColor: newProject.type === 'outreach' ? 'rgba(139,92,246,0.1)' : 'transparent',
-                      color: newProject.type === 'outreach' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                      fontSize: '12.5px'
-                    }}
-                    onClick={() => setNewProject({ ...newProject, type: 'outreach' })}
-                  >
-                    🚀 Outreach Campaign
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{
-                      border: newProject.type === 'custom' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
-                      backgroundColor: newProject.type === 'custom' ? 'rgba(139,92,246,0.1)' : 'transparent',
-                      color: newProject.type === 'custom' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                      fontSize: '12.5px'
-                    }}
-                    onClick={() => setNewProject({ ...newProject, type: 'custom' })}
-                  >
-                    📋 Custom Milestones
-                  </button>
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-success)' }}>
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Completed Campaigns</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {projects.filter(p => p.status === 'Completed').length} Done
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* OUTREACH CAMPAIGN SETUP FIELDS */}
-              {newProject.type === 'outreach' && (
-                <>
-                  <div className="input-group">
-                    <label className="input-label">Campaign Name (Optional)</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={newProject.title} 
-                      onChange={e => setNewProject({...newProject, title: e.target.value})}
-                      placeholder="e.g. AIA Protect 3 Launch Campaign"
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Product Focus</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        list="productFocusSuggestions"
-                        autoComplete="off"
-                        value={newProject.productFocus} 
-                        onChange={e => setNewProject({...newProject, productFocus: e.target.value})}
-                        placeholder="e.g. AIA Protect 3"
-                      />
-                      <datalist id="productFocusSuggestions">
-                        <option value="AIA Protect 3" />
-                        <option value="Generic CI Booster" />
-                        <option value="Savings / Endowments" />
-                      </datalist>
+          {/* Grid of Projects */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
+            {projects.map(project => {
+              const progress = getProgress(project);
+              return (
+                <div key={project.id} className="glass-panel card" style={cardStyle}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {project.title}
+                      </h3>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Leader: <span style={{ color: 'var(--text-secondary)' }}>{project.leader}</span>
+                      </p>
                     </div>
-                    <div className="input-group">
-                      <label className="input-label">Primary Audience Focus</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        list="audienceSuggestions"
-                        autoComplete="off"
-                        value={newProject.targetAudience} 
-                        onChange={e => setNewProject({...newProject, targetAudience: e.target.value})}
-                        placeholder="e.g. Young Working Adults"
-                      />
-                      <datalist id="audienceSuggestions">
-                        <option value="Young Working Adults & Families" />
-                        <option value="HNW Legacy Clients" />
-                        <option value="Young Parents (25-40)" />
-                        <option value="Working Professionals" />
-                      </datalist>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Target Booking Count</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={newProject.targetAppointments} 
-                        onChange={e => setNewProject({...newProject, targetAppointments: e.target.value})}
-                        placeholder="e.g. 20"
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Target Date</label>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        value={newProject.targetDate} 
-                        onChange={e => setNewProject({...newProject, targetDate: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Campaign Leader</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={newProject.leader} 
-                        onChange={e => setNewProject({...newProject, leader: e.target.value})}
-                        placeholder="Pieter Beetsma"
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Active Members</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={newProject.members} 
-                        onChange={e => setNewProject({...newProject, members: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Description (Optional)</label>
-                    <textarea 
-                      className="input-field" 
-                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                      value={newProject.description} 
-                      onChange={e => setNewProject({...newProject, description: e.target.value})}
-                      placeholder="e.g. Respectful WhatsApp campaign targeting young parents."
-                    />
-                  </div>
-
-                  <div className="input-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>AI Playbook Generator (Optional Summary/Brochure)</span>
-                      <span style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Sparkles size={10} /> Gemini AI
-                      </span>
-                    </label>
-                    <textarea 
-                      className="input-field" 
-                      style={{ minHeight: '80px', fontFamily: 'inherit', resize: 'vertical', fontSize: '12px' }}
-                      value={newProject.productSummary} 
-                      onChange={e => setNewProject({...newProject, productSummary: e.target.value})}
-                      placeholder="Paste product brochure terms, target segments, or text notes here. Gemini will generate custom hooks, WhatsApp message scripts, and routines."
-                    />
                     
-                    {/* File Upload Section */}
-                    <div style={{ marginTop: '4px' }}>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>
-                        Or upload a brochure document (PDF, Text, or Image):
-                      </span>
-                      
-                      {!uploadedFile ? (
-                        <div 
-                          style={{
-                            border: '1px dashed var(--border-light)',
-                            borderRadius: '10px',
-                            padding: '16px',
-                            textAlign: 'center',
-                            cursor: 'pointer',
-                            background: 'rgba(255,255,255,0.01)',
-                            transition: 'border-color 0.2s ease, background 0.2s ease',
-                          }}
-                          onDragOver={e => e.preventDefault()}
-                          onDrop={e => {
-                            e.preventDefault();
-                            const file = e.dataTransfer.files?.[0];
-                            if (file) handleFileSelect(file);
-                          }}
-                          onClick={() => document.getElementById('brochure-upload').click()}
-                        >
-                          <input 
-                            type="file" 
-                            id="brochure-upload" 
-                            style={{ display: 'none' }}
-                            accept=".pdf,.txt,.png,.jpg,.jpeg"
-                            onChange={e => {
-                              const file = e.target.files?.[0];
-                              if (file) handleFileSelect(file);
-                            }}
-                          />
-                          <UploadCloud size={24} color="var(--text-muted)" style={{ margin: '0 auto 8px', opacity: 0.7 }} />
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            Drag & drop or <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>browse file</span>
-                          </span>
-                        </div>
-                      ) : (
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '10px 14px',
-                          borderRadius: '8px',
-                          border: '1px solid var(--border-light)',
-                          background: 'rgba(255,255,255,0.03)'
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                            <FileText size={16} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
-                            <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                              <span style={{ fontSize: '12px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={uploadedFile.name}>
-                                {uploadedFile.name}
-                              </span>
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                                {(uploadedFile.size / 1024).toFixed(1)} KB · Document loaded
-                              </span>
-                            </div>
-                          </div>
-                          <button 
-                            type="button"
-                            onClick={() => setUploadedFile(null)}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--text-muted)',
-                              cursor: 'pointer',
-                              padding: '4px',
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: '600',
+                      textTransform: 'uppercase',
+                      padding: '3px 8px',
+                      borderRadius: '12px',
+                      backgroundColor: project.status === 'Completed' ? 'rgba(16,185,129,0.15)' : 'rgba(139,92,246,0.15)',
+                      color: project.status === 'Completed' ? '#34d399' : '#a78bfa'
+                    }}>
+                      {project.status}
+                    </span>
+                  </div>
 
-                    {/* Run Analysis / Pre-fill CTA */}
-                    {(newProject.productSummary.trim() || uploadedFile) && (
-                      <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            padding: '8px 12px',
-                            fontSize: '12px',
-                            borderColor: 'var(--accent-primary)',
-                            backgroundColor: 'rgba(139,92,246,0.05)',
-                            color: 'var(--accent-primary)',
-                            fontWeight: '600'
-                          }}
-                          disabled={isAnalyzing}
-                          onClick={handleAnalyzeWithAI}
-                        >
-                          {isAnalyzing ? (
-                            <>
-                              <span className="spinner-border spinner-border-sm" role="status" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid var(--accent-primary)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 0.75s linear infinite' }}></span>
-                              Analyzing Document...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles size={14} /> Analyze & Pre-fill Form fields
-                            </>
-                          )}
-                        </button>
-                        
-                        {analysisError && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#f87171' }}>
-                            <AlertCircle size={12} /> {analysisError}
-                          </div>
-                        )}
-                        
-                        {analysisSuccess && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#34d399', fontWeight: '600' }}>
-                            <CheckCircle2 size={12} /> Playbook & form fields pre-filled from analyzed doc!
-                          </div>
-                        )}
-                      </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.6', margin: 0, flex: 1 }}>
+                    {project.description}
+                  </p>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      <span>Progress</span>
+                      <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{progress}%</span>
+                    </div>
+                    <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${progress}%`, height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
+                    <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setActiveProject(project)}>
+                      <Play size={13} /> Open Workspace
+                    </button>
+                    {project.id !== 'project-100' && (
+                      <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => handleDeleteProject(project.id)}>
+                        <Trash2 size={14} />
+                      </button>
                     )}
                   </div>
-                </>
-              )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        /* Campaign Template Library Tab */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ padding: '16px 20px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '12px', borderLeft: '4px solid #3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>Financial Advisory Campaign Playbook Library</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                Launch pre-built strategy templates equipped with value hooks, brochure messaging, and appointment scripts.
+              </div>
+            </div>
+            <Sparkles size={20} color="#60a5fa" />
+          </div>
 
-              {/* CUSTOM MILESTONES SETUP FIELDS */}
-              {newProject.type === 'custom' && (
-                <>
-                  <div className="input-group">
-                    <label className="input-label">Project Title *</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={newProject.title} 
-                      onChange={e => setNewProject({...newProject, title: e.target.value})}
-                      required={newProject.type === 'custom'}
-                      placeholder="e.g. MDRT Acceleration 2026"
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Description</label>
-                    <textarea 
-                      className="input-field" 
-                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                      value={newProject.description} 
-                      onChange={e => setNewProject({...newProject, description: e.target.value})}
-                      placeholder="What is the key goal of this initiative?"
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Project Leader</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={newProject.leader} 
-                        onChange={e => setNewProject({...newProject, leader: e.target.value})}
-                        placeholder="e.g. Pieter Beetsma"
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Target Completion</label>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        value={newProject.targetDate} 
-                        onChange={e => setNewProject({...newProject, targetDate: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Status</label>
-                      <select 
-                        className="input-field"
-                        style={{ background: 'var(--bg-base)' }}
-                        value={newProject.status} 
-                        onChange={e => setNewProject({...newProject, status: e.target.value})}
-                      >
-                        <option value="Planning">Planning</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Completed">Completed</option>
-                      </select>
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Active Members</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={newProject.members} 
-                        onChange={e => setNewProject({...newProject, members: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Milestones list in form */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <label className="input-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      Milestones
-                      <button 
-                        type="button" 
-                        className="btn" 
-                        style={{ padding: '2px 6px', fontSize: '10px', height: 'auto', backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}
-                        onClick={addMilestoneInputField}
-                      >
-                        + Add
-                      </button>
-                    </label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}>
-                      {newProject.milestones.map((milestone, idx) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <input 
-                            type="text" 
-                            className="input-field" 
-                            style={{ flex: 1, padding: '6px 10px', fontSize: '12px' }}
-                            value={milestone}
-                            placeholder={`Milestone #${idx + 1}`}
-                            onChange={e => handleMilestoneInputChange(idx, e.target.value)}
-                          />
-                          {newProject.milestones.length > 1 && (
-                            <button 
-                              type="button" 
-                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                              onClick={() => removeMilestoneInputField(idx)}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Form Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', alignItems: 'center' }}>
-                {isGenerating && (
-                  <span style={{ fontSize: '11.5px', color: 'var(--accent-primary)', marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span className="spinner-border spinner-border-sm" role="status" style={{ display: 'inline-block', width: '12px', height: '12px', border: '2px solid var(--accent-primary)', borderRightColor: 'transparent', borderRadius: '50%', animation: 'spin 0.75s linear infinite' }}></span>
-                    Generating AI Playbook...
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '16px' }}>
+            {CAMPAIGN_TEMPLATES.map(tpl => (
+              <div key={tpl.id} className="glass-panel card" style={{ ...cardStyle, gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '10px', fontWeight: '600', textTransform: 'uppercase', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa' }}>
+                    {tpl.category}
                   </span>
-                )}
-                <button type="button" className="btn btn-secondary" onClick={handleCloseAddModal} disabled={isGenerating}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={isGenerating}>
-                  {isGenerating ? 'Generating...' : 'Create Initiative'}
+                  <Zap size={16} color="var(--accent-secondary)" />
+                </div>
+
+                <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>{tpl.title}</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{tpl.description}</p>
+                
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', padding: '10px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px' }}>
+                  Target: <strong style={{ color: 'var(--text-primary)' }}>{tpl.targetAudience}</strong>
+                </div>
+
+                <button 
+                  className="btn btn-primary" 
+                  style={{ width: '100%', padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: 'auto' }}
+                  onClick={() => handleUseTemplate(tpl)}
+                >
+                  Use Playbook Template <ArrowRight size={14} />
                 </button>
               </div>
-            </form>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Edit Project Modal */}
-      {showEditModal && projectToEdit && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15,23,42,0.8)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-        }} onClick={() => setShowEditModal(false)}>
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{
-              width: '100%',
-              maxWidth: '540px',
-              padding: '28px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-              maxHeight: '90vh',
-              overflowY: 'auto'
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Edit Initiative Details</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Update metadata for this campaign or project</p>
-            </div>
+      {/* Add Project Modal */}
+      {showAddModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '550px', padding: '32px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '20px', marginBottom: '24px', color: 'var(--text-primary)' }}>Create New Campaign / Initiative</h2>
+            
+            <form onSubmit={handleFormSubmit}>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Campaign Title *</label>
+                <input required type="text" className="input-field" style={{ width: '100%' }} value={newProject.title} onChange={e => setNewProject({ ...newProject, title: e.target.value })} placeholder="e.g. AIA Protect 3 Q3 Campaign" />
+              </div>
 
-            <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              
-              {projectToEdit.type === 'outreach' ? (
-                <>
-                  <div className="input-group">
-                    <label className="input-label">Campaign Name</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={projectToEdit.title} 
-                      onChange={e => setProjectToEdit({...projectToEdit, title: e.target.value})}
-                      required
-                      autoFocus
-                    />
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Product Focus</label>
+                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.productFocus} onChange={e => setNewProject({ ...newProject, productFocus: e.target.value })} />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Audience</label>
+                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.targetAudience} onChange={e => setNewProject({ ...newProject, targetAudience: e.target.value })} />
+                </div>
+              </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Product Focus</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        list="productFocusSuggestions"
-                        autoComplete="off"
-                        value={projectToEdit.productName || ''} 
-                        onChange={e => setProjectToEdit({...projectToEdit, productName: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Primary Audience Focus</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        list="audienceSuggestions"
-                        autoComplete="off"
-                        value={projectToEdit.targetAudience || ''} 
-                        onChange={e => setProjectToEdit({...projectToEdit, targetAudience: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Description / Strategy</label>
+                <textarea className="input-field" style={{ width: '100%', minHeight: '80px' }} value={newProject.description} onChange={e => setNewProject({ ...newProject, description: e.target.value })} placeholder="Describe campaign goal and value proposition..." />
+              </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Target Booking Count</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={projectToEdit.targetAppointments} 
-                        onChange={e => setProjectToEdit({...projectToEdit, targetAppointments: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Target Date</label>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        value={projectToEdit.targetDate} 
-                        onChange={e => setProjectToEdit({...projectToEdit, targetDate: e.target.value})}
-                      />
-                    </div>
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Appointments Goal</label>
+                  <input type="number" className="input-field" style={{ width: '100%' }} value={newProject.targetAppointments} onChange={e => setNewProject({ ...newProject, targetAppointments: e.target.value })} />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Completion Date</label>
+                  <DatePicker 
+                    value={newProject.targetDate} 
+                    onChange={e => setNewProject({ ...newProject, targetDate: e.target.value })} 
+                  />
+                </div>
+              </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Campaign Leader</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={projectToEdit.leader} 
-                        onChange={e => setProjectToEdit({...projectToEdit, leader: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Active Members</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={projectToEdit.members} 
-                        onChange={e => setProjectToEdit({...projectToEdit, members: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Description</label>
-                    <textarea 
-                      className="input-field" 
-                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                      value={projectToEdit.description} 
-                      onChange={e => setProjectToEdit({...projectToEdit, description: e.target.value})}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="input-group">
-                    <label className="input-label">Project Title *</label>
-                    <input 
-                      type="text" 
-                      className="input-field" 
-                      value={projectToEdit.title} 
-                      onChange={e => setProjectToEdit({...projectToEdit, title: e.target.value})}
-                      required
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="input-group">
-                    <label className="input-label">Description</label>
-                    <textarea 
-                      className="input-field" 
-                      style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                      value={projectToEdit.description} 
-                      onChange={e => setProjectToEdit({...projectToEdit, description: e.target.value})}
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Project Leader</label>
-                      <input 
-                        type="text" 
-                        className="input-field" 
-                        value={projectToEdit.leader} 
-                        onChange={e => setProjectToEdit({...projectToEdit, leader: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Target Completion</label>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        value={projectToEdit.targetDate} 
-                        onChange={e => setProjectToEdit({...projectToEdit, targetDate: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group">
-                      <label className="input-label">Status</label>
-                      <select 
-                        className="input-field"
-                        style={{ background: 'var(--bg-base)' }}
-                        value={projectToEdit.status} 
-                        onChange={e => setProjectToEdit({...projectToEdit, status: e.target.value})}
-                      >
-                        <option value="Planning">Planning</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Completed">Completed</option>
-                      </select>
-                    </div>
-                    <div className="input-group">
-                      <label className="input-label">Active Members</label>
-                      <input 
-                        type="number" 
-                        className="input-field" 
-                        min="1"
-                        value={projectToEdit.members} 
-                        onChange={e => setProjectToEdit({...projectToEdit, members: e.target.value})}
-                        required
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Form Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowEditModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={handleCloseAddModal}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isGenerating}>
+                  {isGenerating ? 'Generating Playbook...' : 'Launch Campaign'}
                 </button>
               </div>
             </form>

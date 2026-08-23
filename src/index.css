@@ -254,3 +254,73 @@ h1, h2, h3, h4, h5, h6 {
 .animate-slide-in-right {
   animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Print & PDF Export Optimization */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 12mm 12mm 12mm;
+  }
+
+  body, #root, #main-scroll-container {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation chrome, titlebar, sidebar, sticky bars, and buttons */
+  #title-bar,
+  .title-bar,
+  aside,
+  .sidebar,
+  .no-print,
+  button,
+  .nav-tabs-bar {
+    display: none !important;
+  }
+
+  .view-container {
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .glass-panel {
+    background: rgba(15, 23, 42, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 14px !important;
+  }
+
+  .print-page-break {
+    page-break-before: always !important;
+    break-before: always !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto !important;
+    border-collapse: collapse !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  th, td {
+    padding: 6px 10px !important;
+  }
+}
+

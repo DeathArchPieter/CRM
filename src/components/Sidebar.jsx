@@ -1,7 +1,28 @@
-import React from 'react';
-import { LayoutDashboard, Users, GitBranch, TrendingUp, DollarSign, FlaskConical, Calendar, FolderKanban, FileText } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutDashboard, Users, GitBranch, TrendingUp, DollarSign, FlaskConical, Calendar, FolderKanban, FileText, Settings, Trash2, Check } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab }) {
+  const [clearingLogs, setClearingLogs] = useState(false);
+  const [logsCleared, setLogsCleared] = useState(false);
+
+  const handleClearLogs = async () => {
+    if (!window.confirm("Are you sure you want to clear the system log file? This cannot be undone.")) return;
+    setClearingLogs(true);
+    try {
+      if (window.electronAPI?.clearLogFile) {
+        const res = await window.electronAPI.clearLogFile();
+        if (res.success) {
+          setLogsCleared(true);
+          setTimeout(() => setLogsCleared(false), 3000);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to clear logs:", err);
+    } finally {
+      setClearingLogs(false);
+    }
+  };
+
   const tabs = [
     { id: 'dashboard',        label: 'Dashboard',         icon: <LayoutDashboard size={20} /> },
     { id: 'schedule',         label: 'Schedule',          icon: <Calendar size={20} /> },
@@ -12,6 +33,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
     { id: 'special-projects', label: 'Special Projects',   icon: <FolderKanban size={20} /> },
     { id: 'special-reports',  label: 'Special Reports',    icon: <FileText size={20} /> },
     { id: 'product-analysis', label: 'Product Analyser',   icon: <FlaskConical size={20} /> },
+    { id: 'settings',         label: 'Settings',          icon: <Settings size={20} /> },
   ];
 
   return (
@@ -65,31 +87,58 @@ export default function Sidebar({ activeTab, setActiveTab }) {
           <p style={{ fontSize: '12px', fontWeight: '500', marginTop: '8px', textAlign: 'right' }}>75%</p>
         </div>
 
-        <button
-          onClick={() => {
-            if (window.electronAPI?.openLogFile) {
-              window.electronAPI.openLogFile();
-            }
-          }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            width: '100%',
-            padding: '8px 12px',
-            borderRadius: '8px',
-            border: '1px dashed var(--border-light)',
-            background: 'transparent',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: '12.5px',
-            transition: 'all var(--transition-fast)'
-          }}
-          className="sidebar-btn"
-        >
-          <FileText size={15} /> Open System Logs
-        </button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button
+            onClick={() => {
+              if (window.electronAPI?.openLogFile) {
+                window.electronAPI.openLogFile();
+              }
+            }}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: '1px dashed var(--border-light)',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '12px',
+              transition: 'all var(--transition-fast)'
+            }}
+            className="sidebar-btn"
+            title="Open System Logs"
+          >
+            <FileText size={14} /> View Logs
+          </button>
+
+          <button
+            onClick={handleClearLogs}
+            disabled={clearingLogs}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              padding: '8px 10px',
+              borderRadius: '8px',
+              border: logsCleared ? '1px solid rgba(16, 185, 129, 0.4)' : '1px dashed var(--border-light)',
+              background: logsCleared ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+              color: logsCleared ? '#34d399' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontSize: '12px',
+              transition: 'all var(--transition-fast)'
+            }}
+            className="sidebar-btn"
+            title="Clear System Logs"
+          >
+            {logsCleared ? <Check size={14} /> : <Trash2 size={14} />}
+            {logsCleared ? 'Cleared' : 'Clear'}
+          </button>
+        </div>
       </div>
     </div>
   );

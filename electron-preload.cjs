@@ -9,7 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClients: () => ipcRenderer.invoke('get-clients'),
   addClient: (clientData) => ipcRenderer.invoke('add-client', clientData),
   updateClient: (clientData) => ipcRenderer.invoke('update-client', clientData),
+  logClientTouchpoint: (clientId, touchpointDate) => ipcRenderer.invoke('log-client-touchpoint', clientId, touchpointDate),
   getPolicies: (clientId) => ipcRenderer.invoke('get-policies', clientId),
+  getAllPolicies: () => ipcRenderer.invoke('get-all-policies'),
   addPolicy: (policyData) => ipcRenderer.invoke('add-policy', policyData),
   updatePolicy: (policyData) => ipcRenderer.invoke('update-policy', policyData),
   deletePolicy: (policyId) => ipcRenderer.invoke('delete-policy', policyId),
@@ -53,7 +55,40 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateOutreachPlaybook: (productInfo) => ipcRenderer.invoke('generate-outreach-playbook', productInfo),
   tweakOutreachScript: (payload) => ipcRenderer.invoke('tweak-outreach-script', payload),
 
+  // Client Profile AI Dossier & Social Enrichment
+  discoverClientSocials: (payload) => ipcRenderer.invoke('discover-client-socials', payload),
+  enrichClientProfile: (payload) => ipcRenderer.invoke('enrich-client-profile', payload),
+  saveClientDossier: (payload) => ipcRenderer.invoke('save-client-dossier', payload),
+  analyzeSocialPost: (payload) => ipcRenderer.invoke('analyze-social-post', payload),
+  saveClientSocialPosts: (payload) => ipcRenderer.invoke('save-client-social-posts', payload),
+  openSocialLoginWindow: (platform) => ipcRenderer.invoke('open-social-login-window', platform),
+  runBrowserSocialScan: (payload) => ipcRenderer.invoke('run-browser-social-scan', payload),
+  generateClientMeetingBrief: (payload) => ipcRenderer.invoke('generate-client-meeting-brief', payload),
+
+  // Client Financial Planning API
+  saveClientFinancialPlan: (clientId, planData) => ipcRenderer.invoke('save-client-financial-plan', clientId, planData),
+  generateFinancialPlanAiSummary: (payload) => ipcRenderer.invoke('generate-financial-plan-ai-summary', payload),
+  generateProjectionGraphBreakdown: (payload) => ipcRenderer.invoke('generate-projection-graph-breakdown', payload),
+  exportFinancialPlanPdf: (payload) => ipcRenderer.invoke('export-financial-plan-pdf', payload),
+
+  // Claims & Payout Reconciliation API
+  getClaims: (clientId) => ipcRenderer.invoke('get-claims', clientId),
+  getAllClaims: () => ipcRenderer.invoke('get-all-claims'),
+  addClaim: (claimData) => ipcRenderer.invoke('add-claim', claimData),
+  updateClaim: (claimData) => ipcRenderer.invoke('update-claim', claimData),
+  deleteClaim: (claimId) => ipcRenderer.invoke('delete-claim', claimId),
+  attachClaimDocument: (payload) => ipcRenderer.invoke('attach-claim-document', payload),
+  openClaimFolder: (payload) => ipcRenderer.invoke('open-claim-folder', payload),
+  deleteClaimFile: (filePath) => ipcRenderer.invoke('delete-claim-file', filePath),
+  analyseClaimSettlementReconciliation: (payload) => ipcRenderer.invoke('analyse-claim-settlement-reconciliation', payload),
+  generateClaimAiAssist: (payload) => ipcRenderer.invoke('generate-claim-ai-assist', payload),
+
   // Logging API
   writeLog: (message) => ipcRenderer.invoke('write-log', message),
   openLogFile: () => ipcRenderer.invoke('open-log-file'),
+  clearLogFile: () => ipcRenderer.invoke('clear-log-file'),
+
+  // App & Consultant Settings API
+  getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
+  saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
 });
