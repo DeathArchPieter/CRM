@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import TitleBar from './components/TitleBar';
 import Sidebar from './components/Sidebar';
+import CommandPalette from './components/CommandPalette';
+import { ToastProvider } from './components/Toast';
 import DashboardView from './views/DashboardView';
 import ScheduleView from './views/ScheduleView';
 import ClientsView from './views/ClientsView';
@@ -15,19 +17,52 @@ import './index.css';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [selectedClientForView, setSelectedClientForView] = useState(null);
+
+  // Global Keyboard Listener for Ctrl + K / Cmd + K
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleSelectClientFromPalette = (client) => {
+    setSelectedClientForView(client);
+    setActiveTab('clients');
+  };
+
+  const handleSelectPipelineDealFromPalette = (deal) => {
+    setActiveTab('pipeline');
+  };
 
   const renderView = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView />;
+        return (
+          <DashboardView 
+            onNavigateTab={setActiveTab}
+            onSelectClient={handleSelectClientFromPalette}
+          />
+        );
       case 'schedule':
-        return <ScheduleView />;
+        return <ScheduleView onSelectClient={handleSelectClientFromPalette} />;
       case 'clients':
-        return <ClientsView />;
+        return (
+          <ClientsView 
+            initialSelectedClient={selectedClientForView}
+            onClearInitialClient={() => setSelectedClientForView(null)}
+          />
+        );
       case 'pipeline':
-        return <PipelineView />;
+        return <PipelineView onSelectClient={handleSelectClientFromPalette} />;
       case 'sales':
-        return <SalesTrackingView />;
+        return <SalesTrackingView onNavigateTab={setActiveTab} />;
       case 'remuneration':
         return <RemunerationView />;
       case 'special-projects':
@@ -39,26 +74,41 @@ function App() {
       case 'settings':
         return <SettingsView />;
       default:
-        return <DashboardView />;
+        return <DashboardView onNavigateTab={setActiveTab} />;
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {/* Draggable Title Bar for Frameless Window */}
-      <TitleBar />
-      
-      {/* Main Layout */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Navigation Sidebar */}
-        <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <ToastProvider>
+      <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+        {/* Draggable Title Bar for Frameless Window */}
+        <TitleBar />
         
-        {/* Dynamic Content Area */}
-        <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '32px', backgroundColor: 'var(--bg-base)' }}>
-          {renderView()}
+        {/* Main Layout */}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Navigation Sidebar */}
+          <Sidebar 
+            activeTab={activeTab} 
+            setActiveTab={setActiveTab} 
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          />
+          
+          {/* Dynamic Content Area */}
+          <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '28px', backgroundColor: 'var(--bg-base)' }}>
+            {renderView()}
+          </div>
         </div>
+
+        {/* Global Command Palette Overlay */}
+        <CommandPalette
+          isOpen={isCommandPaletteOpen}
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onNavigateTab={(tabId) => setActiveTab(tabId)}
+          onSelectClient={handleSelectClientFromPalette}
+          onSelectPipelineDeal={handleSelectPipelineDealFromPalette}
+        />
       </div>
-    </div>
+    </ToastProvider>
   );
 }
 

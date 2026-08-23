@@ -1,15 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  TrendingUp, 
-  Target, 
-  ShieldCheck, 
-  Repeat, 
-  PiggyBank,
-  DollarSign,
-  Briefcase,
-  Clock,
-  Award
+  TrendingUp, Target, ShieldCheck, Repeat, PiggyBank,
+  DollarSign, Briefcase, Clock, Award, RefreshCw, Sparkles, CheckCircle2, Calculator
 } from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 const getSpiRate = (ytdFyc, isNewConsultant) => {
   if (ytdFyc >= 80000) return 0.36;
@@ -47,6 +41,10 @@ const getCbRate = (recvYear) => {
 };
 
 export default function RemunerationView() {
+  const { addToast } = useToast();
+  const [activeSubTab, setActiveSubTab] = useState('forward'); // 'forward' | 'reverse'
+  const [isSyncing, setIsSyncing] = useState(false);
+
   // --- Input State ---
   const [fycQ1, setFycQ1] = useState(12500);
   const [fycQ2, setFycQ2] = useState(15000);
@@ -66,9 +64,73 @@ export default function RemunerationView() {
   const [isNewConsultant, setIsNewConsultant] = useState(false);
   const [cbReceivingYear, setCbReceivingYear] = useState(0);
 
+  // Reverse Planner Target
+  const [targetAnnualIncome, setTargetAnnualIncome] = useState(150000);
+  const [assumedAvgFycPerCase, setAssumedAvgFycPerCase] = useState(3500);
+
   // Commission/Bonus Assumptions
   const QUARTERLY_AI_TARGET = 4; // Target cases per quarter
   const QUARTERLY_AI_RATE = 0.07; // 7% of Quarterly FYC
+
+  // Sync actual pipeline production from database
+  const handleSyncFromPipeline = async () => {
+    setIsSyncing(true);
+    try {
+      if (window.electronAPI?.getPipeline) {
+        const res = await window.electronAPI.getPipeline();
+        if (res?.success) {
+          const currentYear = new Date().getFullYear();
+          const issued = (res.data || []).filter(c => {
+            if (c.stage !== 'Case Issued') return false;
+            const d = new Date(c.updatedAt || c.createdAt);
+            return d.getFullYear() === currentYear;
+          });
+
+          const qFyc = [0, 0, 0, 0];
+          const qCases = [0, 0, 0, 0];
+          const qPaFyp = [0, 0, 0, 0];
+
+          issued.forEach(c => {
+            const d = new Date(c.updatedAt || c.createdAt);
+            const m = d.getMonth();
+            const q = Math.floor(m / 3); // 0, 1, 2, 3
+            if (q >= 0 && q <= 3) {
+              const fyc = Number(c.estimatedFYC) || 0;
+              const prem = Number(c.estimatedPremium) || 0;
+              qFyc[q] += fyc;
+              qCases[q] += 1;
+              if (c.policyType === 'A&H' || (c.policyName && c.policyName.toLowerCase().includes('accident'))) {
+                qPaFyp[q] += prem;
+              }
+            }
+          });
+
+          setFycQ1(qFyc[0] || 0);
+          setFycQ2(qFyc[1] || 0);
+          setFycQ3(qFyc[2] || 0);
+          setFycQ4(qFyc[3] || 0);
+
+          setCasesQ1(qCases[0] || 0);
+          setCasesQ2(qCases[1] || 0);
+          setCasesQ3(qCases[2] || 0);
+          setCasesQ4(qCases[3] || 0);
+
+          if (qPaFyp.some(v => v > 0)) {
+            setPaFypQ1(qPaFyp[0] || 0);
+            setPaFypQ2(qPaFyp[1] || 0);
+            setPaFypQ3(qPaFyp[2] || 0);
+            setPaFypQ4(qPaFyp[3] || 0);
+          }
+
+          addToast(`Synced ${issued.length} issued cases for ${currentYear} from pipeline`, 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync pipeline into remuneration:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // --- Calculations ---
   const calculations = useMemo(() => {
@@ -119,457 +181,374 @@ export default function RemunerationView() {
     const pf4 = Number(paFypQ4) || 0;
     const totalPaFyp = pf1 + pf2 + pf3 + pf4;
 
-    // Derived internally from PA FYP
-    const pr1 = pf1;
-    const pr2 = pf2;
-    const pr3 = pf3;
-    const pr4 = pf4;
+    const paRateQ1 = getPaBonusRate(pf1);
+    const paRateQ2 = getPaBonusRate(pf2);
+    const paRateQ3 = getPaBonusRate(pf3);
+    const paRateQ4 = getPaBonusRate(pf4);
 
-    const ratePa1 = getPaBonusRate(pf1);
-    const ratePa2 = getPaBonusRate(pf2);
-    const ratePa3 = getPaBonusRate(pf3);
-    const ratePa4 = getPaBonusRate(pf4);
-
-    const q1Pa = pr1 > 0 ? pr1 * ratePa1 : 0;
-    const q2Pa = pr2 > 0 ? pr2 * ratePa2 : 0;
-    const q3Pa = pr3 > 0 ? pr3 * ratePa3 : 0;
-    const q4Pa = pr4 > 0 ? pr4 * ratePa4 : 0;
+    const q1Pa = pf1 * paRateQ1;
+    const q2Pa = pf2 * paRateQ2;
+    const q3Pa = pf3 * paRateQ3;
+    const q4Pa = pf4 * paRateQ4;
     const paTotal = q1Pa + q2Pa + q3Pa + q4Pa;
 
-    const fmt = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
-    const pct = (rate) => (rate * 100).toFixed(2) + '%';
-    
-    // Explainers
-    const q1Explain = `YTD FYC: ${fmt(ytdQ1)}\nSPI Rate: ${pct(rateQ1)}\nYTD SPI: ${fmt(spiTotalQ1)}\nLess Prev Paid: $0\nQ1 Payout: ${fmt(q1Spi)}`;
-    const q2Explain = `YTD FYC: ${fmt(ytdQ2)}\nSPI Rate: ${pct(rateQ2)}\nYTD SPI: ${fmt(spiTotalQ2)}\nLess Prev Paid: -${fmt(spiTotalQ1)}\nQ2 Payout: ${fmt(q2Spi)}`;
-    const q3Explain = `YTD FYC: ${fmt(ytdQ3)}\nSPI Rate: ${pct(rateQ3)}\nYTD SPI: ${fmt(spiTotalQ3)}\nLess Prev Paid: -${fmt(spiTotalQ2)}\nQ3 Payout: ${fmt(q3Spi)}`;
-    const q4Explain = `YTD FYC: ${fmt(ytdQ4)}\nSPI Rate: ${pct(rateQ4)}\nYTD SPI: ${fmt(spiTotalQ4)}\nLess Prev Paid: -${fmt(spiTotalQ3)}\nQ4 Payout: ${fmt(q4Spi)}`;
+    // Total Variable Compensation (Base + AI + SPI + PA)
+    const grandTotal = totalFyc + aiTotal + spiTotal + paTotal;
 
-    const q1PaExplain = `PA FYP: ${fmt(pf1)}\nRate: ${pct(ratePa1)}\nPA Renewal: ${fmt(pr1)}\nQ1 Payout: ${fmt(q1Pa)}\n(Assumes >84% Persistency)`;
-    const q2PaExplain = `PA FYP: ${fmt(pf2)}\nRate: ${pct(ratePa2)}\nPA Renewal: ${fmt(pr2)}\nQ2 Payout: ${fmt(q2Pa)}\n(Assumes >84% Persistency)`;
-    const q3PaExplain = `PA FYP: ${fmt(pf3)}\nRate: ${pct(ratePa3)}\nPA Renewal: ${fmt(pr3)}\nQ3 Payout: ${fmt(q3Pa)}\n(Assumes >84% Persistency)`;
-    const q4PaExplain = `PA FYP: ${fmt(pf4)}\nRate: ${pct(ratePa4)}\nPA Renewal: ${fmt(pr4)}\nQ4 Payout: ${fmt(q4Pa)}\n(Assumes >84% Persistency)`;
+    // Career Benefit Rates & Calculations (on stacked renewals)
+    const cbRate = getCbRate(Number(cbReceivingYear) || 0);
 
-    // 5-Year Projections
-    // Assuming constant production (repeating Year 1 sales and bonuses)
-    const annualBonuses = aiTotal + spiTotal + paTotal;
-    
-    // Renewal rates as % of FYC: Y2: 50%, Y3: 20%, Y4: 5%, Y5: 5%, Y6: 5%
-    // Age 1 is the year of sale (no renewals). Age 2 is Y2.
-    const renewalRates = [0, 0.50, 0.20, 0.05, 0.05, 0.05];
-    const cbStartYear = Number(cbReceivingYear) || 0;
+    // 5-Year Projection Model
+    const RENEWAL_RATES_NON_PA = [0, 0.15, 0.10, 0.05, 0.05, 0.05];
+    const PA_RENEWAL_RATE = 0.10; // Flat 10% on PA FYP
     
     const projections = [];
-    
-    for (let i = 1; i <= 5; i++) {
-      let yearNonPaRenewal = 0;
-      let yearPaRenewal = 0;
-      
-      for (let prevYear = 1; prevYear < i; prevYear++) {
-        // Non-PA Renewals (decaying rates on FYC)
-        const policyAge = (i - prevYear) + 1;
-        const rate = renewalRates[policyAge - 1] || 0;
-        yearNonPaRenewal += totalFyc * rate;
-        
-        // PA Renewals (flat perpetual 30% on PA FYP)
-        yearPaRenewal += totalPaFyp * 0.30;
+    let cumulativeNonPaRenewals = 0;
+    let cumulativePaRenewals = 0;
+
+    for (let yr = 1; yr <= 5; yr++) {
+      if (yr > 1) {
+        cumulativeNonPaRenewals = (totalFyc - (totalPaFyp * 0.4)) * RENEWAL_RATES_NON_PA[yr] * (yr - 1);
+        cumulativePaRenewals = totalPaFyp * PA_RENEWAL_RATE * (yr - 1);
       }
       
-      const totalRenewals = yearNonPaRenewal + yearPaRenewal;
-      
-      // Career Benefit
-      // Kicks in on Year 3 if starting fresh. If cbReceivingYear > 0, they are already receiving CB.
-      let currentRecvYear = 0;
-      if (cbStartYear > 0) {
-        currentRecvYear = cbStartYear + (i - 1);
-      } else {
-        currentRecvYear = i >= 3 ? i - 2 : 0;
-      }
-      
-      const cbRate = getCbRate(currentRecvYear);
-      // CB is applied ONLY to non-PA renewals (2nd to 6th year)
-      const yearCareerBenefit = yearNonPaRenewal * cbRate;
-      
+      const totalRenewals = cumulativeNonPaRenewals + cumulativePaRenewals;
+      const cbIncome = cumulativeNonPaRenewals * cbRate; // CB strictly on non-PA renewals
+      const yrTotal = grandTotal + totalRenewals + cbIncome;
+
       projections.push({
-        year: i,
+        year: yr,
         fyc: totalFyc,
         ai: aiTotal,
         spi: spiTotal,
         pa: paTotal,
-        bonuses: annualBonuses,
-        nonPaRenewals: yearNonPaRenewal,
-        paRenewals: yearPaRenewal,
+        bonuses: aiTotal + spiTotal + paTotal,
         renewals: totalRenewals,
-        cb: yearCareerBenefit,
+        nonPaRenewals: cumulativeNonPaRenewals,
+        paRenewals: cumulativePaRenewals,
+        cb: cbIncome,
         cbRate: cbRate,
-        total: totalFyc + annualBonuses + totalRenewals + yearCareerBenefit
+        total: yrTotal
       });
     }
-    
-    // Initial display for Sidebar (Current Year Total)
-    let currentYearCb = 0;
-    if (cbStartYear > 0) {
-      // If they are already in a receiving year, they get CB on their assumed current renewals.
-      // But we don't have inputs for current existing renewals, so we can't calculate current year CB accurately
-      // without projecting backwards. We will leave Current Year Total as FYC + Bonuses for now.
-    }
-    const totalCurrentYear = totalFyc + annualBonuses;
-    
-    return { 
-      totalFyc, 
-      aiTotal, 
-      q1Ai, q2Ai, q3Ai, q4Ai,
+
+    return {
+      totalFyc,
+      aiTotal,
       spiTotal,
-      q1Spi, q2Spi, q3Spi, q4Spi,
-      q1Explain, q2Explain, q3Explain, q4Explain,
       paTotal,
-      q1Pa, q2Pa, q3Pa, q4Pa,
-      q1PaExplain, q2PaExplain, q3PaExplain, q4PaExplain,
-      totalCurrentYear, 
+      grandTotal,
+      quarterly: {
+        q1: { fyc: f1, cases: c1, ai: q1Ai, spi: q1Spi, pa: q1Pa, total: f1 + q1Ai + q1Spi + q1Pa },
+        q2: { fyc: f2, cases: c2, ai: q2Ai, spi: q2Spi, pa: q2Pa, total: f2 + q2Ai + q2Spi + q2Pa },
+        q3: { fyc: f3, cases: c3, ai: q3Ai, spi: q3Spi, pa: q3Pa, total: f3 + q3Ai + q3Spi + q3Pa },
+        q4: { fyc: f4, cases: c4, ai: q4Ai, spi: q4Spi, pa: q4Pa, total: f4 + q4Ai + q4Spi + q4Pa },
+      },
       projections
     };
-  }, [
-    fycQ1, fycQ2, fycQ3, fycQ4, 
-    casesQ1, casesQ2, casesQ3, casesQ4, 
-    paFypQ1, paFypQ2, paFypQ3, paFypQ4, 
-    isNewConsultant, cbReceivingYear
-  ]);
+  }, [fycQ1, fycQ2, fycQ3, fycQ4, casesQ1, casesQ2, casesQ3, casesQ4, paFypQ1, paFypQ2, paFypQ3, paFypQ4, isNewConsultant, cbReceivingYear]);
 
-  const formatCurrency = (val) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+  // Reverse Target Planner Calculations
+  const reversePlan = useMemo(() => {
+    const targetIncome = Number(targetAnnualIncome) || 100000;
+    const avgFyc = Number(assumedAvgFycPerCase) || 3000;
+
+    // Approximate multiplier from Base FYC to Total Income (Base + ~28% SPI + 7% AI + PA) = ~1.35x
+    const estimatedMultiplier = isNewConsultant ? 1.25 : 1.35;
+    const requiredFyc = targetIncome / estimatedMultiplier;
+    const requiredQuarterlyFyc = requiredFyc / 4;
+    const requiredMonthlyFyc = requiredFyc / 12;
+
+    const totalCasesNeeded = Math.ceil(requiredFyc / avgFyc);
+    const casesPerMonth = Math.max(Math.ceil(totalCasesNeeded / 12), 1);
+    const casesPerQuarter = Math.max(Math.ceil(totalCasesNeeded / 4), 4);
+
+    return {
+      requiredFyc,
+      requiredQuarterlyFyc,
+      requiredMonthlyFyc,
+      totalCasesNeeded,
+      casesPerMonth,
+      casesPerQuarter,
+      mdrtPercent: Math.round((requiredFyc / 110000) * 100)
+    };
+  }, [targetAnnualIncome, assumedAvgFycPerCase, isNewConsultant]);
+
+  const formatCurrency = (val) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(val);
+  };
 
   return (
-    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', overflowY: 'auto' }}>
+      {/* Header */}
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px' }}>
         <div>
-          <h1 className="text-gradient" style={{ fontSize: '28px', marginBottom: '4px' }}>Remuneration Tool</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Calculate commissions and project future incentives.</p>
+          <h1 className="text-gradient" style={{ fontSize: '26px', margin: 0, fontWeight: '700' }}>
+            Remuneration & Commission Simulator
+          </h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '2px 0 0 0' }}>
+            Model quarterly agency compensation structures: Base Commission, Activity Incentive (AI), SPI, PA Bonus, and Career Benefit.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {/* Mode Switcher */}
+          <div style={{ display: 'flex', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-light)' }}>
+            <button
+              onClick={() => setActiveSubTab('forward')}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: activeSubTab === 'forward' ? 'var(--accent-primary)' : 'transparent',
+                color: activeSubTab === 'forward' ? '#fff' : 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              Forward Simulator
+            </button>
+            <button
+              onClick={() => setActiveSubTab('reverse')}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: activeSubTab === 'reverse' ? 'var(--accent-primary)' : 'transparent',
+                color: activeSubTab === 'reverse' ? '#fff' : 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <Target size={13} /> Reverse Goal Planner
+            </button>
+          </div>
+
+          <button
+            onClick={handleSyncFromPipeline}
+            disabled={isSyncing}
+            className="btn"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '7px 12px', backgroundColor: 'rgba(52, 211, 153, 0.12)', color: '#34d399', border: '1px solid rgba(52, 211, 153, 0.25)' }}
+            title="Sync issued cases from CRM database for current year"
+          >
+            <RefreshCw size={13} style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }} />
+            {isSyncing ? 'Syncing...' : 'Sync from Pipeline'}
+          </button>
         </div>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '24px', flex: 1, overflowY: 'auto', paddingBottom: '24px' }}>
-        {/* Left Sidebar - Inputs */}
-        <div className="glass-panel" style={{ padding: '24px', height: 'fit-content' }}>
-          <h2 style={{ fontSize: '18px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Briefcase size={20} color="var(--accent-primary)" />
-            Sales Inputs
-          </h2>
-          
-          <div style={{ marginTop: '0px', marginBottom: '16px' }}>
-            <label className="input-label" style={{ display: 'block', marginBottom: '12px' }}>First Year Commissions (Quarterly)</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q1</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={fycQ1} onChange={e => setFycQ1(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
+      {/* Reverse Target Income Planner View */}
+      {activeSubTab === 'reverse' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px', border: '1px solid rgba(139, 92, 246, 0.3)', background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(18, 18, 26, 0.8) 100%)' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <Target size={20} color="var(--accent-primary)" />
+              Target Income Reverse Calculator
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+              <div>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>
+                  Target Annual Net Income ($)
+                </label>
+                <input
+                  type="number"
+                  step="5000"
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '18px', fontWeight: '700', color: '#34d399' }}
+                  value={targetAnnualIncome}
+                  onChange={e => setTargetAnnualIncome(e.target.value)}
+                />
               </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q2</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={fycQ2} onChange={e => setFycQ2(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q3</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={fycQ3} onChange={e => setFycQ3(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q4</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={fycQ4} onChange={e => setFycQ4(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
+              <div>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>
+                  Assumed Average FYC per Case ($)
+                </label>
+                <input
+                  type="number"
+                  step="500"
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '18px', fontWeight: '700', color: 'var(--accent-primary)' }}
+                  value={assumedAvgFycPerCase}
+                  onChange={e => setAssumedAvgFycPerCase(e.target.value)}
+                />
               </div>
             </div>
-          </div>
 
-          <div style={{ marginTop: '24px', marginBottom: '8px' }}>
-            <label className="input-label" style={{ display: 'block', marginBottom: '12px' }}>Cases (Quarterly)</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q1</label>
-                <input type="number" className="input-field" style={{ width: '100%' }} value={casesQ1} onChange={e => setCasesQ1(e.target.value === '' ? '' : Number(e.target.value))} />
+            {/* Calculated Requirements Breakdown */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+              <div style={{ padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Required Annual FYC</div>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: '#34d399' }}>{formatCurrency(reversePlan.requiredFyc)}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{reversePlan.mdrtPercent}% of MDRT Goal</div>
               </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q2</label>
-                <input type="number" className="input-field" style={{ width: '100%' }} value={casesQ2} onChange={e => setCasesQ2(e.target.value === '' ? '' : Number(e.target.value))} />
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q3</label>
-                <input type="number" className="input-field" style={{ width: '100%' }} value={casesQ3} onChange={e => setCasesQ3(e.target.value === '' ? '' : Number(e.target.value))} />
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q4</label>
-                <input type="number" className="input-field" style={{ width: '100%' }} value={casesQ4} onChange={e => setCasesQ4(e.target.value === '' ? '' : Number(e.target.value))} />
-              </div>
-            </div>
-          </div>
 
-          {/* PA Inputs */}
-          <div style={{ marginTop: '24px', marginBottom: '16px' }}>
-            <label className="input-label" style={{ display: 'block', marginBottom: '12px' }}>PA FYP (Quarterly)</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q1</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={paFypQ1} onChange={e => setPaFypQ1(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
+              <div style={{ padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Required Monthly FYC</div>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{formatCurrency(reversePlan.requiredMonthlyFyc)}/mo</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{formatCurrency(reversePlan.requiredQuarterlyFyc)}/quarter</div>
               </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q2</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={paFypQ2} onChange={e => setPaFypQ2(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q3</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={paFypQ3} onChange={e => setPaFypQ3(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="input-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Q4</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '8px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                  <input type="number" className="input-field" style={{ width: '100%', paddingLeft: '20px' }} value={paFypQ4} onChange={e => setPaFypQ4(e.target.value === '' ? '' : Number(e.target.value))} />
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div style={{ padding: '16px', borderTop: '1px solid var(--border-light)', borderBottom: '1px solid var(--border-light)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-              <input 
-                type="checkbox" 
-                id="newConsultantToggle"
-                checked={isNewConsultant} 
-                onChange={e => setIsNewConsultant(e.target.checked)} 
-                style={{ accentColor: 'var(--accent-primary)', width: '16px', height: '16px', cursor: 'pointer' }}
-              />
-              <label htmlFor="newConsultantToggle" style={{ fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                New Consultant (&lt; 2 Years)
-              </label>
-            </div>
-            
-            <div className="input-group" style={{ marginBottom: 0 }}>
-              <label style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Career Benefit Receiving Year</label>
-              <input 
-                type="number" 
-                min="0"
-                className="input-field" 
-                style={{ width: '100%', marginTop: '8px' }} 
-                value={cbReceivingYear} 
-                placeholder="0 if starting fresh"
-                onChange={e => setCbReceivingYear(e.target.value === '' ? '' : Number(e.target.value))} 
-              />
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Enter the number of years you have already qualified for Career Benefit. Enter 0 if you are newly qualifying this year.
-              </p>
-            </div>
-          </div>
 
-          <div style={{ marginTop: '32px', padding: '16px', backgroundColor: 'var(--bg-base)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
-            <h3 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Current Year Total</h3>
-            <div className="text-gradient" style={{ fontSize: '32px', fontWeight: 'bold' }}>
-              {formatCurrency(calculations.totalCurrentYear)}
+              <div style={{ padding: '16px', borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>Cases Needed (Monthly)</div>
+                <div style={{ fontSize: '22px', fontWeight: '700', color: '#60a5fa' }}>{reversePlan.casesPerMonth} Cases / Mo</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>{reversePlan.totalCasesNeeded} Total Cases for Year</div>
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Right Content - Output Cards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          <h2 style={{ fontSize: '20px', color: 'var(--text-primary)' }}>Active Incentives</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-            
-            {/* FYC */}
-            <div className="card" style={{ animationDelay: '0.1s' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ padding: '10px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px' }}>
-                  <DollarSign size={24} color="var(--accent-success)" />
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Direct</span>
-              </div>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>First Year Commissions</h3>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                {formatCurrency(calculations.totalFyc)}
-              </div>
-            </div>
-
-            {/* AI */}
-            <div className="card" style={{ animationDelay: '0.2s' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ padding: '10px', backgroundColor: 'rgba(139, 92, 246, 0.1)', borderRadius: '8px' }}>
-                  <Target size={24} color="var(--accent-primary)" />
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Quarterly</span>
-              </div>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Activity Incentive (AI)</h3>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: calculations.aiTotal > 0 ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-                {formatCurrency(calculations.aiTotal)}
-              </div>
-              <div style={{ display: 'flex', gap: '4px', marginTop: '12px' }}>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q1Ai > 0 ? 'var(--accent-primary)' : 'var(--bg-base)', borderRadius: '2px' }} title="Q1"></div>
-                  <span style={{ fontSize: '10px', color: calculations.q1Ai > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q1Ai)}</span>
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q2Ai > 0 ? 'var(--accent-primary)' : 'var(--bg-base)', borderRadius: '2px' }} title="Q2"></div>
-                  <span style={{ fontSize: '10px', color: calculations.q2Ai > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q2Ai)}</span>
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q3Ai > 0 ? 'var(--accent-primary)' : 'var(--bg-base)', borderRadius: '2px' }} title="Q3"></div>
-                  <span style={{ fontSize: '10px', color: calculations.q3Ai > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q3Ai)}</span>
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q4Ai > 0 ? 'var(--accent-primary)' : 'var(--bg-base)', borderRadius: '2px' }} title="Q4"></div>
-                  <span style={{ fontSize: '10px', color: calculations.q4Ai > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q4Ai)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* SPI */}
-            <div className="card" style={{ animationDelay: '0.3s' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ padding: '10px', backgroundColor: 'rgba(6, 182, 212, 0.1)', borderRadius: '8px' }}>
-                  <TrendingUp size={24} color="var(--accent-secondary)" />
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cumulative</span>
-              </div>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Special Production Incentive</h3>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: calculations.spiTotal > 0 ? 'var(--accent-secondary)' : 'var(--text-muted)' }}>
-                {formatCurrency(calculations.spiTotal)}
-              </div>
-              <div style={{ display: 'flex', gap: '4px', marginTop: '12px' }}>
-                <div title={calculations.q1Explain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q1Spi > 0 ? 'var(--accent-secondary)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q1Spi > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q1Spi)}</span>
-                </div>
-                <div title={calculations.q2Explain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q2Spi > 0 ? 'var(--accent-secondary)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q2Spi > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q2Spi)}</span>
-                </div>
-                <div title={calculations.q3Explain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q3Spi > 0 ? 'var(--accent-secondary)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q3Spi > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q3Spi)}</span>
-                </div>
-                <div title={calculations.q4Explain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q4Spi > 0 ? 'var(--accent-secondary)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q4Spi > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q4Spi)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* PA Bonus */}
-            <div className="card" style={{ animationDelay: '0.4s' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ padding: '10px', backgroundColor: 'rgba(234, 179, 8, 0.1)', borderRadius: '8px' }}>
-                  <ShieldCheck size={24} color="var(--accent-warning)" />
-                </div>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Quarterly</span>
-              </div>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>PA Production Bonus</h3>
-              <div style={{ fontSize: '24px', fontWeight: 'bold', color: calculations.paTotal > 0 ? 'var(--accent-warning)' : 'var(--text-muted)' }}>
-                {formatCurrency(calculations.paTotal)}
-              </div>
-              <div style={{ display: 'flex', gap: '4px', marginTop: '12px' }}>
-                <div title={calculations.q1PaExplain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q1Pa > 0 ? 'var(--accent-warning)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q1Pa > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q1Pa)}</span>
-                </div>
-                <div title={calculations.q2PaExplain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q2Pa > 0 ? 'var(--accent-warning)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q2Pa > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q2Pa)}</span>
-                </div>
-                <div title={calculations.q3PaExplain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q3Pa > 0 ? 'var(--accent-warning)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q3Pa > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q3Pa)}</span>
-                </div>
-                <div title={calculations.q4PaExplain} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'help' }}>
-                  <div style={{ width: '100%', height: '4px', backgroundColor: calculations.q4Pa > 0 ? 'var(--accent-warning)' : 'var(--bg-base)', borderRadius: '2px' }}></div>
-                  <span style={{ fontSize: '10px', color: calculations.q4Pa > 0 ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{formatCurrency(calculations.q4Pa)}</span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-
-          <h2 style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Clock size={20} color="var(--text-muted)" />
-            Upcoming Modules (In Development)
-          </h2>
+      ) : (
+        /* Forward Simulator Main View */
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 380px) 1fr', gap: '20px' }}>
           
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', opacity: 0.6 }}>
-            {/* APF Placeholder */}
-            <div className="card" style={{ borderStyle: 'dashed' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ padding: '10px', backgroundColor: 'var(--bg-base)', borderRadius: '8px' }}>
-                  <PiggyBank size={24} color="var(--text-muted)" />
-                </div>
-                <span style={{ fontSize: '10px', padding: '4px 8px', backgroundColor: 'var(--bg-base)', borderRadius: '12px', color: 'var(--text-muted)' }}>Pending Logic</span>
-              </div>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Agent Provident Fund</h3>
-              <div style={{ fontSize: '20px', fontWeight: '600', color: 'var(--text-muted)' }}>TBD</div>
-            </div>
-          </div>
+          {/* Left Column: Input Form */}
+          <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h2 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
+              Quarterly Production Inputs
+            </h2>
 
-          <h2 style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '16px' }}>5-Year Income Projection</h2>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            Assuming constant annual production and stacking renewals. Career Benefit applied strictly to Life/Health renewals.
-          </p>
-          
-          <div className="glass-panel" style={{ padding: '0', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '14px', minWidth: '600px' }}>
-              <thead>
-                <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-light)' }}>
-                  <th style={{ padding: '16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: '500' }}>Year</th>
-                  <th style={{ padding: '16px', color: 'var(--text-secondary)', fontWeight: '500' }}>FYC</th>
-                  <th style={{ padding: '16px', color: 'var(--text-secondary)', fontWeight: '500' }}>Bonuses</th>
-                  <th style={{ padding: '16px', color: 'var(--text-secondary)', fontWeight: '500' }}>Renewals</th>
-                  <th style={{ padding: '16px', color: 'var(--text-secondary)', fontWeight: '500' }}>Career Benefit</th>
-                  <th style={{ padding: '16px', color: 'var(--text-primary)', fontWeight: '600' }}>Total Income</th>
-                </tr>
-              </thead>
-              <tbody>
-                {calculations.projections.map((proj) => (
-                  <tr key={proj.year} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                    <td style={{ padding: '16px', textAlign: 'left', color: 'var(--text-primary)', fontWeight: '500' }}>Year {proj.year}</td>
-                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{formatCurrency(proj.fyc)}</td>
-                    <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>
-                      <span title={`AI: ${formatCurrency(proj.ai)}\nSPI: ${formatCurrency(proj.spi)}\nPA: ${formatCurrency(proj.pa)}`} style={{ cursor: 'help', borderBottom: '1px dotted var(--text-muted)' }}>
-                        {formatCurrency(proj.bonuses)}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', color: 'var(--accent-success)' }}>
-                      <span title={`Life/Health: ${formatCurrency(proj.nonPaRenewals)}\nPA: ${formatCurrency(proj.paRenewals)}`} style={{ cursor: 'help', borderBottom: '1px dotted var(--accent-success)' }}>
-                        {formatCurrency(proj.renewals)}
-                      </span>
-                    </td>
-                    <td style={{ padding: '16px', color: 'var(--accent-secondary)' }}>
-                      {proj.cb > 0 ? (
-                        <span title={`Rate: ${(proj.cbRate * 100).toFixed(0)}% of Life/Health Renewals`} style={{ cursor: 'help', borderBottom: '1px dotted var(--accent-secondary)' }}>
-                          {formatCurrency(proj.cb)}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>-</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '16px', color: 'var(--text-primary)', fontWeight: 'bold', fontSize: '15px' }}>{formatCurrency(proj.total)}</td>
-                  </tr>
+            {/* Q1-Q4 FYC */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-secondary)' }}>First Year Commission (FYC)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[['Q1', fycQ1, setFycQ1], ['Q2', fycQ2, setFycQ2], ['Q3', fycQ3, setFycQ3], ['Q4', fycQ4, setFycQ4]].map(([lbl, val, setVal]) => (
+                  <div key={lbl}>
+                    <label className="input-label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>{lbl} FYC ($)</label>
+                    <input type="number" step="500" className="input-field" style={{ width: '100%', padding: '8px 10px', fontSize: '13px' }} value={val} onChange={e => setVal(e.target.value)} />
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
+
+            {/* Q1-Q4 Case Counts */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-secondary)' }}>Quarterly Case Count (Min 4 for AI)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[['Q1 Cases', casesQ1, setCasesQ1], ['Q2 Cases', casesQ2, setCasesQ2], ['Q3 Cases', casesQ3, setCasesQ3], ['Q4 Cases', casesQ4, setCasesQ4]].map(([lbl, val, setVal]) => (
+                  <div key={lbl}>
+                    <label className="input-label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>{lbl}</label>
+                    <input type="number" min="0" className="input-field" style={{ width: '100%', padding: '8px 10px', fontSize: '13px' }} value={val} onChange={e => setVal(e.target.value)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Q1-Q4 PA FYP */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-secondary)' }}>Personal Accident (PA) FYP</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[['Q1 PA', paFypQ1, setPaFypQ1], ['Q2 PA', paFypQ2, setPaFypQ2], ['Q3 PA', paFypQ3, setPaFypQ3], ['Q4 PA', paFypQ4, setPaFypQ4]].map(([lbl, val, setVal]) => (
+                  <div key={lbl}>
+                    <label className="input-label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>{lbl} ($)</label>
+                    <input type="number" step="250" className="input-field" style={{ width: '100%', padding: '8px 10px', fontSize: '13px' }} value={val} onChange={e => setVal(e.target.value)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Consultant Profile Settings */}
+            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)' }}>
+                <input type="checkbox" checked={isNewConsultant} onChange={e => setIsNewConsultant(e.target.checked)} />
+                <span>First-Year New Consultant (SPI Tier Thresholds)</span>
+              </label>
+
+              <div>
+                <label className="input-label" style={{ fontSize: '11px', marginBottom: '4px', display: 'block' }}>Career Benefit (CB) Receiving Year</label>
+                <select className="input-field" style={{ width: '100%', fontSize: '13px' }} value={cbReceivingYear} onChange={e => setCbReceivingYear(e.target.value)}>
+                  <option value={0}>Not Eligible (Year 0)</option>
+                  <option value={1}>Years 1 - 3 (80% on Life Renewals)</option>
+                  <option value={4}>Years 4 - 6 (90%)</option>
+                  <option value={7}>Years 7 - 8 (95%)</option>
+                  <option value={9}>Years 9 - 10 (100%)</option>
+                  <option value={11}>Years 11 - 15 (105%)</option>
+                  <option value={16}>Years 16+ (110%)</option>
+                </select>
+              </div>
+            </div>
           </div>
 
+          {/* Right Column: Output Summary & Projections */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Grand Total Highlight */}
+            <div className="glass-panel" style={{ padding: '24px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(52, 211, 153, 0.12) 0%, rgba(18, 18, 26, 0.8) 100%)', border: '1px solid rgba(52, 211, 153, 0.3)' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>
+                Estimated Total Year 1 Compensation
+              </div>
+              <div style={{ fontSize: '32px', fontWeight: '800', color: '#34d399', marginBottom: '16px' }}>
+                {formatCurrency(calculations.grandTotal)}
+              </div>
+
+              {/* Bonus Breakdown Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+                <div style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Base FYC</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)' }}>{formatCurrency(calculations.totalFyc)}</div>
+                </div>
+                <div style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Activity Inc. (AI)</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: '#60a5fa' }}>{formatCurrency(calculations.aiTotal)}</div>
+                </div>
+                <div style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>SPI Bonus</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: '#a78bfa' }}>{formatCurrency(calculations.spiTotal)}</div>
+                </div>
+                <div style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>PA Bonus</div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: '#fbbf24' }}>{formatCurrency(calculations.paTotal)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 5-Year Income Projection Table */}
+            <div className="glass-panel" style={{ padding: '20px 24px', borderRadius: '16px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                5-Year Cumulative Income Projection
+              </h3>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>
+                Assuming consistent annual production with stacking policy renewals and Career Benefit multipliers.
+              </p>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-light)', backgroundColor: 'rgba(255,255,255,0.02)' }}>
+                      <th style={{ padding: '10px 14px', textAlign: 'left', color: 'var(--text-secondary)' }}>Year</th>
+                      <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>FYC</th>
+                      <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Bonuses</th>
+                      <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Renewals</th>
+                      <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Career Benefit</th>
+                      <th style={{ padding: '10px 14px', color: '#34d399', fontWeight: '700' }}>Total Income</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calculations.projections.map((p) => (
+                      <tr key={p.year} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                        <td style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '600', color: 'var(--text-primary)' }}>Year {p.year}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{formatCurrency(p.fyc)}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>{formatCurrency(p.bonuses)}</td>
+                        <td style={{ padding: '10px 14px', color: '#60a5fa' }}>{formatCurrency(p.renewals)}</td>
+                        <td style={{ padding: '10px 14px', color: '#a78bfa' }}>{p.cb > 0 ? formatCurrency(p.cb) : '—'}</td>
+                        <td style={{ padding: '10px 14px', color: '#34d399', fontWeight: '700' }}>{formatCurrency(p.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

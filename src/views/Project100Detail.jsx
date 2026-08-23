@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { 
   ArrowLeft, UserPlus, Star, Edit2, Trash2, Plus, Search, 
   Phone, Mail, Award, CheckCircle, RefreshCw, 
-  Layers, AlertCircle, HelpCircle, Briefcase
+  Layers, AlertCircle, HelpCircle, Briefcase, UploadCloud
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -710,6 +710,85 @@ export default function Project100Detail({ onBack }) {
     }
   };
 
+  const fileInputRef = useRef(null);
+
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target.result;
+      setLoading(true);
+      try {
+        let importedCount = 0;
+        if (file.name.endsWith('.vcf')) {
+          const cards = content.split('BEGIN:VCARD');
+          for (const card of cards) {
+            if (!card.trim()) continue;
+            const fnMatch = card.match(/FN:(.+)/i);
+            const telMatch = card.match(/TEL.*:(.+)/i);
+            const emailMatch = card.match(/EMAIL.*:(.+)/i);
+            const orgMatch = card.match(/ORG:(.+)/i);
+            const titleMatch = card.match(/TITLE:(.+)/i);
+
+            const fullName = fnMatch ? fnMatch[1].trim() : '';
+            if (fullName) {
+              await window.electronAPI?.addProject100Contact({
+                fullName,
+                phone: telMatch ? telMatch[1].trim() : '',
+                email: emailMatch ? emailMatch[1].trim() : '',
+                company: orgMatch ? orgMatch[1].trim() : '',
+                jobTitle: titleMatch ? titleMatch[1].trim() : '',
+                category: 'Warm Acquaintance',
+                scoreNeed: 3,
+                scoreAccessibility: 3,
+                scoreIncome: 3,
+                scoreTrust: 3,
+                stage: 'Not Contacted'
+              });
+              importedCount++;
+            }
+          }
+        } else {
+          const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+          if (lines.length > 0) {
+            const isHeader = lines[0].toLowerCase().includes('name') || lines[0].toLowerCase().includes('phone');
+            const dataLines = isHeader ? lines.slice(1) : lines;
+
+            for (const line of dataLines) {
+              const parts = line.split(',').map(p => p.replace(/^["']|["']$/g, '').trim());
+              const fullName = parts[0];
+              if (fullName) {
+                await window.electronAPI?.addProject100Contact({
+                  fullName,
+                  phone: parts[1] || '',
+                  email: parts[2] || '',
+                  company: parts[3] || '',
+                  category: CATEGORIES.includes(parts[4]) ? parts[4] : 'Warm Acquaintance',
+                  scoreNeed: 3,
+                  scoreAccessibility: 3,
+                  scoreIncome: 3,
+                  scoreTrust: 3,
+                  stage: 'Not Contacted'
+                });
+                importedCount++;
+              }
+            }
+          }
+        }
+        await loadData();
+        showCustomAlert("Import Complete", `Successfully imported ${importedCount} contacts into Project 100!`);
+      } catch (err) {
+        showCustomAlert("Import Error", "Failed to parse file: " + err.message);
+      } finally {
+        setLoading(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   // Helper function to calculate total score (out of 20)
   const getTotalScore = (contact) => {
     return (contact.scoreNeed || 0) + 
@@ -850,6 +929,22 @@ export default function Project100Detail({ onBack }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.vcf,.txt"
+            style={{ display: 'none' }}
+            onChange={handleImportFile}
+          />
+          <button 
+            className="btn btn-secondary" 
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            title="Import contacts from CSV or phone .vcf file"
+          >
+            <UploadCloud size={14} /> Import CSV / VCF
+          </button>
           <button 
             className="btn btn-secondary" 
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}

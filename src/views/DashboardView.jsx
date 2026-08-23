@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, 
+  AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar, 
+  Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle 
+} from 'lucide-react';
+import { useToast } from '../components/Toast';
 
 const fmt = (v) => v ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v) : '$0';
 
@@ -12,7 +17,6 @@ const STAGE_COLORS = {
   'Closed/Lost':    '#f87171',
 };
 
-/* ─── Shared card style ─────────────────────────────────────── */
 const cardStyle = {
   background: 'var(--bg-surface)',
   border: '1px solid var(--border-light)',
@@ -29,12 +33,14 @@ const sectionHeadingStyle = {
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
-  marginBottom: '18px',
+  marginBottom: '16px',
 };
 
-export default function DashboardView() {
+export default function DashboardView({ onNavigateTab, onSelectClient }) {
+  const { addToast } = useToast();
   const [clients, setClients] = useState([]);
   const [pipeline, setPipeline] = useState([]);
+  const [policies, setPolicies] = useState([]);
   const [pendingTasks, setPendingTasks] = useState([]);
   const [calendarTasks, setCalendarTasks] = useState([]);
   const [googleEvents, setGoogleEvents] = useState([]);
@@ -53,20 +59,22 @@ export default function DashboardView() {
   const loadData = async () => {
     if (!window.electronAPI) { setLoading(false); return; }
     try {
-      const [cRes, pRes, tRes, ctRes, gsRes] = await Promise.all([
-        window.electronAPI.getClients(),
-        window.electronAPI.getPipeline(),
-        window.electronAPI.getAllTasks(),
+      const [cRes, pRes, polRes, tRes, ctRes, gsRes] = await Promise.all([
+        window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: false }),
+        window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false }),
+        window.electronAPI.getAllPolicies ? window.electronAPI.getAllPolicies() : Promise.resolve({ success: false }),
+        window.electronAPI.getAllTasks ? window.electronAPI.getAllTasks() : Promise.resolve({ success: false }),
         window.electronAPI.getCalendarTasks ? window.electronAPI.getCalendarTasks() : Promise.resolve({ success: false }),
         window.electronAPI.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
       ]);
       
-      if (cRes.success) setClients(cRes.data);
-      if (pRes.success) setPipeline(pRes.data);
-      if (tRes.success) setPendingTasks(tRes.data);
-      if (ctRes.success) setCalendarTasks(ctRes.data);
+      if (cRes?.success) setClients(cRes.data || []);
+      if (pRes?.success) setPipeline(pRes.data || []);
+      if (polRes?.success) setPolicies(polRes.data || []);
+      if (tRes?.success) setPendingTasks(tRes.data || []);
+      if (ctRes?.success) setCalendarTasks(ctRes.data || []);
       
-      if (gsRes.success && gsRes.data.connected) {
+      if (gsRes?.success && gsRes.data?.connected) {
         setGoogleSettings(gsRes.data);
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -76,7 +84,7 @@ export default function DashboardView() {
         const timeMax = todayEnd.toISOString();
         
         const geRes = await window.electronAPI.getGoogleEvents({ timeMin, timeMax });
-        if (geRes.success) {
+        if (geRes?.success) {
           setGoogleEvents(geRes.events || []);
         }
       } else {
@@ -111,6 +119,7 @@ export default function DashboardView() {
   const handleCompleteTask = async (task) => {
     if (window.electronAPI?.updateTask) {
       await window.electronAPI.updateTask({ id: task.id, status: 'Completed' });
+      addToast(`Completed task: "${task.description.slice(0, 30)}..."`, 'success');
       loadData();
     }
   };
@@ -119,6 +128,7 @@ export default function DashboardView() {
     if (window.electronAPI?.updateTask) {
       const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
       await window.electronAPI.updateTask({ id: task.id, status: newStatus });
+      addToast(`Task marked ${newStatus.toLowerCase()}`, 'info');
       loadData();
     }
   };
@@ -126,6 +136,7 @@ export default function DashboardView() {
   const handleDeleteTask = async (taskId) => {
     if (window.electronAPI?.deleteTask) {
       await window.electronAPI.deleteTask(taskId);
+      addToast('Task removed', 'info');
       loadData();
     }
   };
@@ -133,10 +144,7 @@ export default function DashboardView() {
   const getTodayScheduleItems = () => {
     const items = [];
     const today = new Date();
-
     const todayCrmTasks = calendarTasks.filter(t => t.dueDate && isSameDay(new Date(t.dueDate), today));
-    
-    // Set of synced Google Event IDs to prevent duplicates
     const syncedEventIds = new Set(calendarTasks.map(t => t.googleEventId).filter(Boolean));
 
     const todayGoogleEvents = googleEvents.filter(e => {
@@ -144,6 +152,7 @@ export default function DashboardView() {
       const start = e.start?.dateTime ? new Date(e.start.dateTime) : (e.start?.date ? new Date(e.start.date) : null);
       return start && isSameDay(start, today);
     });
+
     const todayPipelineCloses = pipeline.filter(c => {
       return c.expectedCloseDate && c.stage !== 'Closed/Lost' && isSameDay(new Date(c.expectedCloseDate), today);
     });
@@ -157,6 +166,7 @@ export default function DashboardView() {
         completed: t.status === 'Completed',
         color: 'var(--accent-primary)',
         bg: 'rgba(139,92,246,0.12)',
+        clientId: t.clientId,
         originalData: t
       });
     });
@@ -179,14 +189,14 @@ export default function DashboardView() {
         id: `pipeline-${c.id}`,
         type: 'pipeline',
         time: null,
-        title: `Close: ${c.clientName} (${c.policyName})`,
+        title: `Close: ${c.clientName} (${c.policyName || 'Deal'})`,
         color: 'var(--accent-warning)',
         bg: 'rgba(245,158,11,0.12)',
+        clientId: c.clientId,
         originalData: c
       });
     });
 
-    // Sort items: if they have time, sort by time. Otherwise sort by type.
     items.sort((a, b) => {
       if (a.time && b.time) return a.time.localeCompare(b.time);
       if (a.time) return -1;
@@ -197,6 +207,72 @@ export default function DashboardView() {
     return items;
   };
 
+  /* ── Upcoming Client Milestones (Birthdays & Policy Anniversaries) ── */
+  const upcomingMilestones = useMemo(() => {
+    const items = [];
+    const now = new Date();
+
+    // 1. Birthdays in Next 14 Days
+    clients.forEach(c => {
+      if (c.dob) {
+        const birth = new Date(c.dob);
+        if (!isNaN(birth.getTime())) {
+          let nextBday = new Date(now.getFullYear(), birth.getMonth(), birth.getDate());
+          if (nextBday < now) {
+            nextBday = new Date(now.getFullYear() + 1, birth.getMonth(), birth.getDate());
+          }
+          const diffDays = Math.ceil((nextBday - now) / (1000 * 60 * 60 * 24));
+          if (diffDays >= 0 && diffDays <= 14) {
+            const turningAge = nextBday.getFullYear() - birth.getFullYear();
+            items.push({
+              id: `bday-${c.id}`,
+              type: 'birthday',
+              title: `${c.fullName}${c.preferredName ? ` ("${c.preferredName}")` : ''}`,
+              sub: `Turning ${turningAge} on ${nextBday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${diffDays === 0 ? 'Today! 🎂' : `in ${diffDays}d`})`,
+              date: nextBday,
+              diffDays,
+              client: c,
+              icon: <Cake size={15} color="#ec4899" />,
+              badgeColor: '#ec4899',
+              badgeBg: 'rgba(236, 72, 153, 0.15)'
+            });
+          }
+        }
+      }
+    });
+
+    // 2. Policy Inception Anniversaries in Next 30 Days
+    policies.forEach(pol => {
+      if (pol.inceptionDate) {
+        const inc = new Date(pol.inceptionDate);
+        if (!isNaN(inc.getTime())) {
+          let nextAnniv = new Date(now.getFullYear(), inc.getMonth(), inc.getDate());
+          if (nextAnniv < now) {
+            nextAnniv = new Date(now.getFullYear() + 1, inc.getMonth(), inc.getDate());
+          }
+          const diffDays = Math.ceil((nextAnniv - now) / (1000 * 60 * 60 * 24));
+          if (diffDays >= 0 && diffDays <= 30) {
+            const matchedClient = clients.find(cl => cl.id === pol.clientId);
+            items.push({
+              id: `anniv-${pol.id}`,
+              type: 'anniversary',
+              title: `${matchedClient ? matchedClient.fullName + ' — ' : ''}${pol.policyName}`,
+              sub: `${pol.provider} • Premium: $${Number(pol.premiumAmount || 0).toLocaleString()} (Due ${nextAnniv.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+              date: nextAnniv,
+              diffDays,
+              client: matchedClient,
+              icon: <Shield size={15} color="#38bdf8" />,
+              badgeColor: '#38bdf8',
+              badgeBg: 'rgba(56, 189, 248, 0.15)'
+            });
+          }
+        }
+      }
+    });
+
+    items.sort((a, b) => a.diffDays - b.diffDays);
+    return items;
+  }, [clients, policies]);
 
   /* ── Derived Metrics ─────────────────────────────────────── */
   const activeClients      = clients.filter(c => c.clientStatus === 'Active');
@@ -204,7 +280,7 @@ export default function DashboardView() {
   const activePipeline     = pipeline.filter(c => c.stage !== 'Closed/Lost');
   const issuedThisMonth    = pipeline.filter(c => {
     if (c.stage !== 'Case Issued') return false;
-    const updated = new Date(c.updatedAt);
+    const updated = new Date(c.updatedAt || c.createdAt);
     const now     = new Date();
     return updated.getMonth() === now.getMonth() && updated.getFullYear() === now.getFullYear();
   });
@@ -212,16 +288,23 @@ export default function DashboardView() {
   const totalPipelinePremium = activePipeline.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
   const issuedFYCThisMonth   = issuedThisMonth.reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0);
 
-  const stageBreakdown = ['Prospect', 'Fact Finding', 'Proposal Sent', 'Case Submitted', 'Case Issued']
-    .map(stage => ({
-      stage, color: STAGE_COLORS[stage],
-      count: pipeline.filter(c => c.stage === stage).length,
-      fyc:   pipeline.filter(c => c.stage === stage).reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0),
-    }));
-
-  const maxCount    = Math.max(...stageBreakdown.map(s => s.count), 1);
   const recentCases = [...pipeline].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
   const overdueCases = activePipeline.filter(c => c.expectedCloseDate && new Date(c.expectedCloseDate) < new Date());
+
+  const handleOpenClient = (client) => {
+    if (client && onSelectClient) {
+      onSelectClient(client);
+    } else if (onNavigateTab) {
+      onNavigateTab('clients');
+    }
+  };
+
+  const handleWhatsApp = (phone, name) => {
+    if (!phone) return;
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const text = encodeURIComponent(`Hi ${name || 'there'}, wishing you a fantastic day ahead!`);
+    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
+  };
 
   if (loading) {
     return (
@@ -235,40 +318,62 @@ export default function DashboardView() {
     <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
       {/* ── Page Header ──────────────────────────────────────── */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 className="text-gradient" style={{ fontSize: '22px', marginBottom: '2px' }}>Dashboard</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+          <h1 className="text-gradient" style={{ fontSize: '24px', margin: 0, fontWeight: '700' }}>Executive Dashboard</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '2px 0 0 0' }}>
             {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
+
+        {/* Quick Action Triggers */}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="btn"
+            onClick={() => onNavigateTab && onNavigateTab('clients')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 12px', backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}
+          >
+            <Plus size={13} /> Add Client
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => onNavigateTab && onNavigateTab('pipeline')}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '6px 14px' }}
+          >
+            <Plus size={13} /> New Deal
+          </button>
+        </div>
       </header>
 
-      {/* ── Row 1: 4 Equal KPI Cards ─────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+      {/* ── Row 1: 4 Clickable KPI Cards ─────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
         <StatCard
           icon={<Users size={18} />} iconColor="#60a5fa"
           label="Active Clients" value={activeClients.length}
           sub={`${prospectClients.length} prospects`}
+          onClick={() => onNavigateTab && onNavigateTab('clients')}
         />
         <StatCard
           icon={<GitBranch size={18} />} iconColor="#a78bfa"
           label="Active Pipeline" value={activePipeline.length}
           sub={`${issuedThisMonth.length} issued this month`} subColor="#34d399"
+          onClick={() => onNavigateTab && onNavigateTab('pipeline')}
         />
         <StatCard
           icon={<DollarSign size={18} />} iconColor="#fbbf24"
           label="Pipeline FYC" value={fmt(totalPipelineFYC)}
           sub={`${fmt(totalPipelinePremium)} premium`}
+          onClick={() => onNavigateTab && onNavigateTab('pipeline')}
         />
         <StatCard
           icon={<TrendingUp size={18} />} iconColor="#34d399"
           label="FYC This Month" value={fmt(issuedFYCThisMonth)}
           sub={`${issuedThisMonth.length} case${issuedThisMonth.length !== 1 ? 's' : ''} issued`} subColor="#34d399"
+          onClick={() => onNavigateTab && onNavigateTab('sales')}
         />
       </div>
 
-      {/* ── Row 2: AI Briefing (span 2) + Pipeline Funnel + Overdue ── */}
+      {/* ── Row 2: AI Briefing (span 2) + Today's Schedule + Overdue ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
 
         {/* AI Briefing */}
@@ -317,8 +422,16 @@ export default function DashboardView() {
 
         {/* Today's Schedule */}
         <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', height: '100%', minHeight: '220px' }}>
-          <div style={sectionHeadingStyle}>
-            <Calendar size={14} color="var(--accent-secondary)" /> Today's Schedule
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ ...sectionHeadingStyle, marginBottom: 0 }}>
+              <Calendar size={14} color="var(--accent-secondary)" /> Today's Schedule
+            </div>
+            <button
+              onClick={() => onNavigateTab && onNavigateTab('schedule')}
+              style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px', padding: 0 }}
+            >
+              View <ChevronRight size={12} />
+            </button>
           </div>
           {getTodayScheduleItems().length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '20px 0', gap: '8px' }}>
@@ -330,7 +443,6 @@ export default function DashboardView() {
               {getTodayScheduleItems().map(item => {
                 const isTask = item.type === 'task';
                 const isGoogle = item.type === 'google';
-                const isPipeline = item.type === 'pipeline';
                 
                 return (
                   <div
@@ -345,19 +457,21 @@ export default function DashboardView() {
                       borderLeft: `3px solid ${item.color}`,
                       borderRadius: '8px',
                       transition: 'all 0.15s ease',
+                      cursor: item.clientId ? 'pointer' : 'default'
                     }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.02)';
-                      e.currentTarget.style.borderColor = 'var(--border-light)';
+                    onClick={() => {
+                      if (item.clientId) {
+                        const cl = clients.find(c => c.id === item.clientId);
+                        if (cl) handleOpenClient(cl);
+                      }
                     }}
                   >
                     {isTask && (
                       <button
-                        onClick={() => toggleTaskStatus(item.originalData)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleTaskStatus(item.originalData);
+                        }}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -399,11 +513,6 @@ export default function DashboardView() {
                       {isTask && item.originalData.clientName && (
                         <div style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {item.originalData.clientName}
-                          {item.originalData.googleEventId && (
-                            <span style={{ fontSize: '8px', backgroundColor: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)', padding: '0px 4px', borderRadius: '3px' }} title="Synced to Google Calendar">
-                              Synced
-                            </span>
-                          )}
                         </div>
                       )}
                     </div>
@@ -428,7 +537,7 @@ export default function DashboardView() {
           )}
         </div>
 
-        {/* Cases Needing Attention */}
+        {/* Overdue / Needs Attention */}
         <div style={cardStyle}>
           <div style={sectionHeadingStyle}>
             <AlertCircle size={14} color="#fb923c" /> Needs Attention
@@ -454,29 +563,81 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {/* ── Row 3: Recent Cases + Pending Tasks ──────────────── */}
+      {/* ── Row 3: Upcoming Milestones (Birthdays & Renewals) + Pending Tasks ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
 
-        {/* Recent Pipeline Cases */}
+        {/* Upcoming Client Milestones Widget */}
         <div style={cardStyle}>
-          <div style={sectionHeadingStyle}>
-            <Clock size={14} color="#fbbf24" /> Recently Added Cases
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ ...sectionHeadingStyle, marginBottom: 0 }}>
+              <Cake size={14} color="#ec4899" /> Upcoming Client Milestones (Next 14 Days)
+            </div>
+            {upcomingMilestones.length > 0 && (
+              <span style={{ fontSize: '11px', backgroundColor: 'rgba(236,72,153,0.15)', color: '#ec4899', borderRadius: '10px', padding: '2px 8px', fontWeight: '600' }}>
+                {upcomingMilestones.length} Trigger{upcomingMilestones.length > 1 ? 's' : ''}
+              </span>
+            )}
           </div>
-          {recentCases.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: '12px', textAlign: 'center', paddingTop: '16px' }}>No pipeline cases yet.</p>
+
+          {upcomingMilestones.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--text-muted)', fontSize: '12px' }}>
+              No client birthdays or policy anniversaries in the next 14 days.
+            </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {recentCases.map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                  <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: STAGE_COLORS[c.stage], flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.clientName}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{c.policyType} · {c.stage}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '230px', overflowY: 'auto', paddingRight: '4px' }}>
+              {upcomingMilestones.map(m => (
+                <div
+                  key={m.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '9px 12px',
+                    backgroundColor: 'rgba(255,255,255,0.02)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-light)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                    <div style={{ padding: '6px', borderRadius: '6px', backgroundColor: m.badgeBg, color: m.badgeColor, display: 'flex', flexShrink: 0 }}>
+                      {m.icon}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div 
+                        style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', cursor: m.client ? 'pointer' : 'default', textDecoration: m.client ? 'underline' : 'none', textDecorationColor: 'transparent', transition: 'text-decoration-color 0.15s' }}
+                        onClick={() => m.client && handleOpenClient(m.client)}
+                        onMouseEnter={e => { if (m.client) e.currentTarget.style.textDecorationColor = 'var(--accent-primary)'; }}
+                        onMouseLeave={e => { if (m.client) e.currentTarget.style.textDecorationColor = 'transparent'; }}
+                      >
+                        {m.title}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {m.sub}
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <div style={{ fontSize: '13px', color: STAGE_COLORS[c.stage], fontWeight: '600' }}>{fmt(c.estimatedFYC)}</div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>FYC</div>
-                  </div>
+
+                  {m.client?.phone && (
+                    <button
+                      onClick={() => handleWhatsApp(m.client.phone, m.client.preferredName || m.client.fullName)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#25D366',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        backgroundColor: 'rgba(37, 211, 102, 0.1)'
+                      }}
+                      title="Send WhatsApp Greeting"
+                    >
+                      <MessageCircle size={13} /> Touchpoint
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -485,11 +646,13 @@ export default function DashboardView() {
 
         {/* Pending Tasks */}
         <div style={cardStyle}>
-          <div style={{ ...sectionHeadingStyle, marginBottom: '18px' }}>
-            <CheckCircle2 size={14} color="#34d399" />
-            Pending Tasks
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ ...sectionHeadingStyle, marginBottom: 0 }}>
+              <CheckCircle2 size={14} color="#34d399" />
+              Pending Tasks
+            </div>
             {pendingTasks.length > 0 && (
-              <span style={{ marginLeft: 'auto', fontSize: '11px', backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', borderRadius: '10px', padding: '2px 8px', fontWeight: '600', letterSpacing: 0 }}>
+              <span style={{ fontSize: '11px', backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', borderRadius: '10px', padding: '2px 8px', fontWeight: '600' }}>
                 {pendingTasks.length} open
               </span>
             )}
@@ -500,7 +663,7 @@ export default function DashboardView() {
               <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>All tasks completed!</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '230px', overflowY: 'auto' }}>
               {pendingTasks.map(task => (
                 <div key={task.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '9px 10px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
                   <button
@@ -535,29 +698,45 @@ export default function DashboardView() {
 }
 
 /* ─── Stat Card ─────────────────────────────────────────────── */
-function StatCard({ icon, iconColor, label, value, sub, subColor = 'var(--text-muted)' }) {
+function StatCard({ icon, iconColor, label, value, sub, subColor = 'var(--text-muted)', onClick }) {
   return (
-    <div style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border-light)',
-      borderRadius: '14px',
-      padding: '20px 22px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '0',
-      transition: 'border-color 0.2s, transform 0.2s',
-    }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,92,246,0.3)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+    <div 
+      style={{
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-light)',
+        borderRadius: '14px',
+        padding: '18px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'border-color 0.2s, transform 0.2s',
+      }}
+      onClick={onClick}
+      onMouseEnter={e => { 
+        if (onClick) {
+          e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)'; 
+          e.currentTarget.style.transform = 'translateY(-2px)'; 
+        }
+      }}
+      onMouseLeave={e => { 
+        if (onClick) {
+          e.currentTarget.style.borderColor = 'var(--border-light)'; 
+          e.currentTarget.style.transform = 'translateY(0)'; 
+        }
+      }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
         <div style={{ padding: '8px', backgroundColor: `${iconColor}1a`, borderRadius: '9px', color: iconColor, display: 'inline-flex' }}>
           {icon}
         </div>
+        {onClick && (
+          <ArrowUpRight size={14} color="var(--text-muted)" />
+        )}
       </div>
       <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>{label}</div>
-      <div style={{ fontSize: '26px', fontWeight: '700', color: 'var(--text-primary)', lineHeight: '1.1', marginBottom: '6px' }}>{value}</div>
-      <div style={{ fontSize: '12px', color: subColor }}>{sub}</div>
+      <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', lineHeight: '1.1', marginBottom: '4px' }}>{value}</div>
+      <div style={{ fontSize: '11.5px', color: subColor }}>{sub}</div>
     </div>
   );
 }

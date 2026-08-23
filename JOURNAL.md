@@ -448,6 +448,50 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 
 ---
 
+## Major Product Release: Sales Performance Command Center, Global Command Palette & Productivity Suite (August 23, 2026)
+
+### Key Features Delivered
+1. **Sales Performance & MDRT Command Center (`SalesTrackingView.jsx`)**:
+   - Upgraded placeholder into a full analytics command center.
+   - **MDRT / COT / TOT Pacing Thermometer**: Calculates year-to-date achieved FYC against Singapore industry benchmarks (MDRT: S$110k, COT: S$330k, TOT: S$660k), monthly required run-rate over remaining months, and real-time pace status (*Ahead of Pace* / *On Track* / *Pacing Required*).
+   - **Monthly Production Velocity (SVG Bar Chart)**: Tracks Jan-Dec monthly FYC production vs benchmark targets.
+   - **Product Mix & Revenue Distribution**: Breakdown across Life, Term, Integrated Shield, ILP, Endowment, and Disability Income.
+   - **Sales Conversion Funnel**: Drop-off percentages across *Prospects → Fact Finding → Proposals → Case Issued* and overall win-rate metrics.
+
+2. **Global Command Palette & Quick Search (`CommandPalette.jsx` / `Ctrl+K`)**:
+   - Global keyboard listener (`Ctrl+K` on Windows/Linux, `Cmd+K` on Mac) accessible from any view.
+   - Fuzzy search over Clients, Policies, Pipeline Deals, and Navigation shortcuts with keyboard arrow navigation.
+   - Direct 1-click jump to selected client or deal.
+
+3. **Live Dynamic Sidebar Target Sync (`Sidebar.jsx`)**:
+   - Replaced static target indicator with live computation of current Month-to-Date issued FYC from the database vs monthly run-rate.
+
+4. **In-App Toast Notification Engine (`Toast.jsx`)**:
+   - Lightweight, non-blocking glassmorphism notifications for saves, status updates, task completions, and calendar synchronization.
+
+5. **Pipeline Kanban Drag-and-Drop & Forecasting (`PipelineView.jsx`)**:
+   - Native HTML5 drag-and-drop between pipeline stages (*Prospect → Fact Finding → Proposal Sent → Case Submitted → Case Issued*).
+   - Stage revenue headers displaying active case count, total FYC, and total premium.
+   - **Weighted Expected FYC** toggle calculating probability-discounted pipeline forecasting.
+
+6. **Dashboard Milestones & Interactive Drill-Downs (`DashboardView.jsx`)**:
+   - **Upcoming Client Milestones (Next 14 Days)**: Proactively surfaces birthdays (with turning age & direct WhatsApp trigger) and 30-day policy renewal anniversaries.
+   - Interactive top KPI cards for 1-click navigation into filtered Clients, Pipeline, and Sales views.
+   - Top-right `+ Add Client` and `+ New Deal` quick action triggers.
+
+7. **Client Tagging & Smart Segmentation (`ClientsView.jsx`)**:
+   - Multi-tag segmentation (`VIP`, `HNW`, `Doctor`, `Tech`, `Business Owner`, `Young Family`, `Retiree`, `Referral Partner`).
+   - Tag filter chips above the client index table for segmented campaigns.
+
+8. **Remuneration Live Pipeline Sync & Reverse Goal Planner (`RemunerationView.jsx`)**:
+   - **Sync from Pipeline**: 1-click aggregation of Q1-Q4 FYC and case counts from the CRM database.
+   - **Target Goal Reverse Planner**: Input desired net annual income (e.g. S$150,000) to calculate required annual/monthly FYC and case volume.
+
+9. **Project 100 CSV & VCF Bulk Import (`Project100Detail.jsx`)**:
+   - Added batch contact import parsing spreadsheet `.csv` and phone `.vcf` vCard files.
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.
