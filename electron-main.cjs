@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -83,9 +84,29 @@ function initAutoUpdater() {
   });
 }
 
-const GEMINI_API_KEY = 'AIzaSyCQ5OFJzCD2sZQD10cMQRf1xzWLN1Q3ALc';
-const GEMINI_MODEL = 'gemini-3.7-flash'; // Upgraded to Gemini 3.7 Flash for advanced reasoning & multimodal parsing
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
+
+function getGeminiApiKey() {
+  // Priority 1: User-configured API key in app settings / database
+  if (db.appSettings?.geminiApiKey && typeof db.appSettings.geminiApiKey === 'string' && db.appSettings.geminiApiKey.trim()) {
+    return db.appSettings.geminiApiKey.trim();
+  }
+  // Priority 2: Process environment variable from .env
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) {
+    return process.env.GEMINI_API_KEY.trim();
+  }
+  return '';
+}
+
+function getGeminiModel() {
+  return db.appSettings?.geminiModel || DEFAULT_GEMINI_MODEL;
+}
+
+function getGeminiUrl() {
+  const apiKey = getGeminiApiKey();
+  const model = getGeminiModel();
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+}
 
 let db = { clients: [], policies: [], claims: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], aiBriefing: { text: '', generatedAt: null } };
 let dbPath;
@@ -850,7 +871,7 @@ ${JSON.stringify(claim?.settlementEntries || [], null, 2)}
 
 Provide a rigorous line-by-line financial audit and reconciliation.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -943,7 +964,7 @@ Policy: ${policy?.provider} - ${policy?.policyType}
 Context: ${customContext || 'General requirements and traps to avoid'}`;
       }
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1359,7 +1380,7 @@ ${clientSection}
 PRODUCT BROCHURE / SUMMARY:
 ${productText.trim()}`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1465,7 +1486,7 @@ Rules:
 - Calculate total spend, transaction count, and category distributions per cardholder.
 - Respond with ONLY the raw JSON object. Do not include markdown code block wrappers.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1609,7 +1630,7 @@ ISSUED THIS MONTH: ${issuedThisMonth.length} cases
 OVERDUE: ${overdueCases.length} cases past close date${overdueCases.length > 0 ? ' (' + overdueCases.map(c => c.clientName).join(', ') + ')' : ''}
 PENDING TASKS: ${pendingTasks.length}${pendingTasks.length > 0 ? '\n' + taskList : ''}`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1703,7 +1724,7 @@ ${clientTasks.filter(t => t.status === 'Pending').map(t => `- ${t.description}`)
 
 Please analyze this client and provide your strategic thoughts.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1796,7 +1817,7 @@ Execute multi-query search grounding on Google for:
 
 Return candidate profiles in the required JSON format.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1892,7 +1913,7 @@ Date / URL: ${date || 'Recent'} ${url || ''}
 
 Extract topic milestone, financial planning signal, suggested product, and a tailored conversation starter.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2107,7 +2128,7 @@ Extract topic milestone, financial planning signal, suggested product, and a tai
         // Run Gemini analysis on this authentic post text
         let aiAnalysis = null;
         try {
-          const aiRes = await fetch(GEMINI_URL, {
+          const aiRes = await fetch(getGeminiUrl(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2305,7 +2326,7 @@ Pending Tasks: ${clientTasks.filter(t => t.status === 'Pending').map(t => t.desc
 
 Perform deep web search grounding across Google, LinkedIn, Instagram, TikTok, Facebook, X, YouTube, and Singapore Business News (Straits Times, Business Times, Tech in Asia) to extract 6 to 10 specific public posts/articles/announcements with full captions, direct URLs, discovered photos, synthesize the 6-pillar behavioral & advisory radar, and return the complete JSON object.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2487,7 +2508,7 @@ KNOWN AI DOSSIER HIGHLIGHTS:
 
 Synthesize all signals into the structured 90-Day Pre-Meeting Intelligence Brief JSON object.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2672,7 +2693,7 @@ ${(planData?.lifeEvents || []).filter(e => e.active).map(e => `- [ACTIVE] ${e.ti
 
 Synthesize an institutional CFP® / ChFC® / CFA® standard advisory blueprint in the required JSON format.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2799,7 +2820,7 @@ PROJECTION METRICS:
 
 Generate a clear, authoritative, and educational actuarial breakdown.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -4062,7 +4083,7 @@ Task:
       }
       parts.push({ text: promptText });
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -4179,7 +4200,7 @@ Current Engagement Stage: ${prospect.stage || 'Not Contacted'}
 
 Generate the 3 customized WhatsApp icebreakers in the specified JSON format.`;
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -4264,7 +4285,7 @@ Generate the tweaked outreach message script template in the specified JSON form
         parts: [{ text: promptText }]
       });
 
-      const response = await fetch(GEMINI_URL, {
+      const response = await fetch(getGeminiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

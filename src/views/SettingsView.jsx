@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = {
   defaultLifeExpectancy: 88,
   defaultRetirementAge: 62,
   defaultEmergencyMonths: 6,
+  geminiApiKey: '',
   customDisclaimer: 'This Financial Planning Report is prepared based on information and declarations provided by the client, prevailing statutory CPF policies, and stated economic return assumptions. Actual investment performance, tax treatment, and annuity payouts will depend on prevailing market conditions and regulatory frameworks at the time of execution. Periodic review is recommended upon any major life event (e.g. marriage, childbirth, property purchase, or career change).'
 };
 
@@ -71,6 +72,7 @@ export default function SettingsView() {
   const [appVersion, setAppVersion] = useState('0.0.1');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState(null);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -716,6 +718,53 @@ export default function SettingsView() {
                 </div>
                 <span style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                   ✓ Online & Compliant
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Gemini AI API Configuration Card */}
+          <div className="glass-panel" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Sparkles size={18} color="var(--accent-primary)" />
+                  Google Gemini AI Engine Configuration
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                  Powers Pre-Meeting Intelligence Briefs, Multimodal Campaign Brochure Scanners, and Actuarial Blueprints.
+                </p>
+              </div>
+              <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+                Gemini 3.7 Flash Active
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                  Google Gemini API Key (Stored securely on local PC)
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    className="form-control"
+                    placeholder="Enter your Gemini API key (or leave blank to use .env)"
+                    value={settings.geminiApiKey || ''}
+                    onChange={(e) => handleChange('geminiApiKey', e.target.value)}
+                    style={{ flex: 1, fontFamily: 'monospace' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={() => setShowApiKey(prev => !prev)}
+                  >
+                    <Eye size={14} /> {showApiKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                  🔒 Key is stored locally in your private database and never committed to GitHub.
                 </span>
               </div>
             </div>
