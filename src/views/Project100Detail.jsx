@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
 import AddressAutocomplete from '../components/AddressAutocomplete';
+import InfoTooltip from '../components/InfoTooltip';
 
 const CATEGORIES = [
   'Family',
@@ -1080,10 +1081,29 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
               <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-light)' }}>
                 <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Name & Category</th>
                 <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Contact Details</th>
-                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', minWidth: '120px' }}>N.A.S.T Rating Grid</th>
-                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'center' }}>Total Score</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', minWidth: '130px' }}>
+                  N.A.S.T Rating Grid
+                  <InfoTooltip 
+                    title="N.A.S.T. Framework" 
+                    content="Need (Protection/Savings gaps), Accessibility (Ease of reaching), Savings/Income (Financial capacity), and Trust (Personal relationship strength)." 
+                    benchmark="Target Score: ≥14/20"
+                  />
+                </th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'center' }}>
+                  Total Score
+                  <InfoTooltip 
+                    title="Priority Ranking Score" 
+                    content="Composite score out of 20. Prospects with 16+ are Tier-1 high-conversion priorities." 
+                  />
+                </th>
                 <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Stage</th>
-                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Pipeline Deals</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>
+                  Pipeline Deals
+                  <InfoTooltip 
+                    title="Sales Pipeline Integration" 
+                    content="Active sales opportunities and issued policies linked to your central advisory pipeline." 
+                  />
+                </th>
                 <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'right' }}>Actions & Copilot</th>
               </tr>
             </thead>

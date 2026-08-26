@@ -25,6 +25,7 @@ import {
   ExternalLink,
   AlertCircle
 } from 'lucide-react';
+import InfoTooltip from '../components/InfoTooltip';
 
 const DEFAULT_SETTINGS = {
   consultantName: 'Pieter Beetsma',
@@ -327,8 +328,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   MAS Representative / FAR License Number
+                  <InfoTooltip 
+                    title="MAS Representative License" 
+                    content="Statutory representative licensing number issued under the Financial Advisers Act (FAA)." 
+                    benchmark="Notice MAS FAA-N03 Standard"
+                  />
                 </label>
                 <input
                   type="text"
@@ -389,6 +395,10 @@ export default function SettingsView() {
             <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Award size={18} color="#f59e0b" />
               Professional Credentials & Accreditations
+              <InfoTooltip 
+                title="Professional Designations" 
+                content="Accreditations (CFP®, ChFC®, CFA®, AEPP®) verifying fiduciary competence and specialized wealth planning expertise." 
+              />
             </h3>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>
               Select your active certifications. These will appear on client PDF reports under "Professional Designations".
@@ -573,8 +583,13 @@ export default function SettingsView() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Pre-Retirement Return (%)
+                  <InfoTooltip 
+                    title="Pre-Retirement Asset Yield" 
+                    content="Expected annualized compounded growth rate on invested portfolios during the accumulation phase." 
+                    benchmark="Conservative: 5.0% - 6.5%"
+                  />
                 </label>
                 <input
                   type="number"
@@ -590,8 +605,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Post-Retirement Return (%)
+                  <InfoTooltip 
+                    title="Post-Retirement Yield" 
+                    content="Prudent decumulation portfolio return assumption to protect against sequence-of-returns risk." 
+                    benchmark="Prudent: 3.5% - 4.5%"
+                  />
                 </label>
                 <input
                   type="number"
@@ -607,8 +627,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Long-Term Inflation (%)
+                  <InfoTooltip 
+                    title="Long-Term Inflation Rate" 
+                    content="Assumed annual living expense inflation used to project future retirement capital requirements." 
+                    benchmark="MAS Baseline: 2.5% - 3.0%"
+                  />
                 </label>
                 <input
                   type="number"
@@ -624,8 +649,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Target Retirement Age
+                  <InfoTooltip 
+                    title="Target Retirement Age" 
+                    content="The age at which active earned income ceases and decumulation / CPF LIFE payouts commence." 
+                    benchmark="Singapore Statutory Age: 63 (rising to 64 in 2026)"
+                  />
                 </label>
                 <input
                   type="number"
@@ -637,8 +667,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Life Expectancy Age
+                  <InfoTooltip 
+                    title="Actuarial Life Expectancy" 
+                    content="Planning horizon to guarantee retirement solvency and prevent longevity risk." 
+                    benchmark="Singapore Department of Statistics: 85 - 88"
+                  />
                 </label>
                 <input
                   type="number"
@@ -650,8 +685,13 @@ export default function SettingsView() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
+                <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
                   Default Emergency Buffer (Months)
+                  <InfoTooltip 
+                    title="Liquid Emergency Buffer" 
+                    content="Number of months of fixed living expenses held in high-liquidity accounts." 
+                    benchmark="LIA Advisory Standard: 3 - 6 Months"
+                  />
                 </label>
                 <input
                   type="number"

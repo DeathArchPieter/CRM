@@ -539,9 +539,14 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
      - Moving to `5. Case Closed` / `Ported / Converted` auto-registers `Case Issued` deals with finalized ANP/FYC and updates live MDRT tracking.
 
 7. **GitHub Releases Auto-Update Engine (`electron-updater`, `UpdateNotificationBanner.jsx`, `SettingsView.jsx`)**:
-   - **Automated Update Detection & Lifecycle**: Integrated `electron-updater` with GitHub Releases provider (`pieterbeetsma/CRM`). Checks for new releases on startup and in the background.
+   - **Automated Update Detection & Lifecycle**: Integrated `electron-updater` with GitHub Releases provider (`DeathArchPieter/CRM`). Checks for new releases on startup and in the background.
    - **In-App Update Prompt & Live Download Tracking**: Added floating glassmorphic `<UpdateNotificationBanner />` in `App.jsx` displaying new version numbers, release notes, real-time download percentage bar, and 1-click **"Restart & Install Now"** action.
    - **Settings Tab Version Control**: Added **"Application Updates & Version Control"** card in `SettingsView.jsx` showing current installed version (`v0.0.1`) and manual **"Check for Updates"** button.
+
+8. **Interactive Guide Assistant ("Archie") & Universal `(i)` Info Tooltip System (`AssistantGuide.jsx`, `InfoTooltip.jsx`)**:
+   - **Floating Context-Aware Guide Assistant ("Archie")**: Added an animated, interactive advisor guide floating widget in `App.jsx`. Automatically provides tailored greetings, 3-step action checklists, and financial pro tips for all 10 core views.
+   - **Universal Glassmorphic `(i)` Info Tooltips**: Created reusable `<InfoTooltip />` component with bold headers, plain-English explanations, and statutory MAS/LIA actuarial benchmarks. Deployed across Settings, Project 100, and Outreach Campaigns.
+   - **Gemini AI API Key Protection**: Secured Google Gemini API keys via `.env` and in-app database settings with complete exclusion from GitHub tracking.
 
 ---
 

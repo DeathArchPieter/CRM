@@ -14,6 +14,7 @@ import SpecialReportsView from './views/SpecialReportsView';
 import ProductAnalysisView from './views/ProductAnalysisView';
 import SettingsView from './views/SettingsView';
 import UpdateNotificationBanner from './components/UpdateNotificationBanner';
+import AssistantGuide from './components/AssistantGuide';
 import './index.css';
 
 function App() {
@@ -115,6 +116,12 @@ function App() {
           onNavigateTab={(tabId) => setActiveTab(tabId)}
           onSelectClient={handleSelectClientFromPalette}
           onSelectPipelineDeal={handleSelectPipelineDealFromPalette}
+        />
+
+        {/* Interactive Floating Advisor Guide Assistant ("Archie") */}
+        <AssistantGuide 
+          activeTab={activeTab} 
+          onNavigateTab={setActiveTab} 
         />
       </div>
     </ToastProvider>
