@@ -70,7 +70,7 @@ export default function SettingsView() {
   const [customCredInput, setCustomCredInput] = useState('');
   const [clearingLogs, setClearingLogs] = useState(false);
   const [logsCleared, setLogsCleared] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.0.1');
+  const [appVersion, setAppVersion] = useState('0.0.2');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState(null);
   const [showApiKey, setShowApiKey] = useState(false);

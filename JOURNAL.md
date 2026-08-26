@@ -541,7 +541,7 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 7. **GitHub Releases Auto-Update Engine (`electron-updater`, `UpdateNotificationBanner.jsx`, `SettingsView.jsx`)**:
    - **Automated Update Detection & Lifecycle**: Integrated `electron-updater` with GitHub Releases provider (`DeathArchPieter/CRM`). Checks for new releases on startup and in the background.
    - **In-App Update Prompt & Live Download Tracking**: Added floating glassmorphic `<UpdateNotificationBanner />` in `App.jsx` displaying new version numbers, release notes, real-time download percentage bar, and 1-click **"Restart & Install Now"** action.
-   - **Settings Tab Version Control**: Added **"Application Updates & Version Control"** card in `SettingsView.jsx` showing current installed version (`v0.0.1`) and manual **"Check for Updates"** button.
+   - **Settings Tab Version Control**: Added **"Application Updates & Version Control"** card in `SettingsView.jsx` showing current installed version and manual **"Check for Updates"** button.
 
 8. **Interactive Guide Assistant ("Archie") & Universal `(i)` Info Tooltip System (`AssistantGuide.jsx`, `InfoTooltip.jsx`)**:
    - **Floating Context-Aware Guide Assistant ("Archie")**: Added an animated, interactive advisor guide floating widget in `App.jsx`. Automatically provides tailored greetings, 3-step action checklists, and financial pro tips for all 10 core views.
