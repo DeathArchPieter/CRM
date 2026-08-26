@@ -4,8 +4,12 @@ import { createPortal } from 'react-dom';
 import { 
   ArrowLeft, UserPlus, Star, Edit2, Trash2, Plus, Search, 
   Phone, Mail, Award, CheckCircle, RefreshCw, 
-  Layers, AlertCircle, HelpCircle, Briefcase, UploadCloud
+  Layers, AlertCircle, HelpCircle, Briefcase, UploadCloud,
+  Sparkles, Send, Copy, Check, Calendar, FileSpreadsheet,
+  Rocket, X, ExternalLink, MapPin
 } from 'lucide-react';
+import DatePicker from '../components/DatePicker';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 
 const CATEGORIES = [
   'Family',
@@ -29,13 +33,13 @@ const POLICY_TYPES = ['Life','Term','A&H','Shield','HI','ILP','Endowment','LTC',
 const PIPELINE_STAGES = ['Prospect', 'Fact Finding', 'Proposal Sent', 'Case Submitted', 'Case Issued', 'Closed/Lost'];
 
 const STAGE_COLORS = {
-  'Not Contacted': { bg: 'rgba(100, 116, 139, 0.1)', text: '#94a3b8' },
-  'Contacted': { bg: 'rgba(59, 130, 246, 0.1)', text: '#60a5fa' },
-  'Meeting Scheduled': { bg: 'rgba(234, 179, 8, 0.1)', text: '#fbbf24' },
-  'Fact Finding': { bg: 'rgba(167, 139, 250, 0.1)', text: '#c084fc' },
-  'Proposal Presented': { bg: 'rgba(249, 115, 22, 0.1)', text: '#fb923c' },
-  'Ported / Converted': { bg: 'rgba(16, 185, 129, 0.1)', text: '#34d399' },
-  'No Interest / Inactive': { bg: 'rgba(239, 68, 68, 0.1)', text: '#f87171' }
+  'Not Contacted': { bg: 'rgba(100, 116, 139, 0.12)', text: '#94a3b8' },
+  'Contacted': { bg: 'rgba(59, 130, 246, 0.12)', text: '#60a5fa' },
+  'Meeting Scheduled': { bg: 'rgba(234, 179, 8, 0.12)', text: '#fbbf24' },
+  'Fact Finding': { bg: 'rgba(167, 139, 250, 0.12)', text: '#c084fc' },
+  'Proposal Presented': { bg: 'rgba(249, 115, 22, 0.12)', text: '#fb923c' },
+  'Ported / Converted': { bg: 'rgba(16, 185, 129, 0.15)', text: '#34d399' },
+  'No Interest / Inactive': { bg: 'rgba(239, 68, 68, 0.12)', text: '#f87171' }
 };
 
 const CATEGORY_COLORS = {
@@ -46,10 +50,11 @@ const CATEGORY_COLORS = {
   'Cold / Re-contact': '#64748b' // slate
 };
 
-export default function Project100Detail({ onBack }) {
+export default function Project100Detail({ onBack, onSelectClient, onNavigateTab }) {
   const [contacts, setContacts] = useState([]);
   const [pipelineCases, setPipelineCases] = useState([]);
   const [clients, setClients] = useState([]);
+  const [initiatives, setInitiatives] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Unified logging helper
@@ -66,6 +71,7 @@ export default function Project100Detail({ onBack }) {
   const [filterStage, setFilterStage] = useState('All');
   const [sortBy, setSortBy] = useState('score'); // 'score' | 'name' | 'stage'
   const [showWorkflowGuide, setShowWorkflowGuide] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(null);
   
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -73,6 +79,38 @@ export default function Project100Detail({ onBack }) {
   const [selectedContact, setSelectedContact] = useState(null);
   const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
   const [caseContact, setCaseContact] = useState(null);
+  const [caseForm, setCaseForm] = useState({
+    policyName: 'Comprehensive Protection Plan',
+    policyType: 'Life',
+    estimatedPremium: '3000',
+    estimatedFYC: '1200',
+    stage: 'Prospect',
+    expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+    notes: ''
+  });
+
+  // AI Icebreaker Modal State
+  const [isIcebreakerModalOpen, setIsIcebreakerModalOpen] = useState(false);
+  const [icebreakerContact, setIcebreakerContact] = useState(null);
+  const [icebreakerData, setIcebreakerData] = useState(null);
+  const [isIcebreakerLoading, setIsIcebreakerLoading] = useState(false);
+  const [activeIcebreakerTab, setActiveIcebreakerTab] = useState('opt-a');
+
+  // Calendar Meeting Modal State
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
+  const [meetingTarget, setMeetingTarget] = useState(null);
+  const [meetingForm, setMeetingForm] = useState({
+    description: '',
+    dueDate: new Date(Date.now() + 2*24*60*60*1000).toISOString().split('T')[0],
+    dueTime: '14:00',
+    dueEndTime: '15:00',
+    location: 'Coffee Sync / Client Office'
+  });
+
+  // Campaign Enrollment Modal State
+  const [isCampaignModalOpen, setIsCampaignModalOpen] = useState(false);
+  const [campaignTarget, setCampaignTarget] = useState(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
 
   const [confirmConfig, setConfirmConfig] = useState({
     isOpen: false,
@@ -114,35 +152,13 @@ export default function Project100Detail({ onBack }) {
     });
   };
 
-  // Auto-log modal state changes for diagnostics
-  useEffect(() => {
-    log(`isAddModalOpen changed to: ${isAddModalOpen}`);
-  }, [isAddModalOpen]);
-
-  useEffect(() => {
-    log(`isEditModalOpen changed to: ${isEditModalOpen} (selectedContact: ${selectedContact ? selectedContact.fullName : 'none'})`);
-  }, [isEditModalOpen, selectedContact]);
-
-  useEffect(() => {
-    log(`isCaseModalOpen changed to: ${isCaseModalOpen} (caseContact: ${caseContact ? caseContact.fullName : 'none'})`);
-  }, [isCaseModalOpen, caseContact]);
-  
-  // Pipeline case form state
-  const [caseForm, setCaseForm] = useState({
-    policyName: '',
-    policyType: 'Life',
-    estimatedPremium: '',
-    estimatedFYC: '',
-    stage: 'Prospect',
-    expectedCloseDate: '',
-    notes: ''
-  });
-  
   // Form State
   const [formData, setFormData] = useState({
     fullName: '',
     phone: '',
     email: '',
+    company: '',
+    jobTitle: '',
     category: 'Warm Acquaintance',
     scoreNeed: 3,
     scoreAccessibility: 3,
@@ -159,111 +175,34 @@ export default function Project100Detail({ onBack }) {
     const overallStart = performance.now();
     try {
       if (window.electronAPI) {
-        const startContacts = performance.now();
-        const contactsPromise = window.electronAPI.getProject100Contacts 
-          ? window.electronAPI.getProject100Contacts() 
-          : Promise.resolve({ success: true, data: [] });
-          
-        const startPipeline = performance.now();
-        const pipelinePromise = window.electronAPI.getPipeline 
-          ? window.electronAPI.getPipeline() 
-          : Promise.resolve({ success: true, data: [] });
-
-        const startClients = performance.now();
-        const clientsPromise = window.electronAPI.getClients 
-          ? window.electronAPI.getClients() 
-          : Promise.resolve({ success: true, data: [] });
-
-        const [contactsRes, pipelineRes, clientsRes] = await Promise.all([
-          contactsPromise,
-          pipelinePromise,
-          clientsPromise
+        const [contactsRes, pipelineRes, clientsRes, initRes] = await Promise.all([
+          window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: true, data: [] }),
+          window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: true, data: [] }),
+          window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: true, data: [] }),
+          window.electronAPI.getInitiatives ? window.electronAPI.getInitiatives() : Promise.resolve({ success: true, data: [] })
         ]);
 
-        log(`API calls completed: getProject100Contacts took ${(performance.now() - startContacts).toFixed(2)}ms, getPipeline took ${(performance.now() - startPipeline).toFixed(2)}ms, getClients took ${(performance.now() - startClients).toFixed(2)}ms`);
-
-        if (contactsRes.success) {
-          setContacts(contactsRes.data);
-          log(`setContacts succeeded: loaded ${contactsRes.data.length} contacts`);
-        } else {
-          log(`getProject100Contacts failed: ${contactsRes.error}`);
-        }
-        
-        if (pipelineRes.success) {
-          setPipelineCases(pipelineRes.data);
-          log(`setPipelineCases succeeded: loaded ${pipelineRes.data.length} cases`);
-        } else {
-          log(`getPipeline failed: ${pipelineRes.error}`);
-        }
-        
-        if (clientsRes.success) {
-          setClients(clientsRes.data);
-          log(`setClients succeeded: loaded ${clientsRes.data.length} clients`);
-        } else {
-          log(`getClients failed: ${clientsRes.error}`);
-        }
+        if (contactsRes.success) setContacts(contactsRes.data);
+        if (pipelineRes.success) setPipelineCases(pipelineRes.data);
+        if (clientsRes.success) setClients(clientsRes.data);
+        if (initRes.success) setInitiatives(initRes.data);
       }
     } catch (err) {
       log(`Error in loadData: ${err.message}`);
       console.error("Failed to load Project 100 workspace data:", err);
     }
     if (!silent) setLoading(false);
-    log(`loadData finished in ${(performance.now() - overallStart).toFixed(2)}ms`);
   };
 
   useEffect(() => {
-    /* eslint-disable-next-line react-hooks/set-state-in-effect */
     loadData();
   }, []);
 
-  const scrollToBottom = () => {
-    console.log("[scrollToBottom] Project100Detail scroll sequence started");
-    const runScroll = (delay) => {
-      const container = document.getElementById('main-scroll-container');
-      if (container) {
-        const oldScrollTop = container.scrollTop;
-        container.scrollTop = container.scrollHeight + 1000;
-        console.log(`[scrollToBottom][${delay}ms] main-scroll-container: scrollHeight=${container.scrollHeight}, clientHeight=${container.clientHeight}, scrollTop was ${oldScrollTop}, now ${container.scrollTop}`);
-      }
-
-      document.documentElement.scrollTop = document.documentElement.scrollHeight;
-      document.body.scrollTop = document.body.scrollHeight;
-
-      let el = document.querySelector('.view-container');
-      while (el) {
-        if (el.scrollHeight > el.clientHeight) {
-          const oldElScrollTop = el.scrollTop;
-          el.scrollTop = el.scrollHeight + 1000;
-          console.log(`[scrollToBottom][${delay}ms] Parent element (${el.tagName}.${el.className}): scrollHeight=${el.scrollHeight}, clientHeight=${el.clientHeight}, scrollTop was ${oldElScrollTop}, now ${el.scrollTop}`);
-        }
-        el = el.parentNode;
-      }
-    };
-
-    // Run at staggered delays to capture layout settling
-    setTimeout(() => runScroll(50), 50);
-    setTimeout(() => runScroll(150), 150);
-    setTimeout(() => runScroll(300), 300);
-    setTimeout(() => runScroll(600), 600);
-  };
-
-  // Auto-scroll to bottom of prospects list when a new prospect is added
-  const prevContactsLength = useRef(contacts.length);
-  useEffect(() => {
-    if (contacts.length > prevContactsLength.current) {
-      scrollToBottom();
-    }
-    prevContactsLength.current = contacts.length;
-  }, [contacts.length]);
-
-  // Listen for Alt + A hotkey to trigger the Add Prospect modal
+  // Listen for Alt + A hotkey
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.altKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
-        log("Alt+A keyboard shortcut triggered");
-        
-        // Don't trigger if user is actively editing inside an input/textarea/select
         const active = document.activeElement;
         const isInput = active && (
           active.tagName === 'INPUT' || 
@@ -271,8 +210,6 @@ export default function Project100Detail({ onBack }) {
           active.tagName === 'SELECT' ||
           active.isContentEditable
         );
-        
-        log(`Alt+A isInput: ${isInput}, active element: ${active ? active.tagName : 'none'}`);
         if (!isInput) {
           setIsAddModalOpen(true);
         }
@@ -294,21 +231,12 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!formData.fullName.trim()) return;
 
-    log(`handleAddSubmit started for: ${formData.fullName}`);
-    // Blur active elements to settle focus
-    if (document.activeElement) {
-      document.activeElement.blur();
-    }
-    
-    // Close modal immediately to avoid focus restoration races
     setIsAddModalOpen(false);
 
     if (window.electronAPI?.addProject100Contact) {
       const formToSubmit = { ...formData };
       resetForm();
-      const startAdd = performance.now();
       const res = await window.electronAPI.addProject100Contact(formToSubmit);
-      log(`addProject100Contact returned in ${(performance.now() - startAdd).toFixed(2)}ms (success: ${res.success})`);
       if (res.success) {
         loadData(true);
       } else {
@@ -321,14 +249,11 @@ export default function Project100Detail({ onBack }) {
     e.preventDefault();
     if (!selectedContact || !formData.fullName.trim()) return;
 
-    log(`handleEditSubmit started for ID: ${selectedContact.id}, name: ${formData.fullName}`);
     if (window.electronAPI?.updateProject100Contact) {
-      const startEdit = performance.now();
       const res = await window.electronAPI.updateProject100Contact({
         ...formData,
         id: selectedContact.id
       });
-      log(`updateProject100Contact returned in ${(performance.now() - startEdit).toFixed(2)}ms (success: ${res.success})`);
       if (res.success) {
         setIsEditModalOpen(false);
         setSelectedContact(null);
@@ -340,20 +265,67 @@ export default function Project100Detail({ onBack }) {
     }
   };
 
-  const handleDeleteContact = async (id) => {
-    log(`handleDeleteContact triggered for contact ID: ${id}`);
-    if (document.activeElement) {
-      document.activeElement.blur();
+  const handleOpenClientProfile = (contact) => {
+    const matchingClient = clients.find(
+      c => c.id === contact.portedClientId || (c.fullName || '').toLowerCase().trim() === (contact.fullName || '').toLowerCase().trim()
+    );
+    if (matchingClient && onSelectClient) {
+      onSelectClient(matchingClient);
+    } else if (onNavigateTab) {
+      onNavigateTab('clients');
     }
+  };
+
+  const handleQuickStageChange = async (contact, newStage) => {
+    if (newStage === 'Meeting Scheduled') {
+      setMeetingTarget(contact);
+      setMeetingForm({
+        description: `Project 100 Consultation: ${contact.fullName}`,
+        dueDate: new Date(Date.now() + 2*24*60*60*1000).toISOString().split('T')[0],
+        dueTime: '14:00',
+        dueEndTime: '15:00',
+        location: 'Coffee Sync / Client Office'
+      });
+      setIsMeetingModalOpen(true);
+    }
+
+    if (newStage === 'Fact Finding' || newStage === 'Proposal Presented') {
+      const existingCases = getClientCases(contact.fullName);
+      if (existingCases.length === 0) {
+        showCustomConfirm(
+          "Open Sales Pipeline Deal?",
+          `${contact.fullName} is now in ${newStage}. Would you like to create an active case in the Sales Pipeline?`,
+          () => {
+            handleOpenCreateCaseModal(contact);
+          },
+          "Create Pipeline Deal",
+          "Skip for now"
+        );
+      }
+    }
+
+    if (newStage === 'Ported / Converted') {
+      await handlePortToClients(contact);
+      return;
+    }
+
+    if (window.electronAPI?.updateProject100Contact) {
+      await window.electronAPI.updateProject100Contact({
+        id: contact.id,
+        stage: newStage
+      });
+      loadData(true);
+    }
+  };
+
+  const handleDeleteContact = async (id) => {
+    if (document.activeElement) document.activeElement.blur();
     showCustomConfirm(
       "Delete Prospect",
       "Are you sure you want to delete this prospect from your Project 100 list?",
       async () => {
-        log(`handleDeleteContact confirmed`);
         if (window.electronAPI?.deleteProject100Contact) {
-          const startDelete = performance.now();
           const res = await window.electronAPI.deleteProject100Contact(id);
-          log(`deleteProject100Contact returned in ${(performance.now() - startDelete).toFixed(2)}ms (success: ${res.success})`);
           if (res.success) {
             loadData(true);
           } else {
@@ -372,6 +344,8 @@ export default function Project100Detail({ onBack }) {
       fullName: contact.fullName,
       phone: contact.phone || '',
       email: contact.email || '',
+      company: contact.company || '',
+      jobTitle: contact.jobTitle || '',
       category: contact.category || 'Warm Acquaintance',
       scoreNeed: contact.scoreNeed || 3,
       scoreAccessibility: contact.scoreAccessibility || 3,
@@ -388,6 +362,8 @@ export default function Project100Detail({ onBack }) {
       fullName: '',
       phone: '',
       email: '',
+      company: '',
+      jobTitle: '',
       category: 'Warm Acquaintance',
       scoreNeed: 3,
       scoreAccessibility: 3,
@@ -399,162 +375,127 @@ export default function Project100Detail({ onBack }) {
     });
   };
 
-  const handleSelectClientToImport = (e) => {
-    const clientId = e.target.value;
-    if (!clientId) return;
+  // AI Icebreaker Generation Handler
+  const handleOpenAiIcebreaker = async (contact) => {
+    setIcebreakerContact(contact);
+    setIcebreakerData(null);
+    setIsIcebreakerLoading(true);
+    setIsIcebreakerModalOpen(true);
+    setActiveIcebreakerTab('opt-a');
 
-    const client = clients.find(c => c.id === clientId);
-    if (!client) return;
-
-    setFormData(prev => ({
-      ...prev,
-      fullName: client.fullName,
-      phone: client.phone || '',
-      email: client.email || '',
-      stage: client.clientStatus === 'Active' ? 'Ported / Converted' : 'Contacted',
-      portedClientId: client.id,
-      notes: client.notes || ''
-    }));
-  };
-
-  const handleSelectPipelineToImport = (e) => {
-    const clientName = e.target.value;
-    if (!clientName) return;
-
-    const cases = pipelineCases.filter(c => c.clientName === clientName);
-    const latestCase = cases[cases.length - 1];
-    
-    const client = clients.find(c => c.fullName.toLowerCase().trim() === clientName.toLowerCase().trim());
-
-    setFormData(prev => ({
-      ...prev,
-      fullName: clientName,
-      phone: client ? (client.phone || '') : '',
-      email: client ? (client.email || '') : '',
-      stage: latestCase && latestCase.stage === 'Case Issued' ? 'Ported / Converted' : 'Contacted',
-      portedClientId: client ? client.id : null,
-      notes: latestCase ? latestCase.notes || '' : ''
-    }));
-  };
-
-  const handleOpenCreateCaseModal = (contact) => {
-    setCaseContact(contact);
-    setCaseForm({
-      policyName: '',
-      policyType: 'Life',
-      estimatedPremium: '',
-      estimatedFYC: '',
-      stage: 'Prospect',
-      expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0], // default 30 days
-      notes: contact.notes || ''
-    });
-    setIsCaseModalOpen(true);
-  };
-
-  const handleCaseSubmit = async (e) => {
-    e.preventDefault();
-    if (!caseContact) return;
-
-    log(`handleCaseSubmit started for contact: ${caseContact.fullName}`);
-    setLoading(true);
     try {
-      let clientId = caseContact.portedClientId;
-      let updatedContact = { ...caseContact };
-
-      // Step 1: If not ported to clients yet, check for match or port first!
-      if (!clientId) {
-        log(`handleCaseSubmit: checking existing client by name for ${caseContact.fullName}`);
-        // Look for case-insensitive exact name match in current clients list
-        const existingClient = clients.find(
-          c => (c.fullName || '').toLowerCase().trim() === caseContact.fullName.toLowerCase().trim()
-        );
-
-        if (existingClient) {
-          clientId = existingClient.id;
-          updatedContact.portedClientId = clientId;
-          updatedContact.stage = 'Ported / Converted';
-          log(`handleCaseSubmit: linked to existing client ID ${clientId}`);
-        } else if (window.electronAPI?.addClient) {
-          log(`handleCaseSubmit: creating new client for ${caseContact.fullName}`);
-          const startAddClient = performance.now();
-          const clientRes = await window.electronAPI.addClient({
-            fullName: caseContact.fullName,
-            preferredName: caseContact.fullName.split(' ')[0],
-            phone: caseContact.phone,
-            email: caseContact.email,
-            clientStatus: 'Prospect',
-            notes: `[Ported via Case Creation on ${new Date().toLocaleDateString()}] N.A.S.T. Priority Rank: ${getAverageScore(caseContact)}/5.0. Notes: ${caseContact.notes || 'None'}`
-          });
-          log(`addClient returned in ${(performance.now() - startAddClient).toFixed(2)}ms (success: ${clientRes.success})`);
-
-          if (clientRes.success) {
-            clientId = clientRes.id;
-            updatedContact.portedClientId = clientId;
-            updatedContact.stage = 'Ported / Converted';
-          } else {
-            showCustomAlert("Error", "Failed to auto-create client profile: " + clientRes.error);
-            setLoading(false);
-            return;
+      if (window.electronAPI?.generateProject100Icebreaker) {
+        const res = await window.electronAPI.generateProject100Icebreaker(contact);
+        if (res.success && res.data) {
+          setIcebreakerData(res.data);
+          if (res.data.icebreakers && res.data.icebreakers.length > 0) {
+            setActiveIcebreakerTab(res.data.icebreakers[0].id || 'opt-a');
           }
-        }
-      }
-
-      // Step 2: Create pipeline case
-      if (window.electronAPI?.addPipelineCase) {
-        log(`handleCaseSubmit: adding pipeline case...`);
-        const startAddCase = performance.now();
-        const caseRes = await window.electronAPI.addPipelineCase({
-          clientName: caseContact.fullName,
-          policyName: caseForm.policyName,
-          policyType: caseForm.policyType,
-          estimatedPremium: Number(caseForm.estimatedPremium) || 0,
-          estimatedFYC: Number(caseForm.estimatedFYC) || 0,
-          stage: caseForm.stage,
-          expectedCloseDate: caseForm.expectedCloseDate || null,
-          notes: caseForm.notes
-        });
-        log(`addPipelineCase returned in ${(performance.now() - startAddCase).toFixed(2)}ms (success: ${caseRes.success})`);
-
-        if (caseRes.success) {
-          // Step 3: Update contact in Project 100
-          if (window.electronAPI?.updateProject100Contact) {
-            const startUpdateContact = performance.now();
-            await window.electronAPI.updateProject100Contact({
-              id: caseContact.id,
-              stage: 'Ported / Converted',
-              portedClientId: clientId
-            });
-            log(`updateProject100Contact took ${(performance.now() - startUpdateContact).toFixed(2)}ms`);
-          }
-          setIsCaseModalOpen(false);
-          setCaseContact(null);
-          showCustomAlert("Success", `Successfully created pipeline case for ${caseContact.fullName}!`);
-          loadData(true);
-        } else {
-          showCustomAlert("Error", "Failed to create pipeline case: " + caseRes.error);
         }
       }
     } catch (err) {
-      log(`Error in handleCaseSubmit: ${err.message}`);
-      console.error("Error creating pipeline case from Project 100:", err);
+      console.error("Failed to generate AI icebreaker:", err);
+    } finally {
+      setIsIcebreakerLoading(false);
     }
-    setLoading(false);
   };
 
-  // Convert Project 100 prospect to Client Profile
-  const handlePortToClients = async (contact) => {
-    log(`handlePortToClients triggered for contact: ${contact.fullName}`);
-    if (document.activeElement) {
-      document.activeElement.blur();
+  const handleSendIcebreakerWhatsApp = (messageText) => {
+    if (!icebreakerContact) return;
+    const cleanPhone = (icebreakerContact.phone || '').replace(/[^\d+]/g, '');
+    const encoded = encodeURIComponent(messageText);
+    const url = cleanPhone 
+      ? `https://wa.me/${cleanPhone.startsWith('+') ? cleanPhone.slice(1) : cleanPhone}?text=${encoded}`
+      : `https://web.whatsapp.com/send?text=${encoded}`;
+    
+    if (window.electronAPI?.openPath) {
+      window.electronAPI.openPath(url);
+    } else {
+      window.open(url, '_blank');
     }
+  };
+
+  // Quick Calendar Meeting Save
+  const handleScheduleMeetingSubmit = async (e) => {
+    e.preventDefault();
+    if (!meetingTarget) return;
+
+    if (window.electronAPI?.addTask) {
+      try {
+        await window.electronAPI.addTask({
+          clientId: meetingTarget.portedClientId || null,
+          description: meetingForm.description,
+          dueDate: meetingForm.dueDate,
+          dueTime: meetingForm.dueTime,
+          dueEndTime: meetingForm.dueEndTime,
+          location: meetingForm.location,
+          status: 'Pending'
+        });
+        showCustomAlert("Meeting Scheduled", `Appointment successfully booked and synced to calendar for ${meetingTarget.fullName}!`);
+      } catch (err) {
+        console.error("Failed to add meeting task:", err);
+      }
+    }
+
+    setIsMeetingModalOpen(false);
+    setMeetingTarget(null);
+  };
+
+  // 1-Click Campaign Enrollment Handler
+  const handleEnrollInCampaignSubmit = async (e) => {
+    e.preventDefault();
+    if (!campaignTarget || !selectedCampaignId) return;
+
+    const targetInitiative = initiatives.find(i => i.id === selectedCampaignId);
+    if (!targetInitiative) return;
+
+    const existingContacts = targetInitiative.contacts || [];
+    const alreadyEnrolled = existingContacts.some(c => (c.fullName || '').toLowerCase().trim() === campaignTarget.fullName.toLowerCase().trim());
+
+    if (alreadyEnrolled) {
+      showCustomAlert("Already Enrolled", `${campaignTarget.fullName} is already enrolled in "${targetInitiative.title}".`);
+      setIsCampaignModalOpen(false);
+      return;
+    }
+
+    const newCampaignContact = {
+      id: `target-${Date.now()}`,
+      fullName: campaignTarget.fullName,
+      phone: campaignTarget.phone || '',
+      email: campaignTarget.email || '',
+      segment: campaignTarget.category || 'P100 Prospect',
+      stage: '1. Segmented',
+      notes: `Enrolled from Project 100 (Score: ${getAverageScore(campaignTarget)}★)`,
+      createdAt: new Date().toISOString()
+    };
+
+    if (window.electronAPI?.updateInitiative) {
+      const res = await window.electronAPI.updateInitiative({
+        id: targetInitiative.id,
+        contacts: [...existingContacts, newCampaignContact]
+      });
+
+      if (res.success) {
+        showCustomAlert("Campaign Enrolled", `Successfully enrolled ${campaignTarget.fullName} into "${targetInitiative.title}"!`);
+        loadData(true);
+      } else {
+        showCustomAlert("Error", "Failed to enroll in campaign: " + res.error);
+      }
+    }
+
+    setIsCampaignModalOpen(false);
+    setCampaignTarget(null);
+    setSelectedCampaignId('');
+  };
+
+  // Port to Clients Handler
+  const handlePortToClients = async (contact) => {
+    if (document.activeElement) document.activeElement.blur();
     showCustomConfirm(
       "Port to Clients",
       `Port ${contact.fullName} to your Core Clients Database?`,
       async () => {
-        log(`handlePortToClients confirmed`);
         if (window.electronAPI?.addClient) {
-          // Step 1: Check if client already exists by name
-          log(`handlePortToClients: checking existing client by name...`);
           const existingClient = clients.find(
             c => (c.fullName || '').toLowerCase().trim() === contact.fullName.toLowerCase().trim()
           );
@@ -562,19 +503,16 @@ export default function Project100Detail({ onBack }) {
           if (existingClient) {
             showCustomConfirm(
               "Client Already Exists",
-              `${contact.fullName} already exists in your Clients database. Would you like to link this prospect to that existing client profile?`,
+              `${contact.fullName} already exists in your Clients database. Link this prospect to that existing client profile?`,
               async () => {
-                log(`handlePortToClients link confirmed`);
                 if (window.electronAPI?.updateProject100Contact) {
-                  const startLinkUpdate = performance.now();
                   await window.electronAPI.updateProject100Contact({
                     id: contact.id,
                     stage: 'Ported / Converted',
                     portedClientId: existingClient.id
                   });
-                  log(`updateProject100Contact (link) took ${(performance.now() - startLinkUpdate).toFixed(2)}ms`);
                 }
-                showCustomAlert("Success", `Successfully linked ${contact.fullName} to existing Client profile!`);
+                showCustomAlert("Success", `Linked ${contact.fullName} to existing Client profile!`);
                 loadData(true);
               },
               "Link Profile",
@@ -583,32 +521,25 @@ export default function Project100Detail({ onBack }) {
             return;
           }
 
-          // Step 2: Create client if not found
-          log(`handlePortToClients: adding client profile...`);
-          const startAdd = performance.now();
           const clientRes = await window.electronAPI.addClient({
             fullName: contact.fullName,
-            preferredName: contact.fullName.split(' ')[0], // simple preferred name guess
+            preferredName: contact.fullName.split(' ')[0],
             phone: contact.phone,
             email: contact.email,
             clientStatus: 'Prospect',
-            notes: `[Ported from Project 100 on ${new Date().toLocaleDateString()}] N.A.S.T. Priority Rank: ${getAverageScore(contact)}/5.0. Category: ${contact.category}. Notes: ${contact.notes || 'None'}`
+            notes: `[Ported from Project 100 on ${new Date().toLocaleDateString()}] N.A.S.T. Score: ${getAverageScore(contact)}/5.0. Category: ${contact.category}. Notes: ${contact.notes || 'None'}`
           });
-          log(`addClient took ${(performance.now() - startAdd).toFixed(2)}ms (success: ${clientRes.success})`);
 
           if (clientRes.success) {
             const clientId = clientRes.id;
-            // Step 3: Update prospect in Project 100
             if (window.electronAPI?.updateProject100Contact) {
-              const startUpdate = performance.now();
               await window.electronAPI.updateProject100Contact({
                 id: contact.id,
                 stage: 'Ported / Converted',
                 portedClientId: clientId
               });
-              log(`updateProject100Contact took ${(performance.now() - startUpdate).toFixed(2)}ms`);
             }
-            showCustomAlert("Success", `Successfully ported ${contact.fullName} to Client Database!`);
+            showCustomAlert("Success", `Ported ${contact.fullName} to Core Clients Database!`);
             loadData(true);
           } else {
             showCustomAlert("Error", "Failed to create client profile: " + clientRes.error);
@@ -620,94 +551,112 @@ export default function Project100Detail({ onBack }) {
     );
   };
 
-  // Generate 10 realistic demo prospects to test out rankings, pipeline integration and porting
-  const handleGenerateDemoData = async () => {
-    const startDemoAction = async () => {
-      setLoading(true);
-      const sampleProspects = [
-        { fullName: "Raymond Tan (Uncle)", phone: "+65 9123 4567", email: "raymond.tan@gmail.com", category: "Family", scoreNeed: 5, scoreAccessibility: 5, scoreIncome: 4, scoreTrust: 5, stage: "Meeting Scheduled", notes: "Approaching retirement. Needs annuity and legacy planning." },
-        { fullName: "Sarah Jenkins", phone: "+65 8234 5678", email: "sarah.j@hotmail.com", category: "Close Friend", scoreNeed: 4, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Proposal Presented", notes: "Recently married and bought a condo. Looking at critical illness and mortgage insurance." },
-        { fullName: "Lim Zi Xuan (David)", phone: "+65 9345 6789", email: "david.lim@techcorp.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Ported / Converted", notes: "Software engineer earning well. Ported to client directory. High investment capacity." },
-        { fullName: "Marcus Tan", phone: "+65 8456 7890", email: "marcus.tan@u.nus.edu", category: "Colleague / Classmate", scoreNeed: 4, scoreAccessibility: 4, scoreIncome: 2, scoreTrust: 3, stage: "Contacted", notes: "Fresh grad. Good entry point for low-cost term protection." },
-        { fullName: "Chua Bee Lan", phone: "+65 9567 8901", email: "beelanchua@yahoo.com.sg", category: "Family", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Fact Finding", notes: "Aunt. Looking to compare some medical shield options." },
-        { fullName: "Jonathan Teo", phone: "+65 9678 9012", email: "j.teo.estate@gmail.com", category: "Warm Acquaintance", scoreNeed: 5, scoreAccessibility: 3, scoreIncome: 5, scoreTrust: 3, stage: "Not Contacted", notes: "Real estate agent. Strong income but no insurance portfolio reviews in 5 years." },
-        { fullName: "Clara Wong", phone: "+65 8789 0123", email: "clara.wong@outlook.com", category: "Close Friend", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "No Interest / Inactive", notes: "Currently working overseas in London, not looking to buy local policies right now." },
-        { fullName: "Edwin Seah", phone: "+65 9890 1234", email: "edwinseah@gmail.com", category: "Warm Acquaintance", scoreNeed: 4, scoreAccessibility: 3, scoreIncome: 4, scoreTrust: 3, stage: "Contacted", notes: "Met at local gym. Interested in wealth accumulation plans (ILPs)." },
-        { fullName: "Patricia Ong", phone: "+65 9901 2345", email: "patricia.ong@shiningstars.edu.sg", category: "Cold / Re-contact", scoreNeed: 4, scoreAccessibility: 2, scoreIncome: 4, scoreTrust: 2, stage: "Not Contacted", notes: "Primary school classmate. Saw she recently posted about having a newborn." },
-        { fullName: "Yap Wei Kiat", phone: "+65 8012 3456", email: "weikiat.yap@outlook.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Not Contacted", notes: "Previous department manager. High earner. Good corporate networking link." }
-      ];
+  // Create Case Handler
+  const handleOpenCreateCaseModal = (contact) => {
+    setCaseContact(contact);
+    setCaseForm({
+      policyName: '',
+      policyType: 'Life',
+      estimatedPremium: '',
+      estimatedFYC: '',
+      stage: 'Prospect',
+      expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+      notes: contact.notes || ''
+    });
+    setIsCaseModalOpen(true);
+  };
 
-      if (window.electronAPI?.addProject100Contact) {
-        for (const prospect of sampleProspects) {
-          // Add prospect
-          const res = await window.electronAPI.addProject100Contact(prospect);
-          
-          // Special integration logic for demo: If prospect is "David Lim", we also port him and create a closed case to show the tracking system working immediately!
-          if (res.success && prospect.fullName === "Lim Zi Xuan (David)" && window.electronAPI.addClient && window.electronAPI.addPipelineCase) {
-            const clientRes = await window.electronAPI.addClient({
-              fullName: prospect.fullName,
-              preferredName: "David",
-              phone: prospect.phone,
-              email: prospect.email,
-              clientStatus: 'Active',
-              notes: `[Ported from Project 100 Demo] N.A.S.T. Priority Rank: 4.3/5.0. Tech engineer.`
-            });
+  const handleCaseSubmit = async (e) => {
+    e.preventDefault();
+    if (!caseContact) return;
 
-            if (clientRes.success) {
-              const clientId = clientRes.id;
-              // Update stage in Project 100
-              await window.electronAPI.updateProject100Contact({
-                id: res.id,
-                stage: 'Ported / Converted',
-                portedClientId: clientId
-              });
+    setLoading(true);
+    try {
+      let clientId = caseContact.portedClientId;
 
-              // Add a closed pipeline case (Closed Won / Case Issued) matching his name
-              await window.electronAPI.addPipelineCase({
-                clientName: prospect.fullName,
-                policyName: "Great Eastern Wealth Accumulator",
-                policyType: "ILP",
-                estimatedPremium: 6000,
-                estimatedFYC: 2400,
-                stage: "Case Issued",
-                expectedCloseDate: new Date().toISOString().split('T')[0],
-                notes: "Issued policy. $6k annual premium wealth-builder plan."
-              });
-              
-              // Add a pending pipeline case for Raymond Tan as well to demonstrate active deals
-              await window.electronAPI.addPipelineCase({
-                clientName: "Raymond Tan (Uncle)",
-                policyName: "AIA Retirement Saver",
-                policyType: "Endowment",
-                estimatedPremium: 10000,
-                estimatedFYC: 3500,
-                stage: "Proposal Sent",
-                expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
-                notes: "Proposal pitched. Waiting for feedback next week."
-              });
-            }
+      if (!clientId) {
+        const existingClient = clients.find(
+          c => (c.fullName || '').toLowerCase().trim() === caseContact.fullName.toLowerCase().trim()
+        );
+
+        if (existingClient) {
+          clientId = existingClient.id;
+        } else if (window.electronAPI?.addClient) {
+          const clientRes = await window.electronAPI.addClient({
+            fullName: caseContact.fullName,
+            preferredName: caseContact.fullName.split(' ')[0],
+            phone: caseContact.phone,
+            email: caseContact.email,
+            clientStatus: 'Prospect',
+            notes: `[Ported via Pipeline Case on ${new Date().toLocaleDateString()}] N.A.S.T.: ${getAverageScore(caseContact)}/5.0.`
+          });
+          if (clientRes.success) {
+            clientId = clientRes.id;
           }
         }
       }
-      
-      await loadData();
-      setLoading(false);
-    };
 
-    if (contacts.length > 0) {
-      if (document.activeElement) {
-        document.activeElement.blur();
+      if (window.electronAPI?.addPipelineCase) {
+        const caseRes = await window.electronAPI.addPipelineCase({
+          clientName: caseContact.fullName,
+          policyName: caseForm.policyName,
+          policyType: caseForm.policyType,
+          estimatedPremium: Number(caseForm.estimatedPremium) || 0,
+          estimatedFYC: Number(caseForm.estimatedFYC) || 0,
+          stage: caseForm.stage,
+          expectedCloseDate: caseForm.expectedCloseDate || null,
+          notes: caseForm.notes
+        });
+
+        if (caseRes.success) {
+          if (window.electronAPI?.updateProject100Contact) {
+            await window.electronAPI.updateProject100Contact({
+              id: caseContact.id,
+              stage: 'Ported / Converted',
+              portedClientId: clientId
+            });
+          }
+          setIsCaseModalOpen(false);
+          setCaseContact(null);
+          showCustomAlert("Success", `Created sales pipeline case for ${caseContact.fullName}!`);
+          loadData(true);
+        } else {
+          showCustomAlert("Error", "Failed to create pipeline case: " + caseRes.error);
+        }
       }
-      showCustomConfirm(
-        "Generate Demo Prospects",
-        "This will add 10 sample prospects to your current list. Do you want to continue?",
-        startDemoAction,
-        "Continue",
-        "Cancel"
-      );
-    } else {
-      await startDemoAction();
+    } catch (err) {
+      console.error("Error creating pipeline case:", err);
     }
+    setLoading(false);
+  };
+
+  const handleExportCsv = () => {
+    const headers = ['Full Name', 'Phone', 'Email', 'Company', 'Category', 'Need (1-5)', 'Accessibility (1-5)', 'Income (1-5)', 'Trust (1-5)', 'Total Score (/20)', 'Avg Rating (/5.0)', 'Stage', 'Notes'];
+    const rows = contacts.map(c => [
+      `"${c.fullName || ''}"`,
+      `"${c.phone || ''}"`,
+      `"${c.email || ''}"`,
+      `"${c.company || ''}"`,
+      `"${c.category || ''}"`,
+      c.scoreNeed || 0,
+      c.scoreAccessibility || 0,
+      c.scoreIncome || 0,
+      c.scoreTrust || 0,
+      getTotalScore(c),
+      getAverageScore(c),
+      `"${c.stage || ''}"`,
+      `"${(c.notes || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `project_100_prospects_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const fileInputRef = useRef(null);
@@ -789,7 +738,31 @@ export default function Project100Detail({ onBack }) {
     reader.readAsText(file);
   };
 
-  // Helper function to calculate total score (out of 20)
+  const handleGenerateDemoData = async () => {
+    setLoading(true);
+    const sampleProspects = [
+      { fullName: "Raymond Tan (Uncle)", phone: "+65 9123 4567", email: "raymond.tan@gmail.com", category: "Family", scoreNeed: 5, scoreAccessibility: 5, scoreIncome: 4, scoreTrust: 5, stage: "Meeting Scheduled", notes: "Approaching retirement. Needs annuity and legacy planning." },
+      { fullName: "Sarah Jenkins", phone: "+65 8234 5678", email: "sarah.j@hotmail.com", category: "Close Friend", scoreNeed: 4, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Proposal Presented", notes: "Recently married and bought a condo. Looking at CI and mortgage cover." },
+      { fullName: "Lim Zi Xuan (David)", phone: "+65 9345 6789", email: "david.lim@techcorp.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Ported / Converted", notes: "Software engineer earning well. High investment capacity." },
+      { fullName: "Marcus Tan", phone: "+65 8456 7890", email: "marcus.tan@u.nus.edu", category: "Colleague / Classmate", scoreNeed: 4, scoreAccessibility: 4, scoreIncome: 2, scoreTrust: 3, stage: "Contacted", notes: "Fresh grad. Good entry point for low-cost term protection." },
+      { fullName: "Chua Bee Lan", phone: "+65 9567 8901", email: "beelanchua@yahoo.com.sg", category: "Family", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "Fact Finding", notes: "Aunt. Looking to compare medical shield options." },
+      { fullName: "Jonathan Teo", phone: "+65 9678 9012", email: "j.teo.estate@gmail.com", category: "Warm Acquaintance", scoreNeed: 5, scoreAccessibility: 3, scoreIncome: 5, scoreTrust: 3, stage: "Not Contacted", notes: "Real estate agent. Strong income, no reviews in 5 years." },
+      { fullName: "Clara Wong", phone: "+65 8789 0123", email: "clara.wong@outlook.com", category: "Close Friend", scoreNeed: 3, scoreAccessibility: 5, scoreIncome: 3, scoreTrust: 5, stage: "No Interest / Inactive", notes: "Currently working overseas in London." },
+      { fullName: "Edwin Seah", phone: "+65 9890 1234", email: "edwinseah@gmail.com", category: "Warm Acquaintance", scoreNeed: 4, scoreAccessibility: 3, scoreIncome: 4, scoreTrust: 3, stage: "Contacted", notes: "Met at gym. Interested in wealth accumulation plans." },
+      { fullName: "Patricia Ong", phone: "+65 9901 2345", email: "patricia.ong@school.edu.sg", category: "Cold / Re-contact", scoreNeed: 4, scoreAccessibility: 2, scoreIncome: 4, scoreTrust: 2, stage: "Not Contacted", notes: "Primary school classmate. Recently had newborn." },
+      { fullName: "Yap Wei Kiat", phone: "+65 8012 3456", email: "weikiat.yap@outlook.com", category: "Colleague / Classmate", scoreNeed: 3, scoreAccessibility: 4, scoreIncome: 5, scoreTrust: 4, stage: "Not Contacted", notes: "Previous department manager. High earner." }
+    ];
+
+    if (window.electronAPI?.addProject100Contact) {
+      for (const prospect of sampleProspects) {
+        await window.electronAPI.addProject100Contact(prospect);
+      }
+    }
+    await loadData();
+    setLoading(false);
+  };
+
+  // Score helpers
   const getTotalScore = (contact) => {
     return (contact.scoreNeed || 0) + 
            (contact.scoreAccessibility || 0) + 
@@ -797,15 +770,14 @@ export default function Project100Detail({ onBack }) {
            (contact.scoreTrust || 0);
   };
 
-  // Helper function to calculate average score (out of 5.0)
   const getAverageScore = (contact) => {
     const total = getTotalScore(contact);
     return (total / 4).toFixed(1);
   };
 
-  // Case tracking functions
+  // Pipeline cases stats
   const getClientCases = (fullName) => {
-    const nameLower = fullName.toLowerCase().trim();
+    const nameLower = (fullName || '').toLowerCase().trim();
     return pipelineCases.filter(c => {
       const cName = (c.clientName || '').toLowerCase().trim();
       return cName === nameLower || nameLower.includes(cName) || cName.includes(nameLower);
@@ -829,18 +801,16 @@ export default function Project100Detail({ onBack }) {
     return cases.filter(c => c.stage !== 'Case Issued' && c.stage !== 'Closed/Lost');
   };
 
-  // Calculate metrics
+  // Aggregate Metrics
   const totalListed = contacts.length;
   const averagePotential = contacts.length 
     ? (contacts.reduce((sum, c) => sum + Number(getAverageScore(c)), 0) / contacts.length).toFixed(1)
     : '0.0';
   const totalPorted = contacts.filter(c => c.portedClientId || c.stage === 'Ported / Converted').length;
-  
-  // Total cases closed across the entire prospect list
   const totalClosedCasesCount = contacts.reduce((sum, c) => sum + getClientClosedCases(c.fullName).length, 0);
   const totalClosedFYC = contacts.reduce((sum, c) => sum + getClientWonFYC(c.fullName), 0);
 
-  // Filtered and sorted contacts
+  // Filtered contacts
   const filteredContacts = contacts
     .filter(c => {
       const nameMatch = c.fullName.toLowerCase().includes(search.toLowerCase()) ||
@@ -851,153 +821,98 @@ export default function Project100Detail({ onBack }) {
       return nameMatch && categoryMatch && stageMatch;
     })
     .sort((a, b) => {
-      if (sortBy === 'score') {
-        return getTotalScore(b) - getTotalScore(a); // highest score first
-      } else if (sortBy === 'name') {
-        return a.fullName.localeCompare(b.fullName);
-      } else if (sortBy === 'stage') {
-        return a.stage.localeCompare(b.stage);
-      }
+      if (sortBy === 'score') return getTotalScore(b) - getTotalScore(a);
+      if (sortBy === 'name') return a.fullName.localeCompare(b.fullName);
+      if (sortBy === 'stage') return a.stage.localeCompare(b.stage);
       return 0;
     });
 
-  // Render Stars helper
-  const renderStars = (rating) => {
-    return (
-      <div style={{ display: 'flex', gap: '2px' }}>
-        {[1, 2, 3, 4, 5].map(star => (
-          <Star 
-            key={star} 
-            size={12} 
-            fill={star <= rating ? '#fbbf24' : 'transparent'} 
-            color={star <= rating ? '#fbbf24' : 'rgba(255,255,255,0.15)'}
-          />
-        ))}
-      </div>
-    );
-  };
+  const renderStars = (rating) => (
+    <div style={{ display: 'flex', gap: '2px' }}>
+      {[1, 2, 3, 4, 5].map(star => (
+        <Star 
+          key={star} 
+          size={11} 
+          fill={star <= rating ? '#fbbf24' : 'transparent'} 
+          color={star <= rating ? '#fbbf24' : 'rgba(255,255,255,0.15)'}
+        />
+      ))}
+    </div>
+  );
 
-  // Available clients & pipeline names not yet in Project 100
-  const availableClients = clients
-    .filter(c => {
-      return !contacts.some(p => p.fullName.toLowerCase().trim() === c.fullName.toLowerCase().trim() || p.portedClientId === c.id);
-    })
-    .sort((a, b) => a.fullName.localeCompare(b.fullName));
-
-  const availablePipelineNames = Array.from(new Set(pipelineCases.map(c => c.clientName)))
-    .filter(name => {
-      return name && name.trim().length > 0 && !contacts.some(p => p.fullName.toLowerCase().trim() === name.toLowerCase().trim());
-    })
-    .sort((a, b) => a.localeCompare(b));
+  const availableCampaigns = initiatives.filter(i => i.id !== 'project-100' && i.type === 'outreach');
 
   return (
-    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: 'auto', minHeight: '100%' }}>
+    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '18px', minHeight: '100%' }}>
       
       {/* Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button 
-            className="btn btn-secondary" 
-            style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
-            onClick={onBack}
-          >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <button className="btn btn-secondary" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onBack}>
             <ArrowLeft size={16} />
           </button>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h1 className="text-gradient" style={{ fontSize: '24px', margin: 0 }}>Project 100 Workspace</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1 className="text-gradient" style={{ fontSize: '22px', margin: 0 }}>Project 100 Workspace</h1>
               <span className="glass-panel" style={{ fontSize: '11px', color: 'var(--accent-secondary)', padding: '2px 8px', borderRadius: '10px', border: '1px solid rgba(6,182,212,0.2)' }}>
-                Path to Glory
+                Prospecting Foundation
               </span>
               <button 
                 onClick={() => setShowWorkflowGuide(!showWorkflowGuide)}
-                style={{ 
-                  background: 'none', border: 'none', color: showWorkflowGuide ? 'var(--accent-primary)' : 'var(--text-muted)', 
-                  cursor: 'pointer', display: 'flex', padding: '4px', borderRadius: '50%',
-                  transition: 'color 0.15s', outline: 'none'
-                }}
-                onMouseEnter={e => e.currentTarget.style.color = 'var(--accent-primary)'}
-                onMouseLeave={e => e.currentTarget.style.color = showWorkflowGuide ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                style={{ background: 'none', border: 'none', color: showWorkflowGuide ? 'var(--accent-primary)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px' }}
                 title="View workflow guide"
               >
-                <HelpCircle size={16} />
+                <HelpCircle size={15} />
               </button>
             </div>
             <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
-              Jumpstart your sales pipeline. List 100 people you know, score their potential, and convert them to active CRM clients.
+              List 100 contacts, score their potential with N.A.S.T., generate AI icebreakers, and convert to active clients.
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.vcf,.txt"
-            style={{ display: 'none' }}
-            onChange={handleImportFile}
-          />
-          <button 
-            className="btn btn-secondary" 
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
-            title="Import contacts from CSV or phone .vcf file"
-          >
-            <UploadCloud size={14} /> Import CSV / VCF
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <input ref={fileInputRef} type="file" accept=".csv,.vcf,.txt" style={{ display: 'none' }} onChange={handleImportFile} />
+          
+          <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }} onClick={handleExportCsv} title="Export full list to CSV">
+            <FileSpreadsheet size={13} /> Export CSV
           </button>
-          <button 
-            className="btn btn-secondary" 
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-            onClick={handleGenerateDemoData}
-            disabled={loading}
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Generate Demo Prospects
+
+          <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }} onClick={() => fileInputRef.current?.click()} disabled={loading}>
+            <UploadCloud size={13} /> Import CSV / VCF
           </button>
-          <button 
-            className="btn btn-primary" 
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              setIsAddModalOpen(true);
-            }}
-          >
-            <Plus size={16} /> Add Prospect <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: '4px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '1px 5px', borderRadius: '3px' }}>Alt+A</span>
+
+          <button className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }} onClick={handleGenerateDemoData} disabled={loading}>
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Demo Data
+          </button>
+
+          <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }} onClick={() => setIsAddModalOpen(true)}>
+            <Plus size={15} /> Add Prospect <span style={{ fontSize: '10px', opacity: 0.6, marginLeft: '2px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '1px 4px', borderRadius: '3px' }}>Alt+A</span>
           </button>
         </div>
       </header>
 
       {/* Stepper Workflow Guide */}
       {showWorkflowGuide && (
-        <div className="glass-panel animate-fade-in" style={{ padding: '20px', borderLeft: '4px solid var(--accent-primary)', display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative' }}>
-          <button 
-            onClick={() => setShowWorkflowGuide(false)}
-            style={{ position: 'absolute', top: '12px', right: '12px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px' }}
-            title="Close Guide"
-          >
-            ✕
-          </button>
-          <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <HelpCircle size={16} color="var(--accent-primary)" /> Project 100 Campaign Workflow Guide
+        <div className="glass-panel animate-fade-in" style={{ padding: '18px', borderLeft: '4px solid var(--accent-primary)', display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative' }}>
+          <button onClick={() => setShowWorkflowGuide(false)} style={{ position: 'absolute', top: '12px', right: '12px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>✕</button>
+          <h3 style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+            <HelpCircle size={15} color="var(--accent-primary)" /> Project 100 Campaign Workflow Guide
           </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
             {[
-              { step: '1', title: '1. Brain Dump', desc: 'Add 100 contacts from memory or phone. Don\'t pre-judge suitability yet!' },
+              { step: '1', title: '1. Brain Dump', desc: 'Add 100 contacts from memory or phone import. Don\'t pre-judge suitability.' },
               { step: '2', title: '2. N.A.S.T. Score', desc: 'Rate prospects 1-5 stars on Need, Accessibility, Suitability (Income), and Trust.' },
-              { step: '3', title: '3. Approach Hot Leads', desc: 'Reach out to contacts with high scores first. Update their status as you engage.' },
-              { step: '4', title: '4. Convert to CRM', desc: 'Promote warm prospects into core clients by clicking "Port" to sync profiles.' },
-              { step: '5', title: '5. Track Policy Sales', desc: 'Add cases in the Pipeline view. Successful deals automatically flow back to Project 100!' }
+              { step: '3', title: '3. ✨ AI Icebreakers', desc: 'Generate 3 customized WhatsApp openers tailored to their score & relationship category.' },
+              { step: '4', title: '4. Push to Campaign', desc: 'Enroll warm prospects into targeted product campaigns (e.g. CI Gap / SRS Tax).' },
+              { step: '5', title: '5. Port & Track Deals', desc: 'Convert prospects to CRM clients and log pipeline deals toward your MDRT goal.' }
             ].map((s, idx) => (
-              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ 
-                    width: '22px', height: '22px', borderRadius: '50%', 
-                    backgroundColor: 'rgba(139,92,246,0.15)', color: 'var(--accent-primary)',
-                    fontSize: '11px', fontWeight: '700', display: 'flex', 
-                    alignItems: 'center', justifyContent: 'center' 
-                  }}>{s.step}</span>
-                  <span style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-primary)' }}>{s.title}</span>
+              <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: 'rgba(139,92,246,0.15)', color: 'var(--accent-primary)', fontSize: '10.5px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.step}</span>
+                  <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)' }}>{s.title}</span>
                 </div>
-                <p style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>{s.desc}</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: '1.4', margin: 0 }}>{s.desc}</p>
               </div>
             ))}
           </div>
@@ -1008,17 +923,17 @@ export default function Project100Detail({ onBack }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
         
         {/* Metric 1: List Building Progress */}
-        <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative', overflow: 'hidden' }}>
+        <div className="glass-panel" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>List Building Progress</span>
-            <Layers size={16} color="var(--accent-primary)" />
+            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>List Building Progress</span>
+            <Layers size={15} color="var(--accent-primary)" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-              <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>{totalListed}</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>/ 100</span>
+              <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{totalListed}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>/ 100</span>
             </div>
-            <div style={{ width: '100%', height: '5px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', marginTop: '8px', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: '5px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
               <div style={{ 
                 width: `${Math.min(100, (totalListed / 100) * 100)}%`, 
                 height: '100%', 
@@ -1031,52 +946,52 @@ export default function Project100Detail({ onBack }) {
         </div>
 
         {/* Metric 2: Avg Qualification Rank */}
-        <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="glass-panel" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg. Priority Rating</span>
-            <Star size={16} fill="#fbbf24" color="#fbbf24" />
+            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avg. Priority Rating</span>
+            <Star size={15} fill="#fbbf24" color="#fbbf24" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-              <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>{averagePotential}</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>/ 5.0 ★</span>
+              <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{averagePotential}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>/ 5.0 ★</span>
             </div>
-            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>Based on N.A.S.T. qualifying metrics</p>
+            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>N.A.S.T. qualifying matrix</p>
           </div>
         </div>
 
         {/* Metric 3: Client Converted */}
-        <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="glass-panel" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Ported to Clients</span>
-            <UserPlus size={16} color="var(--accent-success)" />
+            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Ported to Clients</span>
+            <UserPlus size={15} color="var(--accent-success)" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-              <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--accent-success)' }}>{totalPorted}</span>
-              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>profiles</span>
+              <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--accent-success)' }}>{totalPorted}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>profiles</span>
             </div>
-            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>
+            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>
               {totalListed ? Math.round((totalPorted / totalListed) * 100) : 0}% Conversion Rate
             </p>
           </div>
         </div>
 
         {/* Metric 4: Closed Revenue / Deals */}
-        <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div className="glass-panel" style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Closed Pipeline Revenue</span>
-            <Award size={16} color="var(--accent-warning)" />
+            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Pipeline FYC Won</span>
+            <Award size={15} color="var(--accent-warning)" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-              <span style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)' }}>
+              <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>
                 ${totalClosedFYC.toLocaleString()}
               </span>
-              <span style={{ fontSize: '12px', color: 'var(--accent-success)', fontWeight: '600' }}>FYC</span>
+              <span style={{ fontSize: '11px', color: 'var(--accent-success)', fontWeight: '600' }}>FYC</span>
             </div>
-            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '6px' }}>
-              {totalClosedCasesCount} cases closed successfully
+            <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>
+              {totalClosedCasesCount} cases closed
             </p>
           </div>
         </div>
@@ -1084,29 +999,29 @@ export default function Project100Detail({ onBack }) {
       </div>
 
       {/* Filter / Search Bar */}
-      <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="glass-panel" style={{ padding: '14px 18px', display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
         
         {/* Search */}
-        <div style={{ position: 'relative', flex: 1, minWidth: '240px', maxWidth: '360px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
+        <div style={{ position: 'relative', flex: 1, minWidth: '220px', maxWidth: '340px' }}>
+          <Search size={15} style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }} />
           <input 
             type="text" 
             className="input-field" 
-            style={{ width: '100%', paddingLeft: '38px', fontSize: '13px' }} 
-            placeholder="Search prospects by name or contact..." 
+            style={{ width: '100%', paddingLeft: '36px', fontSize: '12.5px' }} 
+            placeholder="Search prospects..." 
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
         </div>
 
         {/* Filters and Sorting */}
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Category:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Category:</span>
             <select 
               className="input-field" 
-              style={{ padding: '6px 12px', fontSize: '12.5px', background: 'var(--bg-base)' }}
+              style={{ padding: '5px 10px', fontSize: '12px', background: 'var(--bg-base)' }}
               value={filterCategory}
               onChange={e => setFilterCategory(e.target.value)}
             >
@@ -1115,11 +1030,11 @@ export default function Project100Detail({ onBack }) {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Stage:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Stage:</span>
             <select 
               className="input-field" 
-              style={{ padding: '6px 12px', fontSize: '12.5px', background: 'var(--bg-base)' }}
+              style={{ padding: '5px 10px', fontSize: '12px', background: 'var(--bg-base)' }}
               value={filterStage}
               onChange={e => setFilterStage(e.target.value)}
             >
@@ -1128,11 +1043,11 @@ export default function Project100Detail({ onBack }) {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Sort by:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>Sort by:</span>
             <select 
               className="input-field" 
-              style={{ padding: '6px 12px', fontSize: '12.5px', background: 'var(--bg-base)' }}
+              style={{ padding: '5px 10px', fontSize: '12px', background: 'var(--bg-base)' }}
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
             >
@@ -1146,30 +1061,30 @@ export default function Project100Detail({ onBack }) {
       </div>
 
       {/* Main Prospect Table */}
-      <div className="glass-panel" style={{ overflowX: 'auto', padding: 0 }}>
+      <div className="glass-panel" style={{ overflowX: 'auto', padding: 0, flex: 1 }}>
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
             Loading Project 100 Workspace...
           </div>
         ) : filteredContacts.length === 0 ? (
-          <div style={{ padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-            <AlertCircle size={36} color="var(--text-muted)" style={{ opacity: 0.5 }} />
-            <h3 style={{ fontSize: '16px', color: 'var(--text-secondary)' }}>No Prospects Found</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '12.5px', maxWidth: '360px', margin: '0 auto' }}>
-              Get started by adding a prospect manually or click "Generate Demo Prospects" to load pre-qualified samples.
+          <div style={{ padding: '48px 32px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <AlertCircle size={32} color="var(--text-muted)" style={{ opacity: 0.5 }} />
+            <h3 style={{ fontSize: '15px', color: 'var(--text-secondary)', margin: 0 }}>No Prospects Found</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '12px', maxWidth: '340px', margin: 0 }}>
+              Get started by adding a prospect or click "Demo Data" to populate pre-qualified samples.
             </p>
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12.5px' }}>
             <thead>
               <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-light)' }}>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Name & Category</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Contact Details</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', minWidth: '130px' }}>N.A.S.T Rating Grid</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'center' }}>Total Score</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Stage</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Cases Closed / Active</th>
-                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'right' }}>Actions</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Name & Category</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Contact Details</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', minWidth: '120px' }}>N.A.S.T Rating Grid</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'center' }}>Total Score</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Stage</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500' }}>Pipeline Deals</th>
+                <th style={{ padding: '12px 18px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'right' }}>Actions & Copilot</th>
               </tr>
             </thead>
             <tbody>
@@ -1179,7 +1094,6 @@ export default function Project100Detail({ onBack }) {
                 const stageColor = STAGE_COLORS[contact.stage] || { bg: 'rgba(255,255,255,0.05)', text: '#fff' };
                 const catColor = CATEGORY_COLORS[contact.category] || '#fff';
                 
-                // Case and pipeline stats
                 const clientCases = getClientCases(contact.fullName);
                 const activeCases = getClientActiveCases(contact.fullName);
                 const closedCases = getClientClosedCases(contact.fullName);
@@ -1189,58 +1103,50 @@ export default function Project100Detail({ onBack }) {
                   <tr 
                     key={contact.id} 
                     style={{ borderBottom: '1px solid var(--border-light)', transition: 'background-color 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.01)'}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    
                     {/* Name & Category */}
-                    <td style={{ padding: '14px 20px' }}>
-                      <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '13.5px' }}>
+                    <td style={{ padding: '12px 18px' }}>
+                      <div style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '13px' }}>
                         {contact.fullName}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                        <span style={{ 
-                          width: '6px', 
-                          height: '6px', 
-                          borderRadius: '50%', 
-                          backgroundColor: catColor 
-                        }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: catColor }} />
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {contact.category}
+                          {contact.category} {contact.company ? `• ${contact.company}` : ''}
                         </span>
                       </div>
                     </td>
 
                     {/* Contact Details */}
-                    <td style={{ padding: '14px 20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', marginBottom: '3px' }}>
+                    <td style={{ padding: '12px 18px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
                         <Phone size={11} color="var(--text-muted)" /> 
                         <span>{contact.phone || '-'}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--text-secondary)' }}>
                         <Mail size={11} color="var(--text-muted)" />
-                        <span style={{ fontSize: '11.5px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '140px' }} title={contact.email}>
+                        <span style={{ fontSize: '11px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '130px' }} title={contact.email}>
                           {contact.email || '-'}
                         </span>
                       </div>
                     </td>
 
                     {/* N.A.S.T Score Grid */}
-                    <td style={{ padding: '14px 20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                    <td style={{ padding: '12px 18px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', fontSize: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                           <span style={{ color: 'var(--text-muted)' }}>Need:</span>
                           {renderStars(contact.scoreNeed)}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                           <span style={{ color: 'var(--text-muted)' }}>Access:</span>
                           {renderStars(contact.scoreAccessibility)}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                           <span style={{ color: 'var(--text-muted)' }}>Income:</span>
                           {renderStars(contact.scoreIncome)}
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
                           <span style={{ color: 'var(--text-muted)' }}>Trust:</span>
                           {renderStars(contact.scoreTrust)}
                         </div>
@@ -1248,136 +1154,127 @@ export default function Project100Detail({ onBack }) {
                     </td>
 
                     {/* Total Score Column */}
-                    <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '15px', fontWeight: '700', color: totalScore >= 16 ? 'var(--accent-warning)' : 'var(--text-primary)' }}>
+                    <td style={{ padding: '12px 18px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '14.5px', fontWeight: '700', color: totalScore >= 16 ? '#fbbf24' : 'var(--text-primary)' }}>
                         {totalScore}
                       </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' }}>
                         {avgScore} ★
                       </div>
                     </td>
 
-                    {/* Engagement Stage */}
-                    <td style={{ padding: '14px 20px' }}>
-                      <span style={{ 
-                        padding: '4px 10px', 
-                        borderRadius: '12px', 
-                        fontSize: '11px',
-                        fontWeight: '500',
-                        backgroundColor: stageColor.bg,
-                        color: stageColor.text,
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {contact.stage}
-                      </span>
+                    {/* Interactive Stage Selector */}
+                    <td style={{ padding: '12px 18px' }}>
+                      <select 
+                        value={contact.stage}
+                        onChange={(e) => handleQuickStageChange(contact, e.target.value)}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '10px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          backgroundColor: stageColor.bg,
+                          color: stageColor.text,
+                          border: 'none',
+                          outline: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {STAGES.map(st => (
+                          <option key={st} value={st} style={{ backgroundColor: '#1e293b', color: '#fff' }}>{st}</option>
+                        ))}
+                      </select>
                       {contact.notes && (
-                        <div 
-                          style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '6px', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebKitLineClamp: 2, WebKitBoxOrient: 'vertical' }}
-                          title={contact.notes}
-                        >
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={contact.notes}>
                           {contact.notes}
                         </div>
                       )}
                     </td>
 
-                    {/* Pipeline Tracking */}
-                    <td style={{ padding: '14px 20px' }}>
+                    {/* Pipeline Deals */}
+                    <td style={{ padding: '12px 18px' }}>
                       {clientCases.length === 0 ? (
                         <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>No active cases</span>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           {closedCases.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                              <div style={{ color: closedWonFYC > 0 ? 'var(--accent-success)' : 'var(--text-secondary)', fontWeight: '600', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <span>💼 {closedCases.length} closed</span>
-                                {closedWonFYC > 0 && <span>(${closedWonFYC.toLocaleString()} FYC)</span>}
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '6px', borderLeft: '1px solid rgba(255,255,255,0.08)', marginTop: '2px' }}>
-                                {closedCases.map(c => (
-                                  <div key={c.id} style={{ fontSize: '10px', color: c.stage === 'Case Issued' ? 'var(--accent-success)' : 'var(--text-muted)' }} title={c.notes}>
-                                    • {c.policyName || c.policyType} ({c.stage === 'Case Issued' ? 'Won' : 'Lost'})
-                                  </div>
-                                ))}
-                              </div>
+                            <div style={{ color: closedWonFYC > 0 ? '#34d399' : 'var(--text-secondary)', fontWeight: '600', fontSize: '11px' }}>
+                              💼 {closedCases.length} won (${closedWonFYC.toLocaleString()} FYC)
                             </div>
                           )}
                           {activeCases.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                              <div style={{ color: 'var(--accent-secondary)', fontSize: '11px', fontWeight: '500' }}>
-                                ⚡ {activeCases.length} in progress
-                              </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', paddingLeft: '6px', borderLeft: '1px solid rgba(255,255,255,0.08)', marginTop: '2px' }}>
-                                {activeCases.map(c => (
-                                  <div key={c.id} style={{ fontSize: '10px', color: 'var(--text-secondary)' }} title={c.notes}>
-                                    • {c.policyName || c.policyType} ({c.stage})
-                                  </div>
-                                ))}
-                              </div>
+                            <div style={{ color: 'var(--accent-secondary)', fontSize: '10.5px' }}>
+                              ⚡ {activeCases.length} in progress
                             </div>
                           )}
                         </div>
                       )}
                     </td>
 
-                    {/* Actions */}
-                    <td style={{ padding: '14px 20px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', alignItems: 'center' }}>
+                    {/* Actions & Copilot */}
+                    <td style={{ padding: '12px 18px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center' }}>
                         
-                        {/* Port to CRM button */}
-                        {(!contact.portedClientId && contact.stage !== 'Ported / Converted') ? (
+                        {/* ✨ AI Icebreaker Button */}
+                        <button 
+                          className="btn btn-primary"
+                          style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)' }}
+                          onClick={() => handleOpenAiIcebreaker(contact)}
+                          title="Generate AI WhatsApp Icebreakers tailored to N.A.S.T. rating"
+                        >
+                          <Sparkles size={12} /> AI Opener
+                        </button>
+
+                        {/* 🚀 Enroll in Campaign Button */}
+                        {availableCampaigns.length > 0 && (
                           <button 
-                            className="btn btn-secondary" 
-                            style={{ 
-                              padding: '5px 8px', 
-                              fontSize: '11px', 
-                              borderColor: 'rgba(16, 185, 129, 0.3)', 
-                              color: 'var(--accent-success)',
-                              backgroundColor: 'rgba(16, 185, 129, 0.05)'
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px', color: '#60a5fa', borderColor: 'rgba(59,130,246,0.3)' }}
+                            onClick={() => {
+                              setCampaignTarget(contact);
+                              setSelectedCampaignId(availableCampaigns[0]?.id || '');
+                              setIsCampaignModalOpen(true);
                             }}
-                            onClick={() => handlePortToClients(contact)}
-                            title="Port to Clients Database"
+                            title="Enroll into an active Strategic Campaign"
                           >
-                            <UserPlus size={12} style={{ marginRight: '4px' }} /> Port
+                            <Rocket size={12} /> Campaign
                           </button>
-                        ) : (
-                          <span 
-                            style={{ 
-                              fontSize: '11px', 
-                              color: 'var(--accent-success)', 
-                              display: 'inline-flex', 
-                              alignItems: 'center', 
-                              gap: '4px',
-                              padding: '5px 8px',
-                              backgroundColor: 'rgba(16, 185, 129, 0.08)',
-                              borderRadius: '4px'
-                            }}
-                            title="Linked to CRM Client profile"
-                          >
-                            <CheckCircle size={11} /> Ported
-                          </span>
                         )}
 
-                        {/* Port to Pipeline button */}
+                        {/* 👤 Port to CRM button or Clickable Linked Badge */}
+                        {(contact.portedClientId || clients.some(c => (c.fullName || '').toLowerCase().trim() === (contact.fullName || '').toLowerCase().trim())) ? (
+                          <button 
+                            className="btn" 
+                            style={{ padding: '3px 8px', fontSize: '10.5px', color: '#34d399', backgroundColor: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handleOpenClientProfile(contact)}
+                            title="Open Client 360 Profile in CRM"
+                          >
+                            <CheckCircle size={11} /> Client ↗
+                          </button>
+                        ) : (
+                          <button 
+                            className="btn btn-secondary" 
+                            style={{ padding: '4px 7px', fontSize: '11px', color: 'var(--accent-success)', borderColor: 'rgba(16, 185, 129, 0.3)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handlePortToClients(contact)}
+                            title="Port to Core CRM Clients database"
+                          >
+                            <UserPlus size={11} /> Port
+                          </button>
+                        )}
+
+                        {/* 💼 Create Pipeline Deal button */}
                         <button 
                           className="btn btn-secondary" 
-                          style={{ 
-                            padding: '5px 8px', 
-                            fontSize: '11px', 
-                            borderColor: 'rgba(6, 182, 212, 0.3)', 
-                            color: 'var(--accent-secondary)',
-                            backgroundColor: 'rgba(6, 182, 212, 0.05)'
-                          }}
+                          style={{ padding: '4px 7px', fontSize: '11px', color: 'var(--accent-secondary)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
                           onClick={() => handleOpenCreateCaseModal(contact)}
                           title="Create Sales Pipeline Case"
                         >
-                          <Briefcase size={12} style={{ marginRight: '4px' }} /> Case
+                          <Briefcase size={11} /> Case
                         </button>
 
                         <button 
                           onClick={() => openEditModal(contact)}
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '6px' }}
-                          onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
                           title="Edit prospect"
                         >
                           <Edit2 size={13} />
@@ -1385,9 +1282,7 @@ export default function Project100Detail({ onBack }) {
 
                         <button 
                           onClick={() => handleDeleteContact(contact.id)}
-                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '6px' }}
-                          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.6, padding: '4px' }}
                           title="Delete prospect"
                         >
                           <Trash2 size={13} />
@@ -1404,384 +1299,439 @@ export default function Project100Detail({ onBack }) {
         )}
       </div>
 
-      {/* ADD PROSPECT MODAL */}
-      {isAddModalOpen && createPortal(
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
-          backdropFilter: 'blur(8px)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-        }} onClick={() => setIsAddModalOpen(false)}>
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{ width: '100%', maxWidth: '580px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Add Prospect to Project 100</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>List a new potential client and evaluate their suitability</p>
+      {/* AI ICEBREAKER COPILOT MODAL */}
+      {isIcebreakerModalOpen && icebreakerContact && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '640px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <h2 style={{ fontSize: '19px', color: 'var(--text-primary)', margin: 0 }}>
+                    AI Outreach Copilot
+                  </h2>
+                  <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#a78bfa', fontWeight: '600' }}>
+                    {icebreakerContact.fullName} ({icebreakerContact.category})
+                  </span>
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
+                  N.A.S.T. Score: <strong style={{ color: '#fbbf24' }}>{getTotalScore(icebreakerContact)}/20 ({getAverageScore(icebreakerContact)}★)</strong> • Urgency: Need {icebreakerContact.scoreNeed}/5, Trust {icebreakerContact.scoreTrust}/5
+                </p>
+              </div>
+              <button onClick={() => setIsIcebreakerModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* Import Quick Selector */}
-              {(availableClients.length > 0 || availablePipelineNames.length > 0) && (
-                <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: '16px', marginBottom: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Quick Import from Existing Contacts
-                  </span>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label className="input-label" style={{ fontSize: '10.5px' }}>From Clients Database</label>
-                      <select 
-                        className="input-field" 
-                        style={{ padding: '6px 10px', fontSize: '12px', background: 'var(--bg-base)', border: '1px solid rgba(255,255,255,0.08)' }}
-                        value="" 
-                        onChange={handleSelectClientToImport}
-                      >
-                        <option value="">-- Select Client --</option>
-                        {availableClients.map(c => (
-                          <option key={c.id} value={c.id}>{c.fullName}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="input-group" style={{ marginBottom: 0 }}>
-                      <label className="input-label" style={{ fontSize: '10.5px' }}>From Pipeline Deals</label>
-                      <select 
-                        className="input-field" 
-                        style={{ padding: '6px 10px', fontSize: '12px', background: 'var(--bg-base)', border: '1px solid rgba(255,255,255,0.08)' }}
-                        value="" 
-                        onChange={handleSelectPipelineToImport}
-                      >
-                        <option value="">-- Select Deal Contact --</option>
-                        {availablePipelineNames.map(name => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
+            {isIcebreakerLoading ? (
+              <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <Sparkles size={32} className="animate-spin" style={{ color: 'var(--accent-primary)', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: '14px', fontWeight: '600' }}>Synthesizing Personalized WhatsApp Approaches...</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Analyzing relationship rapport, career signals, and Singapore advisory angles...
                 </div>
-              )}
+              </div>
+            ) : icebreakerData ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                
+                {/* Executive Assessment Card */}
+                <div style={{ padding: '12px 16px', backgroundColor: 'rgba(139,92,246,0.08)', borderRadius: '8px', borderLeft: '4px solid var(--accent-primary)' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: '#c084fc' }}>Advisory Strategy Assessment</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: '1.5' }}>
+                    {icebreakerData.prospectSummary}
+                  </div>
+                  {icebreakerData.recommendedAngle && (
+                    <div style={{ fontSize: '11px', color: '#fbbf24', marginTop: '4px', fontWeight: '500' }}>
+                      ⚡ Recommendation: {icebreakerData.recommendedAngle}
+                    </div>
+                  )}
+                </div>
 
+                {/* Angle Selector Tabs */}
+                <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+                  {(icebreakerData.icebreakers || []).map((ib, idx) => (
+                    <button
+                      key={ib.id || idx}
+                      className={`btn ${activeIcebreakerTab === (ib.id || `opt-${idx}`) ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ fontSize: '11.5px', padding: '6px 12px' }}
+                      onClick={() => setActiveIcebreakerTab(ib.id || `opt-${idx}`)}
+                    >
+                      {ib.angle || `Option ${idx + 1}`}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Selected Angle Details */}
+                {(() => {
+                  const activeObj = (icebreakerData.icebreakers || []).find(ib => (ib.id || 'opt-a') === activeIcebreakerTab) || icebreakerData.icebreakers?.[0];
+                  if (!activeObj) return null;
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <span style={{ fontSize: '11px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(59,130,246,0.12)', color: '#60a5fa', fontWeight: '600' }}>
+                            Tone: {activeObj.tone}
+                          </span>
+                          <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                            {activeObj.rationale}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button 
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(activeObj.message);
+                              setCopiedKey(activeObj.id);
+                              setTimeout(() => setCopiedKey(null), 1500);
+                            }}
+                          >
+                            {copiedKey === activeObj.id ? <Check size={12} /> : <Copy size={12} />} Copy Message
+                          </button>
+
+                          <button 
+                            className="btn btn-primary"
+                            style={{ padding: '4px 10px', fontSize: '11.5px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#10b981' }}
+                            onClick={() => handleSendIcebreakerWhatsApp(activeObj.message)}
+                          >
+                            <Send size={12} /> WhatsApp
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* WhatsApp Message Canvas */}
+                      <div style={{ 
+                        backgroundColor: 'rgba(0,0,0,0.3)', 
+                        border: '1px solid rgba(255,255,255,0.08)', 
+                        borderRadius: '8px', 
+                        padding: '14px 16px', 
+                        fontSize: '12.5px', 
+                        color: 'var(--text-primary)', 
+                        lineHeight: '1.6', 
+                        whiteSpace: 'pre-wrap' 
+                      }}>
+                        {activeObj.message}
+                      </div>
+
+                      {/* In-Meeting Talking Points */}
+                      {activeObj.talkingPoints && activeObj.talkingPoints.length > 0 && (
+                        <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '10px 14px' }}>
+                          <div style={{ fontSize: '11.5px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                            💬 Key Meeting Talking Points & Listening Cues:
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                            {activeObj.talkingPoints.map((tp, tIdx) => (
+                              <li key={tIdx}>{tp}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                    </div>
+                  );
+                })()}
+
+              </div>
+            ) : (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#f87171' }}>
+                Failed to generate AI icebreaker. Please check API settings or try again.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 1-CLICK CAMPAIGN ENROLLMENT MODAL */}
+      {isCampaignModalOpen && campaignTarget && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '460px', padding: '28px' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Rocket size={18} color="#60a5fa" /> Enroll in Strategic Campaign
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '18px' }}>
+              Add <strong>{campaignTarget.fullName}</strong> ({campaignTarget.category}) directly to an active outreach campaign.
+            </p>
+
+            <form onSubmit={handleEnrollInCampaignSubmit}>
+              <div style={{ marginBottom: '20px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Select Active Campaign *</label>
+                <select 
+                  required 
+                  className="input-field" 
+                  style={{ width: '100%', background: 'var(--bg-base)' }}
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                >
+                  <option value="">-- Select Campaign --</option>
+                  {availableCampaigns.map(camp => (
+                    <option key={camp.id} value={camp.id}>
+                      {camp.title} ({camp.productName || 'Campaign'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsCampaignModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={!selectedCampaignId}>Enroll Prospect</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK CALENDAR APPOINTMENT MODAL */}
+      {isMeetingModalOpen && meetingTarget && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '480px', padding: '28px' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Calendar size={18} color="#fbbf24" /> Schedule Prospect Meeting
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '18px' }}>
+              Booking sync for <strong>{meetingTarget.fullName}</strong>. Syncs automatically to Google Calendar.
+            </p>
+
+            <form onSubmit={handleScheduleMeetingSubmit}>
+              <div style={{ marginBottom: '14px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Meeting Topic *</label>
+                <input required type="text" className="input-field" style={{ width: '100%' }} value={meetingForm.description} onChange={(e) => setMeetingForm({ ...meetingForm, description: e.target.value })} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '10px', marginBottom: '14px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date</label>
+                  <DatePicker value={meetingForm.dueDate} onChange={(e) => setMeetingForm({ ...meetingForm, dueDate: e.target.value })} />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Start Time</label>
+                  <input type="time" className="input-field" style={{ width: '100%' }} value={meetingForm.dueTime} onChange={(e) => setMeetingForm({ ...meetingForm, dueTime: e.target.value })} />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>End Time</label>
+                  <input type="time" className="input-field" style={{ width: '100%' }} value={meetingForm.dueEndTime} onChange={(e) => setMeetingForm({ ...meetingForm, dueEndTime: e.target.value })} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Location (Address / Zoom)</label>
+                <AddressAutocomplete 
+                  value={meetingForm.location}
+                  onChange={(val) => setMeetingForm({ ...meetingForm, location: val })}
+                  placeholder="e.g. Raffles Place / Coffee Bean / Online Zoom"
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsMeetingModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Schedule & Sync</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD PROSPECT MODAL */}
+      {isAddModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '560px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>Add Prospect to Project 100</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '16px' }}>List a new potential client and evaluate their suitability</p>
+
+            <form onSubmit={handleAddSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="input-group">
                 <label className="input-label">Full Name *</label>
-                <input 
-                  type="text" name="fullName" className="input-field" 
-                  value={formData.fullName} onChange={handleInputChange} 
-                  required placeholder="e.g. David Lim"
-                  autoFocus
-                />
+                <input type="text" name="fullName" className="input-field" value={formData.fullName} onChange={handleInputChange} required placeholder="e.g. David Lim" autoFocus />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Phone Number</label>
-                  <input 
-                    type="text" name="phone" className="input-field" 
-                    value={formData.phone} onChange={handleInputChange} 
-                    placeholder="e.g. +65 9123 4567"
-                  />
+                  <input type="text" name="phone" className="input-field" value={formData.phone} onChange={handleInputChange} placeholder="+65 9123 4567" />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Email Address</label>
-                  <input 
-                    type="email" name="email" className="input-field" 
-                    value={formData.email} onChange={handleInputChange} 
-                    placeholder="e.g. david.lim@gmail.com"
-                  />
+                  <input type="email" name="email" className="input-field" value={formData.email} onChange={handleInputChange} placeholder="david.lim@gmail.com" />
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
-                  <label className="input-label">Relationship Category</label>
-                  <select 
-                    name="category" className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={formData.category} onChange={handleInputChange}
-                  >
-                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <label className="input-label">Company / Workplace</label>
+                  <input type="text" name="company" className="input-field" value={formData.company} onChange={handleInputChange} placeholder="e.g. DBS Bank" />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Engagement Stage</label>
-                  <select 
-                    name="stage" className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={formData.stage} onChange={handleInputChange}
-                  >
-                    {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  <label className="input-label">Relationship Category</label>
+                  <select name="category" className="input-field" style={{ background: 'var(--bg-base)' }} value={formData.category} onChange={handleInputChange}>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
 
               {/* N.A.S.T Ratings Sliders */}
-              <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'rgba(255,255,255,0.01)' }}>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: 'rgba(255,255,255,0.01)' }}>
+                <span style={{ fontSize: '11.5px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
                   N.A.S.T Potential Evaluation (Score 1 - 5)
                 </span>
                 
-                {/* Need */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Need (N): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>Does the prospect have clear planning needs?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreNeed} ★</span>
+                    <span>Need (N)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreNeed} ★</span>
                   </div>
-                  <input type="range" name="scoreNeed" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreNeed} onChange={handleInputChange} />
+                  <input type="range" name="scoreNeed" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreNeed} onChange={handleInputChange} />
                 </div>
 
-                {/* Accessibility */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Accessibility (A): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>How easy is it to request a meeting?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreAccessibility} ★</span>
+                    <span>Accessibility (A)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreAccessibility} ★</span>
                   </div>
-                  <input type="range" name="scoreAccessibility" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreAccessibility} onChange={handleInputChange} />
+                  <input type="range" name="scoreAccessibility" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreAccessibility} onChange={handleInputChange} />
                 </div>
 
-                {/* Income */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Suitability/Income (S): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>Do they have budget & premium affordability?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreIncome} ★</span>
+                    <span>Suitability / Income (S)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreIncome} ★</span>
                   </div>
-                  <input type="range" name="scoreIncome" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreIncome} onChange={handleInputChange} />
+                  <input type="range" name="scoreIncome" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreIncome} onChange={handleInputChange} />
                 </div>
 
-                {/* Trust */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Trust (T): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>How strong is the existing personal trust?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreTrust} ★</span>
+                    <span>Trust (T)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreTrust} ★</span>
                   </div>
-                  <input type="range" name="scoreTrust" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreTrust} onChange={handleInputChange} />
-                </div>
-
-                <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Computed Overall Score:</span>
-                  <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                    {formData.scoreNeed + formData.scoreAccessibility + formData.scoreIncome + formData.scoreTrust} / 20 points
-                  </span>
+                  <input type="range" name="scoreTrust" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreTrust} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div className="input-group">
-                <label className="input-label">Notes & Comments</label>
-                <textarea 
-                  name="notes" className="input-field" 
-                  style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                  value={formData.notes} onChange={handleInputChange}
-                  placeholder="e.g. Recently married. Keep details updated. Ask for coffee next week."
-                />
+                <label className="input-label">Notes & Remarks</label>
+                <textarea name="notes" className="input-field" style={{ minHeight: '50px' }} value={formData.notes} onChange={handleInputChange} placeholder="Key notes on planning priorities..." />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setIsAddModalOpen(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Prospect
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Add to List</button>
               </div>
             </form>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* EDIT PROSPECT MODAL */}
-      {isEditModalOpen && createPortal(
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
-          backdropFilter: 'blur(8px)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-        }} onClick={() => setIsEditModalOpen(false)}>
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{ width: '100%', maxWidth: '580px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Edit Prospect Information</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Update profile settings and qualifier ratings</p>
-            </div>
+      {isEditModalOpen && selectedContact && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '560px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>Edit Prospect: {selectedContact.fullName}</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '16px' }}>Update prospect particulars, stage, and N.A.S.T score</p>
 
             <form onSubmit={handleEditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="input-group">
                 <label className="input-label">Full Name *</label>
-                <input 
-                  type="text" name="fullName" className="input-field" 
-                  value={formData.fullName} onChange={handleInputChange} 
-                  required placeholder="e.g. David Lim"
-                />
+                <input type="text" name="fullName" className="input-field" value={formData.fullName} onChange={handleInputChange} required />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Phone Number</label>
-                  <input 
-                    type="text" name="phone" className="input-field" 
-                    value={formData.phone} onChange={handleInputChange} 
-                    placeholder="e.g. +65 9123 4567"
-                  />
+                  <input type="text" name="phone" className="input-field" value={formData.phone} onChange={handleInputChange} />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Email Address</label>
-                  <input 
-                    type="email" name="email" className="input-field" 
-                    value={formData.email} onChange={handleInputChange} 
-                    placeholder="e.g. david.lim@gmail.com"
-                  />
+                  <input type="email" name="email" className="input-field" value={formData.email} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
-                  <label className="input-label">Relationship Category</label>
-                  <select 
-                    name="category" className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={formData.category} onChange={handleInputChange}
-                  >
+                  <label className="input-label">Category</label>
+                  <select name="category" className="input-field" style={{ background: 'var(--bg-base)' }} value={formData.category} onChange={handleInputChange}>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
                   <label className="input-label">Engagement Stage</label>
-                  <select 
-                    name="stage" className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={formData.stage} onChange={handleInputChange}
-                  >
+                  <select name="stage" className="input-field" style={{ background: 'var(--bg-base)' }} value={formData.stage} onChange={handleInputChange}>
                     {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               </div>
 
               {/* N.A.S.T Ratings Sliders */}
-              <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: 'rgba(255,255,255,0.01)' }}>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  N.A.S.T Potential Evaluation (Score 1 - 5)
-                </span>
-                
-                {/* Need */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ border: '1px solid var(--border-light)', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Need (N): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>Does the prospect have clear planning needs?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreNeed} ★</span>
+                    <span>Need (N)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreNeed} ★</span>
                   </div>
-                  <input type="range" name="scoreNeed" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreNeed} onChange={handleInputChange} />
+                  <input type="range" name="scoreNeed" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreNeed} onChange={handleInputChange} />
                 </div>
 
-                {/* Accessibility */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Accessibility (A): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>How easy is it to request a meeting?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreAccessibility} ★</span>
+                    <span>Accessibility (A)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreAccessibility} ★</span>
                   </div>
-                  <input type="range" name="scoreAccessibility" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreAccessibility} onChange={handleInputChange} />
+                  <input type="range" name="scoreAccessibility" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreAccessibility} onChange={handleInputChange} />
                 </div>
 
-                {/* Income */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Suitability/Income (S): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>Do they have budget & premium affordability?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreIncome} ★</span>
+                    <span>Suitability / Income (S)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreIncome} ★</span>
                   </div>
-                  <input type="range" name="scoreIncome" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreIncome} onChange={handleInputChange} />
+                  <input type="range" name="scoreIncome" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreIncome} onChange={handleInputChange} />
                 </div>
 
-                {/* Trust */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>Trust (T): <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>How strong is the existing personal trust?</span></span>
-                    <span style={{ color: 'var(--accent-warning)', fontWeight: '700' }}>{formData.scoreTrust} ★</span>
+                    <span>Trust (T)</span>
+                    <span style={{ color: '#fbbf24', fontWeight: '700' }}>{formData.scoreTrust} ★</span>
                   </div>
-                  <input type="range" name="scoreTrust" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', cursor: 'pointer' }} value={formData.scoreTrust} onChange={handleInputChange} />
-                </div>
-
-                <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Computed Overall Score:</span>
-                  <span style={{ fontSize: '15px', fontWeight: '800', color: 'var(--text-primary)' }}>
-                    {formData.scoreNeed + formData.scoreAccessibility + formData.scoreIncome + formData.scoreTrust} / 20 points
-                  </span>
+                  <input type="range" name="scoreTrust" min="1" max="5" step="1" style={{ accentColor: 'var(--accent-primary)', width: '100%' }} value={formData.scoreTrust} onChange={handleInputChange} />
                 </div>
               </div>
 
               <div className="input-group">
-                <label className="input-label">Notes & Comments</label>
-                <textarea 
-                  name="notes" className="input-field" 
-                  style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                  value={formData.notes} onChange={handleInputChange}
-                  placeholder="e.g. Recently married. Keep details updated. Ask for coffee next week."
-                />
+                <label className="input-label">Notes & Remarks</label>
+                <textarea name="notes" className="input-field" style={{ minHeight: '50px' }} value={formData.notes} onChange={handleInputChange} />
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setIsEditModalOpen(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
               </div>
             </form>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
       {/* CREATE PIPELINE CASE MODAL */}
-      {isCaseModalOpen && caseContact && createPortal(
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
-          backdropFilter: 'blur(8px)', zIndex: 1000,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-        }} onClick={() => { setIsCaseModalOpen(false); setCaseContact(null); }}>
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{ width: '100%', maxWidth: '540px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h2 style={{ fontSize: '18px', marginBottom: '4px' }}>Create Sales Case for {caseContact.fullName}</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                {!caseContact.portedClientId && "Note: This will automatically create a Client Profile in your core database as well."}
-              </p>
-            </div>
+      {isCaseModalOpen && caseContact && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '520px', padding: '28px' }}>
+            <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>Create Sales Case for {caseContact.fullName}</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '16px' }}>Auto-links to Core Clients and updates MDRT tracking.</p>
 
             <form onSubmit={handleCaseSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="input-group">
                 <label className="input-label">Policy / Product Name *</label>
-                <input 
-                  type="text" 
-                  className="input-field" 
-                  value={caseForm.policyName}
-                  onChange={e => setCaseForm({ ...caseForm, policyName: e.target.value })}
-                  required 
-                  placeholder="e.g. AIA Guaranteed Protect Plus"
-                />
+                <input type="text" className="input-field" value={caseForm.policyName} onChange={e => setCaseForm({ ...caseForm, policyName: e.target.value })} required placeholder="e.g. AIA Guaranteed Protect Plus" />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Policy Type</label>
-                  <select 
-                    className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={caseForm.policyType}
-                    onChange={e => setCaseForm({ ...caseForm, policyType: e.target.value })}
-                  >
+                  <select className="input-field" style={{ background: 'var(--bg-base)' }} value={caseForm.policyType} onChange={e => setCaseForm({ ...caseForm, policyType: e.target.value })}>
                     {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Initial Stage</label>
-                  <select 
-                    className="input-field" 
-                    style={{ background: 'var(--bg-base)' }}
-                    value={caseForm.stage}
-                    onChange={e => setCaseForm({ ...caseForm, stage: e.target.value })}
-                  >
+                  <label className="input-label">Pipeline Stage</label>
+                  <select className="input-field" style={{ background: 'var(--bg-base)' }} value={caseForm.stage} onChange={e => setCaseForm({ ...caseForm, stage: e.target.value })}>
                     {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
@@ -1790,108 +1740,48 @@ export default function Project100Detail({ onBack }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Est. Annual Premium ($)</label>
-                  <input 
-                    type="number" 
-                    className="input-field" 
-                    value={caseForm.estimatedPremium}
-                    onChange={e => setCaseForm({ ...caseForm, estimatedPremium: e.target.value })}
-                    placeholder="e.g. 3000"
-                  />
+                  <input type="number" className="input-field" value={caseForm.estimatedPremium} onChange={e => setCaseForm({ ...caseForm, estimatedPremium: e.target.value })} placeholder="3000" />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Est. FYC ($)</label>
-                  <input 
-                    type="number" 
-                    className="input-field" 
-                    value={caseForm.estimatedFYC}
-                    onChange={e => setCaseForm({ ...caseForm, estimatedFYC: e.target.value })}
-                    placeholder="e.g. 1200"
-                  />
+                  <input type="number" className="input-field" value={caseForm.estimatedFYC} onChange={e => setCaseForm({ ...caseForm, estimatedFYC: e.target.value })} placeholder="1200" />
                 </div>
               </div>
 
               <div className="input-group">
-                <label className="input-label">Expected Close Date</label>
-                <input 
-                  type="date" 
-                  className="input-field" 
-                  style={{ color: 'var(--text-primary)' }}
-                  value={caseForm.expectedCloseDate}
-                  onChange={e => setCaseForm({ ...caseForm, expectedCloseDate: e.target.value })}
-                />
+                <label className="input-label">Case Notes / Timeline</label>
+                <input type="text" className="input-field" value={caseForm.notes} onChange={e => setCaseForm({ ...caseForm, notes: e.target.value })} placeholder="Proposal pitching details..." />
               </div>
 
-              <div className="input-group">
-                <label className="input-label">Case Notes / Reminders</label>
-                <textarea 
-                  className="input-field" 
-                  style={{ minHeight: '60px', fontFamily: 'inherit', resize: 'vertical' }}
-                  value={caseForm.notes}
-                  onChange={e => setCaseForm({ ...caseForm, notes: e.target.value })}
-                  placeholder="e.g. Needs to submit medical report by end of month."
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => { setIsCaseModalOpen(false); setCaseContact(null); }}
-                >
-                  Cancel
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => { setIsCaseModalOpen(false); setCaseContact(null); }}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Creating...' : 'Create Sales Case'}
+                  {loading ? 'Creating...' : 'Create Case'}
                 </button>
               </div>
             </form>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
-      {/* CUSTOM CONFIRMATION/ALERT MODAL */}
-      {confirmConfig.isOpen && createPortal(
-        <div 
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)',
-            backdropFilter: 'blur(8px)', zIndex: 2000,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
-          }} 
-          onClick={() => !confirmConfig.isAlert && setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-        >
-          <div 
-            className="glass-panel animate-fade-in" 
-            style={{ width: '100%', maxWidth: '420px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--border-light)' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div>
-              <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-primary)' }}>{confirmConfig.title}</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', margin: 0 }}>{confirmConfig.message}</p>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
+      {/* CONFIRMATION MODAL */}
+      {confirmConfig.isOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>{confirmConfig.title}</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.5', margin: 0 }}>{confirmConfig.message}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
               {!confirmConfig.isAlert && (
-                <button 
-                  type="button" 
-                  className="btn btn-secondary" 
-                  onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} 
-                  style={{ padding: '8px 16px', fontSize: '12px' }}
-                >
+                <button type="button" className="btn btn-secondary" onClick={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}>
                   {confirmConfig.cancelText || 'Cancel'}
                 </button>
               )}
-              <button 
-                type="button" 
-                className="btn btn-primary" 
-                onClick={confirmConfig.onConfirm} 
-                style={{ padding: '8px 16px', fontSize: '12px' }}
-              >
+              <button type="button" className="btn btn-primary" onClick={confirmConfig.onConfirm}>
                 {confirmConfig.confirmText || 'Confirm'}
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
 
     </div>

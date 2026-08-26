@@ -13,6 +13,7 @@ import SpecialProjectsView from './views/SpecialProjectsView';
 import SpecialReportsView from './views/SpecialReportsView';
 import ProductAnalysisView from './views/ProductAnalysisView';
 import SettingsView from './views/SettingsView';
+import UpdateNotificationBanner from './components/UpdateNotificationBanner';
 import './index.css';
 
 function App() {
@@ -66,7 +67,12 @@ function App() {
       case 'remuneration':
         return <RemunerationView />;
       case 'special-projects':
-        return <SpecialProjectsView />;
+        return (
+          <SpecialProjectsView 
+            onSelectClient={handleSelectClientFromPalette} 
+            onNavigateTab={setActiveTab} 
+          />
+        );
       case 'special-reports':
         return <SpecialReportsView />;
       case 'product-analysis':
@@ -83,6 +89,9 @@ function App() {
       <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
         {/* Draggable Title Bar for Frameless Window */}
         <TitleBar />
+        
+        {/* Automatic App Update Banner / Modal */}
+        <UpdateNotificationBanner />
         
         {/* Main Layout */}
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

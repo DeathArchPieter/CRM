@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Briefcase, FolderGit2, CheckCircle2, Circle, Plus, Trash2, Edit2, Users, Calendar, BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, X, Bookmark, Zap, ArrowRight } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { 
+  Briefcase, CheckCircle2, Plus, Trash2, Edit2, Users, Calendar, 
+  BarChart3, Play, UploadCloud, FileText, Sparkles, AlertCircle, 
+  X, Bookmark, Zap, ArrowRight, DollarSign, Award, Target, HelpCircle, Check
+} from 'lucide-react';
 import Project100Detail from './Project100Detail';
 import OutreachCampaignDetail from './OutreachCampaignDetail';
 import DatePicker from '../components/DatePicker';
@@ -17,7 +21,7 @@ const cardStyle = {
   overflow: 'hidden',
 };
 
-// Pre-built Advisory Campaign Playbook Templates
+// Pre-built Singapore Advisory Campaign Playbook Templates
 const CAMPAIGN_TEMPLATES = [
   {
     id: 'tpl-ci-protect',
@@ -33,9 +37,18 @@ const CAMPAIGN_TEMPLATES = [
     title: 'SRS & Year-End Tax Relief Top-Up',
     category: 'Tax & Retirement',
     productName: 'SRS Retirement Annuity',
-    targetAudience: 'Middle-to-High Earners ($80k+)',
+    targetAudience: 'Middle-to-High Earners ($80k+/yr)',
     description: 'Help clients legally reduce personal income tax by up to S$15,300/yr while building guaranteed retirement income.',
     productSummary: 'Supplementary Retirement Scheme (SRS) tax deduction strategy combined with guaranteed single/regular premium annuity plans.'
+  },
+  {
+    id: 'tpl-cpf-sa-closure',
+    title: 'CPF SA Closure & Age 55 Restructuring',
+    category: 'Retirement & CPF',
+    productName: 'CPF LIFE & Private Annuity Strategy',
+    targetAudience: 'Pre-Retirees & Working Adults Aged 45-65',
+    description: 'Guide clients through the 2025 CPF SA closure rules, SA-to-RA transfer options, and private annuity yield optimization.',
+    productSummary: 'Singapore CPF restructuring playbook helping clients maximize retirement sums (BRS/FRS/ERS) and bridge post-55 liquidity gaps.'
   },
   {
     id: 'tpl-child-edu',
@@ -47,8 +60,17 @@ const CAMPAIGN_TEMPLATES = [
     productSummary: 'Guaranteed endowment savings paired with premium waiver on parent total disability or death, ensuring education funds are safe.'
   },
   {
+    id: 'tpl-shield-upgrade',
+    title: 'MediShield Life & Private Shield Upgrade',
+    category: 'Healthcare',
+    productName: 'AIA HealthShield Gold Max + Rider',
+    targetAudience: 'Existing Clients with Outdated Hospital Plans',
+    description: 'Review hospital coverage against MOH revised claim limits, co-insurance caps, and claim-based pricing riders.',
+    productSummary: 'Private hospital shield plan with rider covering 95% of hospital bills and annual deductible capping.'
+  },
+  {
     id: 'tpl-hnw-legacy',
-    title: 'HNW Legacy Planning & IUL Campaign',
+    title: 'HNW Legacy Planning & Indexed Universal Life',
     category: 'Wealth & Legacy',
     productName: 'Indexed Universal Life (IUL)',
     targetAudience: 'Business Owners & HNW Executives',
@@ -56,21 +78,32 @@ const CAMPAIGN_TEMPLATES = [
     productSummary: 'Indexed Universal Life structure allowing S&P 500 growth linkage, 0% floor protection, and high-value legacy payouts.'
   },
   {
-    id: 'tpl-shield-upgrade',
-    title: 'Shield Healthcare & Rider Upgrade',
-    category: 'Healthcare',
-    productName: 'AIA HealthShield Gold Max + Rider',
-    targetAudience: 'Existing Clients with Outdated Shield Plans',
-    description: 'Review existing hospital coverage to protect against medical inflation and cap out-of-pocket co-payments.',
-    productSummary: 'Private hospital shield plan with rider covering 95% of hospital bills and annual deductible capping.'
+    id: 'tpl-early-ci-kickstart',
+    title: 'Early CI Kickstarter for Young Professionals',
+    category: 'Protection',
+    productName: 'Multi-Pay Early Critical Illness',
+    targetAudience: 'Young Graduates & First-Jobbers (Ages 23-32)',
+    description: 'Low-cost multi-pay Early CI protection locking in clean health underwriting and low age-based premiums.',
+    productSummary: 'Covers 150+ early, intermediate, and major CI conditions with multiple claim resets, tailored for fresh graduates.'
+  },
+  {
+    id: 'tpl-disability-income',
+    title: 'CareShield Life & Disability Income Booster',
+    category: 'Income Protection',
+    productName: 'CareShield Life Supplement & Disability Income',
+    targetAudience: 'Working Adults & Family Breadwinners',
+    description: 'Upgrade basic S$600/mo CareShield Life to up to S$5,000/mo payout for inability to perform core occupation.',
+    productSummary: 'Disability income replacement protecting 75% of monthly salary against severe illness or long-term disability.'
   }
 ];
 
-export default function SpecialProjectsView() {
+export default function SpecialProjectsView({ onSelectClient, onNavigateTab }) {
   const [activeProject, setActiveProject] = useState(null);
   const [project100Contacts, setProject100Contacts] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeTab, setActiveTab] = useState('initiatives'); // 'initiatives' | 'templates'
+
+  const fileInputRef = useRef(null);
 
   const loadProject100Contacts = async () => {
     if (window.electronAPI && window.electronAPI.getProject100Contacts) {
@@ -94,7 +127,7 @@ export default function SpecialProjectsView() {
       const project100 = {
         id: 'project-100',
         title: 'Project 100',
-        description: 'The foundation for new financial consultants. List 100 prospects from memory or phone contacts, evaluate their potential, and convert them to active CRM clients.',
+        description: 'The foundation for financial consultants. List 100 prospects from memory or phone contacts, evaluate their potential with N.A.S.T. scoring, and convert them to active CRM clients.',
         leader: 'Pieter Beetsma',
         status: 'In Progress',
         targetDate: '2026-08-31',
@@ -124,7 +157,7 @@ export default function SpecialProjectsView() {
   const [newProject, setNewProject] = useState({
     title: '',
     description: '',
-    leader: '',
+    leader: 'Pieter Beetsma',
     status: 'Planning',
     targetDate: '',
     members: 1,
@@ -141,31 +174,12 @@ export default function SpecialProjectsView() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisSuccess, setAnalysisSuccess] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [projectToEdit, setProjectToEdit] = useState(null);
 
-  const handleFileSelect = (file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      const base64Data = dataUrl.split(',')[1];
-      setUploadedFile({
-        base64: base64Data,
-        mimeType: file.type,
-        name: file.name,
-        size: file.size
-      });
-      setAnalysisError('');
-      setAnalysisSuccess(false);
-    };
-    reader.onerror = () => {
-      setAnalysisError('Failed to read file.');
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleAnalyzeWithAI = async () => {
-    if (!newProject.productSummary.trim() && !uploadedFile) return;
+  const triggerAiScan = async (fileObj = uploadedFile, summaryText = newProject.productSummary) => {
+    if (!summaryText.trim() && !fileObj) {
+      setAnalysisError('Please enter product details or attach a product brochure PDF/image first.');
+      return;
+    }
 
     setIsAnalyzing(true);
     setAnalysisError('');
@@ -173,44 +187,76 @@ export default function SpecialProjectsView() {
 
     try {
       const payload = {
-        text: newProject.productSummary,
-        fileData: uploadedFile ? {
-          base64: uploadedFile.base64,
-          mimeType: uploadedFile.mimeType
+        text: summaryText || newProject.description || newProject.productFocus,
+        fileData: fileObj ? {
+          base64: fileObj.base64,
+          mimeType: fileObj.mimeType
         } : null
       };
 
       const res = await window.electronAPI.generateOutreachPlaybook(payload);
-      if (res.success) {
+      if (res.success && res.data) {
         const playbook = res.data;
         setGeneratedPlaybook(playbook);
 
-        const resolvedProduct = playbook.productFocus || newProject.productFocus || 'AIA Protect 3';
-        const resolvedAudience = playbook.targetAudience || newProject.targetAudience || 'Young Working Adults & Families';
+        const resolvedProduct = playbook.productFocus || newProject.productFocus || 'Strategic Advisory Plan';
+        const resolvedAudience = playbook.targetAudience || newProject.targetAudience || 'Target Singapore Demographic';
 
         setNewProject(prev => ({
           ...prev,
           productFocus: resolvedProduct,
           targetAudience: resolvedAudience,
-          title: prev.title.trim() || `${resolvedProduct} Outreach`,
-          description: prev.description.trim() || `WhatsApp campaign for ${resolvedProduct} targeting ${resolvedAudience}.`
+          title: prev.title.trim() && prev.title !== 'Strategic Advisory Plan Campaign' ? prev.title : `${resolvedProduct} Campaign`,
+          description: playbook.usp || prev.description || `Outreach campaign for ${resolvedProduct} targeting ${resolvedAudience}.`
         }));
 
         setAnalysisSuccess(true);
       } else {
-        setAnalysisError("AI Analysis failed: " + res.error);
+        setAnalysisError("AI Analysis failed: " + (res.error || 'Unknown error. Please check Gemini API key or file format.'));
       }
     } catch (err) {
       console.error("AI Analysis error:", err);
-      setAnalysisError("An unexpected error occurred during AI analysis.");
+      setAnalysisError("An unexpected error occurred during AI analysis: " + err.message);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  const handleFileSelect = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64Data = dataUrl.split(',')[1];
+      const detectedMime = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg');
+      
+      const fileObj = {
+        base64: base64Data,
+        mimeType: detectedMime,
+        name: file.name,
+        size: file.size
+      };
+
+      setUploadedFile(fileObj);
+      setAnalysisError('');
+      setAnalysisSuccess(false);
+
+      // Auto-trigger Gemini Multimodal AI Scan immediately upon upload
+      triggerAiScan(fileObj, newProject.productSummary);
+    };
+    reader.onerror = () => {
+      setAnalysisError('Failed to read file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAnalyzeWithAI = () => {
+    triggerAiScan(uploadedFile, newProject.productSummary);
+  };
+
   const handleUseTemplate = (template) => {
     setNewProject({
-      title: `${template.productName} Outreach`,
+      title: `${template.productName} Campaign`,
       description: template.description,
       leader: 'Pieter Beetsma',
       status: 'Planning',
@@ -223,6 +269,10 @@ export default function SpecialProjectsView() {
       productSummary: template.productSummary,
       milestones: ['', '']
     });
+    setUploadedFile(null);
+    setGeneratedPlaybook(null);
+    setAnalysisError('');
+    setAnalysisSuccess(false);
     setShowAddModal(true);
   };
 
@@ -267,26 +317,6 @@ export default function SpecialProjectsView() {
     return Math.round((completedCount / milestones.length) * 100);
   };
 
-  const toggleMilestone = async (projectId, milestoneId) => {
-    if (projectId === 'project-100') return;
-    const project = projects.find(p => p.id === projectId);
-    if (!project || project.type === 'outreach') return;
-    
-    const updatedMilestones = project.milestones.map(m => 
-      m.id === milestoneId ? { ...m, completed: !m.completed } : m
-    );
-    
-    if (window.electronAPI && window.electronAPI.updateInitiative) {
-      const res = await window.electronAPI.updateInitiative({
-        id: projectId,
-        milestones: updatedMilestones
-      });
-      if (res.success) {
-        load();
-      }
-    }
-  };
-
   const handleDeleteProject = async (id) => {
     if (document.activeElement) document.activeElement.blur();
     if (id === 'project-100') {
@@ -308,6 +338,20 @@ export default function SpecialProjectsView() {
     setGeneratedPlaybook(null);
     setAnalysisError('');
     setAnalysisSuccess(false);
+    setNewProject({
+      title: '',
+      description: '',
+      leader: 'Pieter Beetsma',
+      status: 'Planning',
+      targetDate: new Date(Date.now() + 60*24*60*60*1000).toISOString().split('T')[0],
+      members: 1,
+      type: 'outreach',
+      productFocus: '',
+      targetAudience: '',
+      targetAppointments: '20',
+      productSummary: '',
+      milestones: ['', '']
+    });
     setShowAddModal(true);
   };
 
@@ -360,7 +404,7 @@ export default function SpecialProjectsView() {
         };
       }
 
-      const title = newProject.title.trim() || `${resolvedProduct} Outreach`;
+      const title = newProject.title.trim() || `${resolvedProduct} Campaign`;
       const desc = newProject.description.trim() || `WhatsApp campaign for ${resolvedProduct} targeting ${resolvedAudience}.`;
 
       projectToAdd = {
@@ -412,11 +456,42 @@ export default function SpecialProjectsView() {
     }
   };
 
+  // Aggregate Cross-Campaign Financial ROI Metrics
+  const totalCampaignsAnp = projects
+    .filter(p => p.type === 'outreach' && p.contacts)
+    .reduce((sum, p) => sum + p.contacts.reduce((cSum, c) => cSum + (Number(c.anp) || 0), 0), 0);
+
+  const totalCampaignsFyc = projects
+    .filter(p => p.type === 'outreach' && p.contacts)
+    .reduce((sum, p) => sum + p.contacts.reduce((cSum, c) => cSum + (Number(c.fyc) || 0), 0), 0);
+
+  const totalApptsBooked = projects
+    .filter(p => p.type === 'outreach' && p.contacts)
+    .reduce((sum, p) => sum + p.contacts.filter(c => c.stage === '4. Appt Booked' || c.stage === '5. Case Closed').length, 0);
+
+  const formatCurrency = (val) => {
+    if (!val) return '$0';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val);
+  };
+
   if (activeProject) {
     if (activeProject.id === 'project-100' || activeProject === 'project-100') {
-      return <Project100Detail onBack={() => { setActiveProject(null); loadProject100Contacts(); }} />;
+      return (
+        <Project100Detail 
+          onBack={() => { setActiveProject(null); loadProject100Contacts(); }} 
+          onSelectClient={onSelectClient}
+          onNavigateTab={onNavigateTab}
+        />
+      );
     } else if (activeProject.type === 'outreach') {
-      return <OutreachCampaignDetail campaign={activeProject} onBack={() => { setActiveProject(null); load(); }} />;
+      return (
+        <OutreachCampaignDetail 
+          campaign={activeProject} 
+          onBack={() => { setActiveProject(null); load(); }} 
+          onSelectClient={onSelectClient}
+          onNavigateTab={onNavigateTab}
+        />
+      );
     }
   }
 
@@ -424,14 +499,19 @@ export default function SpecialProjectsView() {
     <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       
       {/* Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 className="text-gradient" style={{ fontSize: '24px', marginBottom: '2px' }}>Special Projects & Campaigns</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-            Manage agency initiatives, client outreach playbooks, and strategic campaigns.
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 className="text-gradient" style={{ fontSize: '24px', margin: 0 }}>Special Projects & Campaigns</h1>
+            <span className="glass-panel" style={{ fontSize: '11px', color: '#60a5fa', padding: '2px 8px', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)' }}>
+              Outreach Command Center
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '2px' }}>
+            Manage agency initiatives, client outreach playbooks, and strategic marketing campaigns.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button 
             className={`btn ${activeTab === 'initiatives' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ fontSize: '13px', padding: '8px 14px' }}
@@ -444,7 +524,7 @@ export default function SpecialProjectsView() {
             style={{ fontSize: '13px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
             onClick={() => setActiveTab('templates')}
           >
-            <Bookmark size={14} /> Template Library ({CAMPAIGN_TEMPLATES.length})
+            <Bookmark size={14} /> Playbook Library ({CAMPAIGN_TEMPLATES.length})
           </button>
           <button className="btn btn-primary" onClick={handleOpenAddModal} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={16} /> New Campaign
@@ -455,56 +535,78 @@ export default function SpecialProjectsView() {
       {/* Main Content Area */}
       {activeTab === 'initiatives' ? (
         <>
-          {/* Metrics Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+          {/* Aggregate Financial Metrics Row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            
+            {/* Metric 1: Total Initiatives */}
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '14px' }}>
               <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(139,92,246,0.12)', color: 'var(--accent-primary)' }}>
                 <Briefcase size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Projects</div>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{projects.length} Initiatives</div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Active Initiatives</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{projects.length} Total</div>
               </div>
             </div>
 
-            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+            {/* Metric 2: Total Campaign ANP */}
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '14px' }}>
+              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(16,185,129,0.12)', color: '#34d399' }}>
+                <DollarSign size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Campaign ANP</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#34d399' }}>{formatCurrency(totalCampaignsAnp)}</div>
+              </div>
+            </div>
+
+            {/* Metric 3: Total Campaign FYC */}
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '14px' }}>
+              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(234,179,8,0.12)', color: '#fbbf24' }}>
+                <Award size={20} />
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total Campaign FYC</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#fbbf24' }}>{formatCurrency(totalCampaignsFyc)}</div>
+              </div>
+            </div>
+
+            {/* Metric 4: Booked Appointments */}
+            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '14px' }}>
               <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)' }}>
-                <BarChart3 size={20} />
+                <Target size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Average Progress</div>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  {Math.round(projects.reduce((sum, p) => sum + getProgress(p), 0) / (projects.length || 1))}% Completion
-                </div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Appointments Secured</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{totalApptsBooked} Booked</div>
               </div>
             </div>
 
-            <div style={{ ...cardStyle, padding: '16px 20px', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
-              <div style={{ padding: '10px', borderRadius: '10px', background: 'rgba(16,185,129,0.12)', color: 'var(--accent-success)' }}>
-                <CheckCircle2 size={20} />
-              </div>
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Completed Campaigns</div>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  {projects.filter(p => p.status === 'Completed').length} Done
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Grid of Projects */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
             {projects.map(project => {
               const progress = getProgress(project);
+              const isP100 = project.id === 'project-100';
+              const isOutreach = project.type === 'outreach';
+              const contactsCount = project.contacts ? project.contacts.length : (isP100 ? project100Contacts.length : 0);
+              const campaignAnp = project.contacts ? project.contacts.reduce((sum, c) => sum + (Number(c.anp) || 0), 0) : 0;
+
               return (
                 <div key={project.id} className="glass-panel card" style={cardStyle}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ flex: 1, minWidth: 0, paddingRight: '8px' }}>
-                      <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {project.title}
-                      </h3>
-                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        Leader: <span style={{ color: 'var(--text-secondary)' }}>{project.leader}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {isP100 && <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(6,182,212,0.15)', color: 'var(--accent-secondary)', fontWeight: '600' }}>CORE</span>}
+                        {isOutreach && <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(59,130,246,0.15)', color: '#60a5fa', fontWeight: '600' }}>CAMPAIGN</span>}
+                        <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {project.title}
+                        </h3>
+                      </div>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Leader: <span style={{ color: 'var(--text-secondary)' }}>{project.leader}</span> • Targets: <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{contactsCount}</span>
+                        {campaignAnp > 0 && <span> • ANP: <strong style={{ color: '#34d399' }}>{formatCurrency(campaignAnp)}</strong></span>}
                       </p>
                     </div>
                     
@@ -531,7 +633,7 @@ export default function SpecialProjectsView() {
                       <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{progress}%</span>
                     </div>
                     <div style={{ width: '100%', height: '6px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${progress}%`, height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
+                      <div style={{ width: `${progress}%`, height: '100%', background: 'linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))', borderRadius: '3px', transition: 'width 0.4s ease' }} />
                     </div>
                   </div>
 
@@ -540,8 +642,8 @@ export default function SpecialProjectsView() {
                     <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setActiveProject(project)}>
                       <Play size={13} /> Open Workspace
                     </button>
-                    {project.id !== 'project-100' && (
-                      <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => handleDeleteProject(project.id)}>
+                    {!isP100 && (
+                      <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.6 }} onClick={() => handleDeleteProject(project.id)} title="Delete initiative">
                         <Trash2 size={14} />
                       </button>
                     )}
@@ -556,12 +658,12 @@ export default function SpecialProjectsView() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div style={{ padding: '16px 20px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '12px', borderLeft: '4px solid #3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>Financial Advisory Campaign Playbook Library</div>
+              <div style={{ fontWeight: '600', fontSize: '14px', color: 'var(--text-primary)' }}>Singapore Financial Advisory Campaign Playbook Library</div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                Launch pre-built strategy templates equipped with value hooks, brochure messaging, and appointment scripts.
+                Launch pre-built strategic campaigns equipped with value hooks, Singapore regulatory angles, brochure messaging, and appointment scripts.
               </div>
             </div>
-            <Sparkles size={20} color="#60a5fa" />
+            <Sparkles size={22} color="#60a5fa" />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '16px' }}>
@@ -594,41 +696,138 @@ export default function SpecialProjectsView() {
         </div>
       )}
 
-      {/* Add Project Modal */}
+      {/* Add Project / Campaign Modal with Multimodal AI Brochure Scanner */}
       {showAddModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '550px', padding: '32px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '20px', marginBottom: '24px', color: 'var(--text-primary)' }}>Create New Campaign / Initiative</h2>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(6px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '640px', padding: '32px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '20px', color: 'var(--text-primary)', margin: 0 }}>Create Strategic Campaign</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '3px' }}>
+                  Set up a product outreach campaign or upload an insurer PDF brochure for AI script synthesis.
+                </p>
+              </div>
+              <button 
+                onClick={handleCloseAddModal}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
             
+            {/* Multimodal AI Brochure Scanner Box */}
+            <div style={{ 
+              backgroundColor: 'rgba(59, 130, 246, 0.05)', 
+              border: '1px dashed rgba(59, 130, 246, 0.3)', 
+              borderRadius: '10px', 
+              padding: '16px', 
+              marginBottom: '20px' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <span style={{ fontSize: '12.5px', fontWeight: '600', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Sparkles size={15} /> AI Multimodal Brochure Scanner
+                </span>
+                {uploadedFile && (
+                  <span style={{ fontSize: '11px', color: '#34d399', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Check size={13} /> {uploadedFile.name} ({(uploadedFile.size / 1024).toFixed(0)} KB)
+                  </span>
+                )}
+              </div>
+
+              <input 
+                ref={fileInputRef} 
+                type="file" 
+                accept=".pdf,image/png,image/jpeg,image/jpg" 
+                style={{ display: 'none' }} 
+                onChange={(e) => handleFileSelect(e.target.files?.[0])}
+              />
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <UploadCloud size={14} /> {uploadedFile ? 'Change Brochure (PDF/Image)' : 'Attach Product Brochure (PDF/Image)'}
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-primary" 
+                  style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={handleAnalyzeWithAI}
+                  disabled={isAnalyzing}
+                >
+                  <Sparkles size={14} className={isAnalyzing ? 'animate-spin' : ''} />
+                  {isAnalyzing ? 'Scanning Brochure with Gemini...' : '✨ Analyze & Generate Playbook'}
+                </button>
+              </div>
+
+              {isAnalyzing && (
+                <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Sparkles size={16} className="animate-spin" style={{ color: '#60a5fa' }} />
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa' }}>Scanning Brochure with Gemini 3.7 Flash...</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Extracting product USPs, target Singapore demographics, 3-step scripts & objections...</div>
+                  </div>
+                </div>
+              )}
+
+              {analysisError && (
+                <div style={{ color: '#f87171', fontSize: '11.5px', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle size={13} /> {analysisError}
+                </div>
+              )}
+
+              {analysisSuccess && generatedPlaybook && (
+                <div style={{ marginTop: '12px', padding: '12px 14px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#34d399', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <Check size={14} /> Custom Playbook Synthesized from Upload!
+                    </span>
+                    <span style={{ fontSize: '10.5px', padding: '2px 6px', backgroundColor: 'rgba(16, 185, 129, 0.2)', color: '#34d399', borderRadius: '4px' }}>
+                      3 Scripts & 3 Objections Ready
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    <strong>USP:</strong> {generatedPlaybook.usp || 'Tailored Singapore protection strategy.'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Form fields have been pre-filled with the extracted product details. Click <strong>Launch Campaign</strong> below to enter the workspace.
+                  </div>
+                </div>
+              )}
+            </div>
+
             <form onSubmit={handleFormSubmit}>
-              <div style={{ marginBottom: '16px' }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Campaign Title *</label>
+              <div style={{ marginBottom: '14px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Campaign Title *</label>
                 <input required type="text" className="input-field" style={{ width: '100%' }} value={newProject.title} onChange={e => setNewProject({ ...newProject, title: e.target.value })} placeholder="e.g. AIA Protect 3 Q3 Campaign" />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Product Focus</label>
-                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.productFocus} onChange={e => setNewProject({ ...newProject, productFocus: e.target.value })} />
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Product Focus</label>
+                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.productFocus} onChange={e => setNewProject({ ...newProject, productFocus: e.target.value })} placeholder="e.g. AIA Protect 3" />
                 </div>
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Audience</label>
-                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.targetAudience} onChange={e => setNewProject({ ...newProject, targetAudience: e.target.value })} />
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Target Audience</label>
+                  <input type="text" className="input-field" style={{ width: '100%' }} value={newProject.targetAudience} onChange={e => setNewProject({ ...newProject, targetAudience: e.target.value })} placeholder="e.g. Young Working Adults (25-38)" />
                 </div>
               </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Description / Strategy</label>
-                <textarea className="input-field" style={{ width: '100%', minHeight: '80px' }} value={newProject.description} onChange={e => setNewProject({ ...newProject, description: e.target.value })} placeholder="Describe campaign goal and value proposition..." />
+              <div style={{ marginBottom: '14px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Campaign Strategy & Value Hook</label>
+                <textarea className="input-field" style={{ width: '100%', minHeight: '70px' }} value={newProject.description} onChange={e => setNewProject({ ...newProject, description: e.target.value })} placeholder="Describe the campaign value proposition and consultative angle..." />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Appointments Goal</label>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Target Appointments Goal</label>
                   <input type="number" className="input-field" style={{ width: '100%' }} value={newProject.targetAppointments} onChange={e => setNewProject({ ...newProject, targetAppointments: e.target.value })} />
                 </div>
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Target Completion Date</label>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Target Completion Date</label>
                   <DatePicker 
                     value={newProject.targetDate} 
                     onChange={e => setNewProject({ ...newProject, targetDate: e.target.value })} 
@@ -637,9 +836,9 @@ export default function SpecialProjectsView() {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={handleCloseAddModal}>Cancel</button>
+                <button type="button" className="btn btn-secondary" onClick={handleCloseAddModal}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={isGenerating}>
-                  {isGenerating ? 'Generating Playbook...' : 'Launch Campaign'}
+                  {isGenerating ? 'Synthesizing Playbook...' : 'Launch Campaign'}
                 </button>
               </div>
             </form>

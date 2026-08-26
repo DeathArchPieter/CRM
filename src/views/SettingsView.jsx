@@ -19,7 +19,10 @@ import {
   Check,
   Plus,
   Trash2,
-  Eye
+  Eye,
+  RefreshCw,
+  ArrowUpCircle,
+  ExternalLink
 } from 'lucide-react';
 
 const DEFAULT_SETTINGS = {
@@ -64,6 +67,9 @@ export default function SettingsView() {
   const [customCredInput, setCustomCredInput] = useState('');
   const [clearingLogs, setClearingLogs] = useState(false);
   const [logsCleared, setLogsCleared] = useState(false);
+  const [appVersion, setAppVersion] = useState('0.0.1');
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState(null);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -77,9 +83,42 @@ export default function SettingsView() {
           console.error("Failed to load app settings:", err);
         }
       }
+      if (window.electronAPI?.getAppVersion) {
+        try {
+          const vRes = await window.electronAPI.getAppVersion();
+          if (vRes.success && vRes.version) {
+            setAppVersion(vRes.version);
+          }
+        } catch (err) {
+          console.error("Failed to get app version:", err);
+        }
+      }
     };
     fetchSettings();
   }, []);
+
+  const handleManualCheckUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateResult(null);
+    try {
+      if (window.electronAPI?.checkForUpdates) {
+        const res = await window.electronAPI.checkForUpdates();
+        if (res.success) {
+          if (res.updateInfo && res.updateInfo.version !== appVersion) {
+            setUpdateResult({ type: 'available', version: res.updateInfo.version });
+          } else {
+            setUpdateResult({ type: 'latest' });
+          }
+        } else {
+          setUpdateResult({ type: 'error', error: res.error });
+        }
+      }
+    } catch (err) {
+      setUpdateResult({ type: 'error', error: err.message });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   const handleChange = (field, value) => {
     setSettings(prev => ({ ...prev, [field]: value }));
@@ -679,6 +718,62 @@ export default function SettingsView() {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Application Updates Card */}
+          <div className="glass-panel" style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <ArrowUpCircle size={18} color="var(--accent-primary)" />
+                  Application Updates & Version Control
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                  Managed via GitHub Releases. Checks for releases and allows 1-click in-app updates.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', padding: '4px 10px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                  Current Version: <strong>v{appVersion}</strong>
+                </span>
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  onClick={handleManualCheckUpdates}
+                  disabled={isCheckingUpdate}
+                >
+                  <RefreshCw size={13} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                  {isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates'}
+                </button>
+              </div>
+            </div>
+
+            {updateResult && (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                fontSize: '12.5px',
+                backgroundColor: updateResult.type === 'available' ? 'rgba(139, 92, 246, 0.1)' : updateResult.type === 'latest' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                border: updateResult.type === 'available' ? '1px solid rgba(139, 92, 246, 0.3)' : updateResult.type === 'latest' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                color: updateResult.type === 'available' ? '#c084fc' : updateResult.type === 'latest' ? '#34d399' : '#f87171',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {updateResult.type === 'available' ? <ArrowUpCircle size={16} /> : updateResult.type === 'latest' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                  <span>
+                    {updateResult.type === 'available' 
+                      ? `New update v${updateResult.version} is available on GitHub Releases!`
+                      : updateResult.type === 'latest' 
+                      ? `You are on the latest version (v${appVersion}).` 
+                      : `Update check note: ${updateResult.error || 'Unable to connect to GitHub releases.'}`}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>

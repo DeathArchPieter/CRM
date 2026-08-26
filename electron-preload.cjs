@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addProject100Contact: (contactData) => ipcRenderer.invoke('add-project-100-contact', contactData),
   updateProject100Contact: (contactData) => ipcRenderer.invoke('update-project-100-contact', contactData),
   deleteProject100Contact: (contactId) => ipcRenderer.invoke('delete-project-100-contact', contactId),
+  generateProject100Icebreaker: (prospect) => ipcRenderer.invoke('generate-project-100-icebreaker', prospect),
 
   // Initiatives API
   getInitiatives: () => ipcRenderer.invoke('get-initiatives'),
@@ -91,4 +92,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App & Consultant Settings API
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
+
+  // Application Auto-Update & Version Control API
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  quitAndInstallUpdate: () => ipcRenderer.invoke('quit-and-install-update'),
+  onUpdateStatus: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('app-update-status', subscription);
+    return () => ipcRenderer.removeListener('app-update-status', subscription);
+  }
 });

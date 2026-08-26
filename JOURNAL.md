@@ -490,6 +490,59 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 9. **Project 100 CSV & VCF Bulk Import (`Project100Detail.jsx`)**:
    - Added batch contact import parsing spreadsheet `.csv` and phone `.vcf` vCard files.
 
+
+---
+
+## Feature Release: Special Projects & Strategic Campaigns AI Intelligence Suite (August 26, 2026)
+
+### Summary of Completed Improvements
+1. **Special Projects Master Command Center (`SpecialProjectsView.jsx`)**:
+   - **Multimodal AI Brochure Scanner**: Added interactive drag-and-drop uploader for insurer PDF brochures (`.pdf`) and product images (`.png`/`.jpg`). Automatically parses brochures via Gemini AI multimodal vision into product USP, target personas, 3-step WhatsApp scripts, and objection counter-scripts.
+   - **Expanded Singapore Campaign Playbook Library**: Added 8 comprehensive templates covering *AIA Protect 3 / Major CI Gap*, *SRS Year-End Tax Relief*, *CPF SA Closure & Age 55 Restructuring*, *Child Education Endowment*, *MediShield Life 2025/2026 Limit Revision*, *HNW Legacy & IUL*, *Early CI Kickstarter*, and *CareShield Life Disability Booster*.
+   - **Cross-Initiative ROI Header Bar**: Tracks live aggregate Campaign ANP, Campaign FYC, Secured Appointments, and Active Initiatives.
+
+2. **Outreach Campaign Workspace & Smart Audience Segmentation (`OutreachCampaignDetail.jsx`)**:
+   - **Smart Batch Audience Segmentation & Multi-Select Enrollment**: Allows 1-click batch filtering and multi-enrollment for:
+     - *Clients with No CI Protection* (audited from in-force policies)
+     - *Shield-Only Clients (No Life/Wealth)*
+     - *High Earners ($80k+/yr / SRS Target)*
+     - *Young Families & Parents*
+     - *Project 100 High Priority Prospects ($\ge 4.0\bigstar$)*
+   - **3-Tab Modular Workspace**:
+     - *Tab 1 (🎯 Targets & 1-Click Outreach)*: Filterable target table, stage selector, 1-click Copy Step 1/2/3, and direct `wa.me` WhatsApp launch.
+     - *Tab 2 (📖 Playbook & Objections Hub)*: 3-Step WhatsApp sequence preview, daily outreach cadence checklist, and advisor objection handling cheat sheet.
+     - *Tab 3 (📊 Funnel Analytics & Scorecard)*: Stage drop-off velocity, ANP/FYC metrics, 1-click copy scorecard, and CSV export.
+   - **Two-Way Appointment $\to$ Calendar Sync**: Automatically prompts quick appointment creation with OneMap SG address autocomplete and Google Calendar sync upon reaching `4. Appt Booked`.
+   - **Centralized Pipeline & MDRT Sync**: Automatically registers closed cases into `db.pipeline` with `stage: 'Case Issued'`, updating `SalesTrackingView` and MDRT pacing.
+
+3. **Project 100 AI Icebreaker & Prospecting Copilot (`Project100Detail.jsx`)**:
+   - **✨ AI Icebreaker Copilot Modal**: Analyzes prospect's N.A.S.T ratings, relationship category, and notes to generate 3 customized WhatsApp approaches (*Option A: Casual Re-Connection*, *Option B: Life Stage Review*, *Option C: Direct Value Hook*) with 1-click copy, WhatsApp launch, and consultative meeting talking points.
+   - **1-Click Enroll into Campaign**: Directly push any Project 100 prospect into an active product campaign.
+   - **Two-Way Calendar Sync**: Automatically schedules calendar meetings when stage is set to `Meeting Scheduled`.
+   - **Export CSV**: Full Project 100 contact and rating schedule export.
+
+4. **IPC & Preload Endpoints (`electron-main.cjs`, `electron-preload.cjs`)**:
+   - `generate-outreach-playbook`: Upgraded Gemini prompt with multimodal PDF support and objection handling.
+   - `generate-project-100-icebreaker`: New IPC handler for customized N.A.S.T. conversational openers.
+   - **AI Model Upgrade to `gemini-3.7-flash`**: Upgraded API backend model to Google's flagship `gemini-3.7-flash` (with fallback compatibility to `gemini-3.5-flash-lite`), providing superior actuarial reasoning, LIA benchmark accuracy, and multimodal brochure vision processing.
+
+5. **In-Workspace Brochure Re-scanner & Live Auto-Scan Upgrade**:
+   - **Auto-Scan on Upload (`SpecialProjectsView.jsx`)**: Dragging or selecting a brochure PDF/image immediately triggers Gemini 3.7 Flash analysis, pre-filling campaign fields and generating the custom playbook before launch.
+   - **In-Workspace Brochure Re-scan (`OutreachCampaignDetail.jsx`)**: Added a **"✨ Re-scan Brochure / Regenerate Playbook"** action in Tab 2 (*Playbook & Objections Hub*) enabling advisors to upload new brochures or custom notes into existing campaigns at any time to instantly update scripts, objections, and USPs without losing enrolled prospects or progress.
+
+6. **Prospect-to-Client & Pipeline Conversion Suite (`Project100Detail.jsx`, `OutreachCampaignDetail.jsx`, `App.jsx`)**:
+   - **1-Click Port to Core Clients Database**: Added direct porting capabilities from Project 100 and Campaign target lists into `db.clients` (`clientStatus: 'Prospect'` or `'Active'`), pre-populating contact details, tags (`['Project 100', 'Campaign: ...']`), and N.A.S.T notes.
+   - **Smart Duplicate Prevention & Linking**: Checks existing `clients` by phone, email, or full name. If matched, links `portedClientId` / `clientId` directly without creating duplicates.
+   - **Direct Client 360 Navigation Badge**: Ported contacts display a clickable `✓ Client ↗` badge that navigates directly into the client's comprehensive 360 profile.
+   - **Milestone-Triggered Pipeline Opportunities**:
+     - Moving to `Meeting Scheduled` / `Fact Finding` in Project 100 or `4. Appt Booked` in Campaigns provides 1-click creation of active sales deals in `db.pipeline`.
+     - Moving to `5. Case Closed` / `Ported / Converted` auto-registers `Case Issued` deals with finalized ANP/FYC and updates live MDRT tracking.
+
+7. **GitHub Releases Auto-Update Engine (`electron-updater`, `UpdateNotificationBanner.jsx`, `SettingsView.jsx`)**:
+   - **Automated Update Detection & Lifecycle**: Integrated `electron-updater` with GitHub Releases provider (`pieterbeetsma/CRM`). Checks for new releases on startup and in the background.
+   - **In-App Update Prompt & Live Download Tracking**: Added floating glassmorphic `<UpdateNotificationBanner />` in `App.jsx` displaying new version numbers, release notes, real-time download percentage bar, and 1-click **"Restart & Install Now"** action.
+   - **Settings Tab Version Control**: Added **"Application Updates & Version Control"** card in `SettingsView.jsx` showing current installed version (`v0.0.1`) and manual **"Check for Updates"** button.
+
 ---
 
 ## Instructions for AI Agents Working on This Project
@@ -499,6 +552,7 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 3. Keep refactoring incremental — avoid breaking existing IPC contracts exposed in `electron-preload.cjs`.
 4. **Always rebuild desktop dist (`npm run electron:build`)** upon completing feature requests, bug fixes, or major milestones so that `dist/` is always up to date.
 5. **Financial Report Consistency**: All client PDF reports, financial blueprints, and AI financial summaries must strictly follow the standard schema, structure, and actuarial benchmarks defined in [FINANCIAL_REPORT_SPECIFICATION.md](file:///c:/dev/CRM/FINANCIAL_REPORT_SPECIFICATION.md).
+
 
 
 

@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -6,8 +7,85 @@ const http = require('http');
 
 const isDev = !app.isPackaged;
 
+let mainWindow = null;
+let updateStatus = {
+  status: 'idle', // 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  info: null,
+  progress: null,
+  error: null
+};
+
+function sendUpdateStatus(statusObj) {
+  updateStatus = { ...updateStatus, ...statusObj };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app-update-status', updateStatus);
+  }
+}
+
+function initAutoUpdater() {
+  autoUpdater.autoDownload = false; // Prompt user before downloading
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    writeToLogFile('[AutoUpdater] Checking for updates on GitHub Releases...');
+    sendUpdateStatus({ status: 'checking', error: null });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    writeToLogFile(`[AutoUpdater] Update available: v${info.version} (current: v${app.getVersion()})`);
+    sendUpdateStatus({ 
+      status: 'available', 
+      info: {
+        version: info.version,
+        releaseDate: info.releaseDate,
+        releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : (Array.isArray(info.releaseNotes) ? info.releaseNotes.map(n => n.note).join('\n') : '')
+      },
+      error: null 
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    writeToLogFile(`[AutoUpdater] Update not available. Current v${app.getVersion()} is the latest.`);
+    sendUpdateStatus({ 
+      status: 'not-available', 
+      info: { version: app.getVersion() },
+      error: null 
+    });
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    sendUpdateStatus({ 
+      status: 'downloading', 
+      progress: {
+        percent: progressObj.percent,
+        bytesPerSecond: progressObj.bytesPerSecond,
+        transferred: progressObj.transferred,
+        total: progressObj.total
+      }
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    writeToLogFile(`[AutoUpdater] Update downloaded: v${info.version}. Ready to restart and install.`);
+    sendUpdateStatus({ 
+      status: 'downloaded', 
+      info: { version: info.version },
+      error: null 
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    writeToLogFile(`[AutoUpdater] Update error: ${err.message}`);
+    sendUpdateStatus({ 
+      status: 'error', 
+      error: err.message 
+    });
+  });
+}
+
 const GEMINI_API_KEY = 'AIzaSyCQ5OFJzCD2sZQD10cMQRf1xzWLN1Q3ALc';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_MODEL = 'gemini-3.7-flash'; // Upgraded to Gemini 3.7 Flash for advanced reasoning & multimodal parsing
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
 let db = { clients: [], policies: [], claims: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], aiBriefing: { text: '', generatedAt: null } };
 let dbPath;
@@ -242,7 +320,7 @@ function saveDatabase() {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 1024,
@@ -274,6 +352,52 @@ function createWindow() {
 
   ipcMain.on('window-close', () => {
     mainWindow.close();
+  });
+
+  // Application Auto-Update IPC Handlers
+  ipcMain.handle('get-app-version', () => {
+    return { success: true, version: app.getVersion() };
+  });
+
+  ipcMain.handle('get-update-status', () => {
+    return { success: true, updateStatus };
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+    try {
+      writeToLogFile('[IPC] check-for-updates called by user');
+      sendUpdateStatus({ status: 'checking', error: null });
+      const result = await autoUpdater.checkForUpdates();
+      return { success: true, updateInfo: result?.updateInfo };
+    } catch (err) {
+      writeToLogFile(`[IPC] check-for-updates failed: ${err.message}`);
+      sendUpdateStatus({ status: 'error', error: err.message });
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('download-update', async () => {
+    try {
+      writeToLogFile('[IPC] download-update started');
+      sendUpdateStatus({ status: 'downloading', error: null });
+      await autoUpdater.downloadUpdate();
+      return { success: true };
+    } catch (err) {
+      writeToLogFile(`[IPC] download-update failed: ${err.message}`);
+      sendUpdateStatus({ status: 'error', error: err.message });
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('quit-and-install-update', () => {
+    writeToLogFile('[IPC] quit-and-install-update triggered');
+    try {
+      autoUpdater.quitAndInstall(false, true);
+      return { success: true };
+    } catch (err) {
+      writeToLogFile(`[IPC] quit-and-install-update failed: ${err.message}`);
+      return { success: false, error: err.message };
+    }
   });
 
   // DB IPC Handlers
@@ -3784,24 +3908,31 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
     try {
       let productInfo = '';
       let fileData = null;
+      let existingPlaybook = null;
+      let mode = 'refine';
+      let productName = '';
 
       if (typeof payload === 'string') {
         productInfo = payload;
       } else if (payload && typeof payload === 'object') {
         productInfo = payload.text || '';
         fileData = payload.fileData || null;
+        existingPlaybook = payload.existingPlaybook || null;
+        mode = payload.mode || 'refine';
+        productName = payload.productName || '';
       }
 
-      if ((!productInfo || !productInfo.trim()) && !fileData) {
-        throw new Error("No product information or file provided");
+      if ((!productInfo || !productInfo.trim()) && !fileData && !existingPlaybook) {
+        throw new Error("No product information, brochure file, or existing playbook provided");
       }
 
-      const systemInstruction = `You are a premier financial consultancy AI at Beetsma Consultancy. Your role is to analyze a product brochure or description and generate an actionable marketing playbook for a WhatsApp outreach campaign.
+      const systemInstruction = `You are a premier financial consultancy AI at Beetsma Consultancy. Your role is to analyze a product brochure, description, and advisor insights to generate an actionable marketing playbook for a WhatsApp outreach campaign.
 You must return your response as a valid, single JSON object. Do not include markdown code block formatting (like \`\`\`json) or other conversational preamble.
 The JSON structure MUST be exactly:
 {
   "productFocus": "A short, clean name of the product focus determined from the text (e.g. AIA Protect 3)",
   "targetAudience": "A short description of the primary audience focus determined from the text (e.g. Young Parents & Families)",
+  "usp": "One compelling core unique selling proposition / key differentiator of this product",
   "segments": [
     {
       "name": "Segment Name (e.g. Young Parents (25-40))",
@@ -3812,59 +3943,93 @@ The JSON structure MUST be exactly:
   "scripts": [
     {
       "step": 1,
-      "title": "Step 1: Title (e.g. Soft Opener)",
-      "goal": "Brief goal of this step",
-      "timeHint": "Best time to send",
+      "title": "Step 1: The Soft Opener (Value-Led Hook)",
+      "goal": "Start a warm conversation highlighting a relevant stat without being pushy",
+      "timeHint": "Tuesday or Thursday morning (9:00 AM - 10:30 AM)",
       "templateContent": "The message template. Use the exact literal text '[Client Name]' where the client's name should be substituted."
     },
     {
       "step": 2,
-      "title": "Step 2: Title (e.g. Value Drop)",
-      "goal": "Brief goal of this step",
-      "timeHint": "Best time to send",
-      "templateContent": "The follow-up template. You may use '[Client Name]' if natural, or write it as a direct message body."
+      "title": "Step 2: The Follow-Up (Value Drop & Brochure Summary)",
+      "goal": "Share brochure details and highlight a standout feature",
+      "timeHint": "2-3 days after opener (12:00 PM - 2:00 PM)",
+      "templateContent": "The follow-up template. You may use '[Client Name]' if natural."
     },
     {
       "step": 3,
-      "title": "Step 3: Title (e.g. Appointment Close)",
-      "goal": "Brief goal of this step",
-      "timeHint": "Best time to send",
+      "title": "Step 3: The Call to Action (15-Min Sync Close)",
+      "goal": "Move from text discussion to a quick 15-minute coffee chat or Zoom sync",
+      "timeHint": "Offer 2 concrete time slots (e.g. Thursday 3 PM or Friday 11 AM)",
       "templateContent": "The call-to-action template to book a short sync."
+    }
+  ],
+  "objections": [
+    {
+      "objection": "Common objection 1 (e.g. 'I already have enough insurance / employer coverage')",
+      "counterScript": "Consultative, empathetic WhatsApp response counter-script",
+      "why": "Why this response works"
+    },
+    {
+      "objection": "Common objection 2 (e.g. 'I am busy right now / no budget')",
+      "counterScript": "Consultative, empathetic WhatsApp response counter-script",
+      "why": "Why this response works"
+    },
+    {
+      "objection": "Common objection 3 (e.g. 'Just text me the PDF brochure, I will read it myself')",
+      "counterScript": "Consultative, empathetic WhatsApp response counter-script",
+      "why": "Why this response works"
     }
   ],
   "routines": [
     {
       "time": "09:00 AM - 09:30 AM",
       "task": "Morning batch outreach",
-      "desc": "Short task description"
+      "desc": "Send out 5 to 10 Step 1 Opener messages"
     },
     {
       "time": "12:00 PM - 12:30 PM",
-      "task": "Mid-day check",
-      "desc": "Short task description"
+      "task": "Mid-day check & value drop",
+      "desc": "Reply to responses, send Step 2 brochure summaries, and confirm time slots"
     },
     {
       "time": "05:00 PM - 05:30 PM",
-      "task": "Evening follow-up",
-      "desc": "Short task description"
+      "task": "Evening follow-up & calendar lock",
+      "desc": "Check outstanding chats, send gentle follow-ups, and log booked appointments"
     }
   ]
 }
-Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The scripts must be highly tailored to the specific product provided.`;
+Make sure you generate exactly 3 segments, 3 script steps, 3 common objections with counter-scripts, and 3 routines. The scripts must be natural, respectful, highly tailored to the specific product, and suitable for the Singapore advisory context.`;
 
       const parts = [];
       if (fileData && fileData.base64) {
         parts.push({
-          inlineData: {
-            mimeType: fileData.mimeType,
+          inline_data: {
+            mime_type: fileData.mimeType || 'application/pdf',
             data: fileData.base64
           }
         });
       }
 
-      let promptText = `Generate the outreach playbook JSON based on the provided product documents or details.`;
-      if (productInfo && productInfo.trim()) {
-        promptText += `\n\nHere is the additional product summary/description:\n${productInfo}`;
+      let promptText = '';
+      if (existingPlaybook && mode !== 'replace') {
+        promptText = `You are REFINING and ENHANCING an existing advisory outreach playbook for "${productName || existingPlaybook.productFocus || 'the financial product'}".
+DO NOT discard the existing product positioning or prior knowledge. Instead, integrate the advisor's new insights, directions, or attached addendum materials into the existing playbook while elevating its quality.
+
+--- EXISTING PLAYBOOK CONTEXT ---
+${JSON.stringify(existingPlaybook, null, 2)}
+
+--- ADVISOR'S NEW INSIGHTS / REFINEMENT INSTRUCTIONS ---
+${productInfo || 'Refine the scripts and objections with higher conversational authenticity, incorporating any attached materials.'}
+
+Task:
+1. Retain the strong, accurate elements from the existing playbook (such as the core product name and foundational USP).
+2. Weave the advisor's new insights, requested angles, specific limits/riders, or tone adjustments into the USP, 3-Step WhatsApp scripts, and 3 objection handlers.
+3. Return the complete updated JSON.`;
+      } else {
+        promptText = `Generate the outreach playbook JSON based on the provided product documents or details.`;
+        if (productInfo && productInfo.trim()) {
+          promptText += `\n\nProduct summary/description:\n${productInfo}`;
+        }
       }
       parts.push({ text: promptText });
 
@@ -3876,6 +4041,123 @@ Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The s
           contents: [{ role: 'user', parts: parts }],
           generationConfig: {
             temperature: 0.2,
+            maxOutputTokens: 2500,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errBody}`);
+      }
+
+      const json = await response.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      let playbook;
+      try {
+        playbook = JSON.parse(text.trim());
+      } catch (err) {
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```json\s*/i, '').replace(/```$/, '');
+        }
+        playbook = JSON.parse(cleanText.trim());
+      }
+      
+      if (!playbook.segments || !playbook.scripts) {
+        throw new Error("Generated playbook is missing required fields (segments, scripts)");
+      }
+
+      return { success: true, data: playbook };
+    } catch (error) {
+      writeToLogFile(`[IPC] generate-outreach-playbook failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('generate-project-100-icebreaker', async (event, prospect) => {
+    writeToLogFile(`[IPC] generate-project-100-icebreaker started for: ${prospect.fullName}`);
+    try {
+      const systemInstruction = `You are a master financial advisor and client relationship mentor at Beetsma Consultancy in Singapore.
+Your task is to analyze a Project 100 prospect and generate 3 highly authentic, non-pushy, personalized outreach approaches for WhatsApp.
+
+The prospect has been scored on the N.A.S.T. framework (1 to 5 stars each):
+- Need (Current urgency/vulnerability for insurance, wealth, retirement, or estate planning)
+- Accessibility (How easily the advisor can get in touch or meet up)
+- Suitability / Income (Financial capability to save or invest)
+- Trust (Strength of relational rapport and personal connection)
+
+Generate exactly 3 diverse outreach angles:
+1. Option A: Warm & Casual Re-Connection (Focus on relationship catchup, coffee, catching up on life)
+2. Option B: Consultative Life Stage Check-in (Focus on recent milestones, industry trends, CPF/tax/healthcare changes, or family protection)
+3. Option C: Direct Value Hook (High-priority solution, protection gap, or wealth accumulation topic tailored to their profile)
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "prospectSummary": "1-2 sentence executive assessment of this prospect's priority and optimal engagement strategy",
+  "recommendedAngle": "Which option (A, B, or C) is recommended and why",
+  "icebreakers": [
+    {
+      "id": "opt-a",
+      "angle": "Casual Re-Connection & Catchup",
+      "tone": "Warm & Relational",
+      "rationale": "Why this angle works best for this category and trust score",
+      "message": "The full WhatsApp message text ready to send. Use the person's preferred/first name naturally. Keep formatting clean with friendly line breaks.",
+      "talkingPoints": [
+        "Key topic 1 to bring up during coffee chat",
+        "Key topic 2 to listen for"
+      ]
+    },
+    {
+      "id": "opt-b",
+      "angle": "Life Stage & Milestone Review",
+      "tone": "Consultative & Value-Oriented",
+      "rationale": "Why this angle works for their life stage and need score",
+      "message": "The full WhatsApp message text ready to send.",
+      "talkingPoints": [
+        "Key topic 1",
+        "Key topic 2"
+      ]
+    },
+    {
+      "id": "opt-c",
+      "angle": "Direct Strategic Value Hook",
+      "tone": "Professional & Direct",
+      "rationale": "Why this direct hook fits their income and accessibility",
+      "message": "The full WhatsApp message text ready to send.",
+      "talkingPoints": [
+        "Key topic 1",
+        "Key topic 2"
+      ]
+    }
+  ]
+}`;
+
+      const prompt = `Here is the prospect data:
+Full Name: ${prospect.fullName || 'Prospect'}
+Category: ${prospect.category || 'Warm Acquaintance'}
+N.A.S.T Scores:
+- Need: ${prospect.scoreNeed || 3}/5
+- Accessibility: ${prospect.scoreAccessibility || 3}/5
+- Suitability/Income: ${prospect.scoreIncome || 3}/5
+- Trust: ${prospect.scoreTrust || 3}/5
+Company / Organization: ${prospect.company || 'Not specified'}
+Job Title: ${prospect.jobTitle || 'Not specified'}
+Advisor Notes: ${prospect.notes || 'None recorded'}
+Current Engagement Stage: ${prospect.stage || 'Not Contacted'}
+
+Generate the 3 customized WhatsApp icebreakers in the specified JSON format.`;
+
+      const response = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.4,
             maxOutputTokens: 2048,
             responseMimeType: "application/json"
           }
@@ -3890,14 +4172,21 @@ Make sure you generate exactly 3 segments, 3 script steps, and 3 routines. The s
       const json = await response.json();
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
       
-      const playbook = JSON.parse(text.trim());
-      
-      if (!playbook.segments || !playbook.scripts || !playbook.routines) {
-        throw new Error("Generated playbook is missing required fields (segments, scripts, routines)");
+      let parsed;
+      try {
+        parsed = JSON.parse(text.trim());
+      } catch (err) {
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```json\s*/i, '').replace(/```$/, '');
+        }
+        parsed = JSON.parse(cleanText.trim());
       }
 
-      return { success: true, data: playbook };
+      writeToLogFile(`[IPC] generate-project-100-icebreaker completed successfully`);
+      return { success: true, data: parsed };
     } catch (error) {
+      writeToLogFile(`[IPC] generate-project-100-icebreaker failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -4257,10 +4546,23 @@ Generate the tweaked outreach message script template in the specified JSON form
 app.whenReady().then(() => {
   initDatabase();
   createWindow();
+  initAutoUpdater();
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // Check for updates on startup (after 5 seconds)
+  setTimeout(() => {
+    try {
+      writeToLogFile('[AutoUpdater] Checking for updates on startup...');
+      autoUpdater.checkForUpdates().catch(err => {
+        writeToLogFile(`[AutoUpdater] Startup update check caught: ${err.message}`);
+      });
+    } catch (err) {
+      writeToLogFile(`[AutoUpdater] Startup update check failed: ${err.message}`);
+    }
+  }, 5000);
 
   // Run a startup background sync if connected (after 5 seconds delay)
   if (db.googleCalendarSettings?.tokens) {
