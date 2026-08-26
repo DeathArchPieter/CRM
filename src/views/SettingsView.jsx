@@ -22,7 +22,8 @@ import {
   Eye,
   RefreshCw,
   ArrowUpCircle,
-  ExternalLink
+  ExternalLink,
+  AlertCircle
 } from 'lucide-react';
 
 const DEFAULT_SETTINGS = {

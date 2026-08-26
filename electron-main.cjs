@@ -367,6 +367,35 @@ function createWindow() {
     try {
       writeToLogFile('[IPC] check-for-updates called by user');
       sendUpdateStatus({ status: 'checking', error: null });
+
+      if (isDev) {
+        // In dev mode, check GitHub Releases directly via REST API so it works without packaging
+        try {
+          const resp = await fetch('https://api.github.com/repos/DeathArchPieter/CRM/releases/latest', {
+            headers: { 'User-Agent': 'Beetsma-Consultancy-CRM' }
+          });
+          if (resp.ok) {
+            const release = await resp.json();
+            const latestTag = release.tag_name ? release.tag_name.replace(/^v/, '') : app.getVersion();
+            const currentVer = app.getVersion();
+            if (latestTag !== currentVer) {
+              const info = {
+                version: latestTag,
+                releaseDate: release.published_at,
+                releaseNotes: release.body || ''
+              };
+              sendUpdateStatus({ status: 'available', info, error: null });
+              return { success: true, updateInfo: info };
+            } else {
+              sendUpdateStatus({ status: 'not-available', info: { version: currentVer }, error: null });
+              return { success: true, updateInfo: { version: currentVer } };
+            }
+          }
+        } catch (fetchErr) {
+          writeToLogFile(`[IPC] GitHub API check in dev: ${fetchErr.message}`);
+        }
+      }
+
       const result = await autoUpdater.checkForUpdates();
       return { success: true, updateInfo: result?.updateInfo };
     } catch (err) {
