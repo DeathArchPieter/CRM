@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import ClientProfileView from './ClientProfileView';
 import ClientFinancialPlanView from './ClientFinancialPlanView';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 import { useToast } from '../components/Toast';
 
 const PRESET_TAGS = ['VIP', 'HNW', 'Doctor', 'Tech', 'Business Owner', 'Young Family', 'Retiree', 'Referral Partner'];
@@ -48,6 +49,8 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
     email: '',
     phone: '',
     address: '',
+    unitNumber: '',
+    country: 'Singapore',
     clientStatus: 'Active',
     tags: []
   });
@@ -335,6 +338,7 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
               <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border-light)' }}>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Name & Tags</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Contact Info</th>
+                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Address & Unit</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Engagement Recency</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Status</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Policies</th>
@@ -374,6 +378,16 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '12.5px' }}>
                         <Phone size={13} /> {client.phone || '-'}
                       </div>
+                    </td>
+                    <td style={{ padding: '14px 20px' }}>
+                      <div style={{ color: 'var(--text-primary)', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '12.5px' }} title={`${client.address || ''} ${client.unitNumber || ''} ${client.country || ''}`}>
+                        {client.address || '-'}
+                      </div>
+                      {(client.unitNumber || (client.country && client.country !== 'Singapore')) && (
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {client.unitNumber && `${client.unitNumber}, `}{client.country || 'Singapore'}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '14px 20px' }}>
                       <span style={{ 
@@ -457,8 +471,40 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
               </div>
 
               <div>
-                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Residential Address</label>
-                <input type="text" name="address" className="input-field" style={{ width: '100%' }} value={formData.address} onChange={handleInputChange} placeholder="123 Orchard Road, Singapore 238888" />
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Residential / Street Address</label>
+                <AddressAutocomplete 
+                  name="address" 
+                  value={formData.address} 
+                  onChange={handleInputChange} 
+                  placeholder="Search Singapore postal code (e.g. 048581), street, or building..." 
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Unit Number / Floor</label>
+                  <input 
+                    type="text" 
+                    name="unitNumber" 
+                    className="input-field" 
+                    style={{ width: '100%' }} 
+                    value={formData.unitNumber} 
+                    onChange={handleInputChange} 
+                    placeholder="e.g. #08-12" 
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Country</label>
+                  <input 
+                    type="text" 
+                    name="country" 
+                    className="input-field" 
+                    style={{ width: '100%' }} 
+                    value={formData.country} 
+                    onChange={handleInputChange} 
+                    placeholder="Singapore" 
+                  />
+                </div>
               </div>
 
               {/* Tags Selector */}

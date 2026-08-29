@@ -550,6 +550,70 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 
 ---
 
+## Feature Release: Seamless Inline Auto-Updates & Archie 2.0 Contextual Advisory Copilot (August 2026)
+
+### Summary of Completed Improvements
+
+1. **Seamless Inline & Silent Auto-Updates (`package.json`, `electron-main.cjs`, `UpdateNotificationBanner.jsx`, `SettingsView.jsx`)**:
+   - **Zero Setup Wizard Screens**: Replaced standard NSIS multi-step installer wizard with silent 1-click updates (`nsis.oneClick: true`, `nsis.perMachine: false`, `nsis.allowElevation: true`).
+   - **Automatic Background Downloading**: Configured `autoUpdater.autoDownload = true` in `electron-main.cjs` to download releases silently without blocking the advisor.
+   - **Instant 2-Second Restart Swap**: Upgraded `quitAndInstall` invocation to `autoUpdater.quitAndInstall(true, true)` (`isSilent: true, isForceRunAfter: true`), enabling seamless binary replacement and auto-relaunch with zero prompts or "Next / Finish" buttons.
+   - **Updated Notification Banner & Settings**: Real-time progress pills and 1-click **"Restart & Apply Now"** button.
+
+2. **Archie 2.0 Deeply Context-Aware Advisory Copilot (`AdvisorContext.jsx`, `advisorKnowledgeBase.js`, `AssistantGuide.jsx`)**:
+   - **Global Context Registry & Hook (`AdvisorContext.jsx`)**: Created lightweight state manager and `useAdvisorContext()` hook tracking active section, sub-sections (`client-profile`, `financial-plan`, `project-100`, `outreach-campaign`), active sub-tabs, entity context (client name, policy counts, campaign title), and action dispatchers.
+   - **Resolved Key Mismatches**: Fixed tab naming mismatches (`special-projects`, `special-reports`, `product-analysis`) ensuring 100% of CRM views load custom guidance.
+   - **25+ Contextual Playbooks (`advisorKnowledgeBase.js`)**: Tailored action checklists, briefings, and pro tips across Client Profile tabs (Overview, Policies & Claims, AI Dossier & Social Intel, Household), Financial Blueprint tabs (Balance Sheet & CPF breakdown, Retirement Runway & CPF LIFE, Protection Gap Matrix, Life Event Simulator, 6-Page PDF Dossier), Special Projects (Campaign Hub, Project 100 N.A.S.T ranking, Outreach Targets, Playbook & Objections, Analytics), Schedule, Pipeline, Sales, Remuneration, and Settings.
+   - **3-Tab Drawer Architecture (`AssistantGuide.jsx`)**:
+     - **Tab 1 (🧭 Guidance & Actions)**: Live contextual briefing, sub-tab action checklist with state memory, and **1-Click Quick Action Triggers** (e.g. `🏛️ Open Financial Blueprint`, `📋 90-Day Pre-Meeting Brief`, `📖 CPF LIFE Playbook`, `✨ AI Graph Breakdown`, `+ Add Contact`, `+ Add Policy`).
+     - **Tab 2 (📖 Singapore Actuarial Cheat Sheet)**: Interactive reference tables for 2025/2026 CPF LIFE Retirement Sums (BRS $110.2k, FRS $220.4k, ERS 4x BRS $440.8k), CPF interest rates, MAS 10x/5x/2x protection formulas, and MDRT 2026 qualification tiers.
+     - **Tab 3 (💬 Ask Archie & Script Copilot)**: Real-time search engine with instant answers and 1-click **"Copy Script"** for 50+ Singapore financial advisory questions, objection handlers, and client WhatsApp openers.
+   - **Dynamic Floating Pill & Keyboard Shortcut**: Floating button dynamically displays the active section (e.g., `🦉 Archie • Policies & Vault` or `🦉 Archie • CPF LIFE Projections`), toggleable globally via `Ctrl + /`.
+
+3. **Gemini AI Engine Compatibility & API Key Auto-Persistence (`electron-main.cjs`, `SettingsView.jsx`, `DashboardView.jsx`)**:
+   - **Model & Payload Compatibility**: Fixed `thinkingConfig: { thinkingLevel: 'MINIMAL' }` which caused Google's API to reject requests with `HTTP 400: Thinking level is not supported for this model`. Set default model to `gemini-2.5-flash` with clean generation config.
+   - **Auto-Persistence on Test & Save**: Clicking **"⚡ Test & Save"** or editing the key in Settings automatically persists the new API key to local database storage (`db.appSettings.geminiApiKey`), sets `process.env.GEMINI_API_KEY`, and synchronizes `.env`.
+   - **Dedicated "Save Key" Button & Blur Auto-Save**: Added direct **"💾 Save Key"** button and `onBlur` auto-save in [SettingsView.jsx](file:///c:/dev/CRM/src/views/SettingsView.jsx) with visual confirmation badge (`✓ Saved!`).
+   - **Instant AI Briefing Cache Invalidation**: Saving/testing a new key immediately clears any cached 403 error in `db.aiBriefing`, enabling the dashboard to generate a fresh briefing immediately.
+   - **Dashboard Retry Button**: Added **"Retry Generation"** button alongside **"⚙️ Open Settings"** on the Dashboard Direction for the Day card.
+
+4. **Client Task Editing & Instant Calendar Synchronization (`ClientProfileView.jsx`, `electron-main.cjs`)**:
+   - **Task Edit Modal**: Added a full-featured edit modal under Client Profile (Overview $\to$ Tasks, Meetings & Follow-ups) supporting updates to task description, due date (DatePicker), start/end times, venue/location (AddressAutocomplete), and status (Pending / Completed).
+   - **Instant Google Calendar Sync on Edit**: Editing or updating a task under a client immediately synchronizes the updated summary, date, time range, and location to Google Calendar via `update-task` and `syncTaskToGoogleCalendar`.
+
+5. **Permanent Google Calendar Auto-Sync Engine & Token Persistence (`electron-main.cjs`, `ScheduleView.jsx`)**:
+   - **Continuous Background Auto-Sync**: Implemented `startContinuousCalendarSync()` running every 3 minutes in the background, proactively refreshing Google access tokens and synchronizing any modified or pending tasks without requiring manual user button clicks.
+   - **Permanent Non-Expiring OAuth Tokens**: Documented and added in-app guidance on switching Google Cloud OAuth Consent Screen from "Testing" to "In production" (via 1-click "Publish App"), ensuring Google issues permanent refresh tokens with zero 7-day expirations.
+   - **Real-Time View Refresh**: Added an auto-refresh timer in [ScheduleView.jsx](file:///c:/dev/CRM/src/views/ScheduleView.jsx) to keep the calendar grid and Google events synchronized in real time.
+
+6. **Desktop Dist Rebuild**:
+---
+
+## Feature Release: Campaign-Aware Archie Intelligence & Client Address Unit/Country Support (August 2026)
+
+### Summary of Completed Improvements
+
+1. **Campaign & Section Aware Archie Copilot (`advisorKnowledgeBase.js`, `AssistantGuide.jsx`, `SpecialProjectsView.jsx`)**:
+   - **Context-Aware Dynamic Guidance**: `resolveContextGuide` now dynamically detects active campaign themes (e.g. PetCare & Veterinary, SRS Tax Relief, CPF SA Closure, Child Tertiary Education, CareShield / Disability Income, Major CI Protection Gap) and tailors the greeting, action checklists, pro tips, and badge accordingly.
+   - **Dynamic Campaign Cheat Sheets (`CAMPAIGN_PRODUCT_BENCHMARKS`)**:
+     - Added dedicated cheat sheet intelligence cards matching active campaigns with market costs, actuarial guidelines, sales angles, and top objection rebuttals.
+     - E.g., for **PetCare & Veterinary Outreach**: Emergency vet consults (S$150–S$350), cruciate & orthopedic surgery (S$3.5k–S$8.5k), cancer chemotherapy (S$5k–S$12k), S$500k third-party liability, 70%–80% reimbursement, and pre-existing exclusion lock-in angles.
+     - Automatically displays and selects the dynamic **`🐾 Pet Healthcare Intel`** (or relevant campaign tab) as the default active cheat sheet tab when viewing an outreach campaign.
+   - **Prioritized Scripts & Rebuttals**: The **Ask & Scripts** tab dynamically filters and bubbles campaign-relevant scripts and objection rebuttals to the top of the list with 1-click clipboard copy.
+   - **Pre-Built PetCare Campaign Template (`SpecialProjectsView.jsx`)**: Added `tpl-pet-insurance` (*"PetCare & Veterinary Protection Campaign"*) to the pre-built Singapore campaign templates library.
+
+2. **Client Address: Unit Number & Country Support (`ClientsView.jsx`, `ClientProfileView.jsx`, `electron-main.cjs`)**:
+   - **Add Client Modal (`ClientsView.jsx`)**: Integrated `AddressAutocomplete` for Singapore postal codes and street search, added dedicated fields for **Unit Number / Floor** (e.g. `#12-34`) and **Country** (defaults to `'Singapore'`).
+   - **Client Profile View (`ClientProfileView.jsx`)**:
+     - Formats residential/office address cleanly displaying street address, unit number, and non-Singapore country tags.
+     - Updated the **Edit Profile Modal** with distinct fields for `AddressAutocomplete`, `Unit Number / Floor`, and `Country`.
+   - **Persistence (`electron-main.cjs`)**: Updated `add-client` and `update-client` IPC handlers to preserve `unitNumber` and `country` (defaulting to `'Singapore'`), along with `companyName`, `jobTitle`, and `tags`.
+
+3. **Desktop Dist Rebuild**:
+   - Synchronized build distribution package (`dist/Beetsma-Consultancy-CRM-Setup-0.0.2.exe`).
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.
@@ -557,6 +621,7 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 3. Keep refactoring incremental — avoid breaking existing IPC contracts exposed in `electron-preload.cjs`.
 4. **Always rebuild desktop dist (`npm run electron:build`)** upon completing feature requests, bug fixes, or major milestones so that `dist/` is always up to date.
 5. **Financial Report Consistency**: All client PDF reports, financial blueprints, and AI financial summaries must strictly follow the standard schema, structure, and actuarial benchmarks defined in [FINANCIAL_REPORT_SPECIFICATION.md](file:///c:/dev/CRM/FINANCIAL_REPORT_SPECIFICATION.md).
+
 
 
 

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import CpfLifePlaybookModal from '../components/CpfLifePlaybookModal';
 import ProjectionGraphBreakdownModal from '../components/ProjectionGraphBreakdownModal';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const formatCurrency = (val) => {
   if (val === undefined || val === null || isNaN(val) || val === '') return '$0';
@@ -111,6 +112,43 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
   // Modals for CPF Playbook and Projection Graph AI Breakdown
   const [isCpfModalOpen, setIsCpfModalOpen] = useState(false);
   const [isGraphBreakdownOpen, setIsGraphBreakdownOpen] = useState(false);
+
+  const { setAdvisorContext, registerActionHandler } = useAdvisorContext();
+
+  // Sync active blueprint tab with Archie 2.0
+  useEffect(() => {
+    const tabMapping = {
+      'overview': 'balance-sheet',
+      'retirement': 'retirement',
+      'protection': 'protection',
+      'simulator': 'simulator',
+      'ai-advisor': 'blueprint'
+    };
+    setAdvisorContext({
+      section: 'clients',
+      subSection: 'financial-plan',
+      activeSubTab: tabMapping[activeTab] || 'balance-sheet',
+      entityContext: {
+        clientName: client?.fullName,
+        clientId: client?.id
+      }
+    });
+  }, [activeTab, client?.fullName, client?.id, setAdvisorContext]);
+
+  // Register Archie Action Handlers
+  useEffect(() => {
+    const unregCpf = registerActionHandler('openCpfPlaybook', () => {
+      setIsCpfModalOpen(true);
+    });
+    const unregGraph = registerActionHandler('openGraphBreakdown', () => {
+      setIsGraphBreakdownOpen(true);
+    });
+
+    return () => {
+      unregCpf();
+      unregGraph();
+    };
+  }, [registerActionHandler]);
 
   // Projections Display State (Multi-Chart & Monthly/Annual View)
   const [chartType, setChartType] = useState('runway'); // 'runway' | 'income-waterfall' | 'asset-evolution'

@@ -101,10 +101,10 @@ export default function UpdateNotificationBanner() {
               </div>
               <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
                 {updateStatus.status === 'downloaded'
-                  ? 'Restart now to complete installation.'
+                  ? 'Update downloaded. Instant 2s restart with zero setup wizards.'
                   : updateStatus.status === 'downloading'
-                  ? `Downloading update package (${percent}%)...`
-                  : 'A new version of Beetsma Consultancy CRM is ready.'}
+                  ? `Downloading update package in background (${percent}%)...`
+                  : 'A new version of Beetsma Consultancy CRM is ready to download.'}
               </div>
             </div>
           </div>
@@ -154,7 +154,7 @@ export default function UpdateNotificationBanner() {
                 onClick={handleDownload}
                 disabled={isDownloading}
               >
-                <Download size={13} /> {isDownloading ? 'Starting Download...' : 'Download & Update'}
+                <Download size={13} /> {isDownloading ? 'Downloading in Background...' : 'Download Update'}
               </button>
             </>
           )}
@@ -166,14 +166,14 @@ export default function UpdateNotificationBanner() {
                 style={{ fontSize: '11.5px', padding: '5px 12px' }}
                 onClick={() => setIsDismissed(true)}
               >
-                Install on Quit
+                Apply on Next Quit
               </button>
               <button
                 className="btn btn-primary"
                 style={{ fontSize: '11.5px', padding: '5px 14px', display: 'flex', alignItems: 'center', gap: '5px', background: 'linear-gradient(135deg, #10b981, #059669)' }}
                 onClick={handleRestart}
               >
-                <RefreshCw size={13} /> Restart & Install Now
+                <RefreshCw size={13} /> Restart & Apply Now
               </button>
             </>
           )}

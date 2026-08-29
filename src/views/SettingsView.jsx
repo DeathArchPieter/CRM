@@ -26,6 +26,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import InfoTooltip from '../components/InfoTooltip';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const DEFAULT_SETTINGS = {
   consultantName: 'Pieter Beetsma',
@@ -74,6 +75,75 @@ export default function SettingsView() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [testKeyResult, setTestKeyResult] = useState(null);
+  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [keySaveSuccess, setKeySaveSuccess] = useState(false);
+
+  const handleTestApiKey = async () => {
+    setIsTestingKey(true);
+    setTestKeyResult(null);
+    try {
+      if (window.electronAPI?.testGeminiKey) {
+        const res = await window.electronAPI.testGeminiKey(settings.geminiApiKey);
+        if (res.success) {
+          setTestKeyResult({
+            success: true,
+            message: `✓ Connected to Google Gemini (${res.model || 'gemini-3.7-flash'}). API key is valid and automatically saved to your local database!`
+          });
+          setKeySaveSuccess(true);
+          setTimeout(() => setKeySaveSuccess(false), 4000);
+        } else {
+          setTestKeyResult({
+            success: false,
+            message: `✗ API Error: ${res.error || 'Permission Denied / Invalid Key'}. Please check your key at aistudio.google.com.`
+          });
+        }
+      }
+    } catch (err) {
+      setTestKeyResult({
+        success: false,
+        message: `✗ Connection Error: ${err.message}`
+      });
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
+
+  const handleSaveApiKeyOnly = async () => {
+    setIsSavingKey(true);
+    try {
+      if (window.electronAPI?.saveAppSettings) {
+        const res = await window.electronAPI.saveAppSettings(settings);
+        if (res.success) {
+          setKeySaveSuccess(true);
+          setTimeout(() => setKeySaveSuccess(false), 4000);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to save API key:", err);
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
+  const { setAdvisorContext, registerActionHandler } = useAdvisorContext();
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'settings',
+      subSection: null,
+      activeSubTab: null
+    });
+  }, [setAdvisorContext]);
+
+  useEffect(() => {
+    const unregSave = registerActionHandler('saveSettings', () => {
+      handleSave();
+    });
+    return () => unregSave();
+  }, [registerActionHandler]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -785,14 +855,15 @@ export default function SettingsView() {
                 <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
                   Google Gemini API Key (Stored securely on local PC)
                 </label>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     className="form-control"
                     placeholder="Enter your Gemini API key (or leave blank to use .env)"
                     value={settings.geminiApiKey || ''}
                     onChange={(e) => handleChange('geminiApiKey', e.target.value)}
-                    style={{ flex: 1, fontFamily: 'monospace' }}
+                    onBlur={handleSaveApiKeyOnly}
+                    style={{ flex: 1, minWidth: '240px', fontFamily: 'monospace' }}
                   />
                   <button
                     type="button"
@@ -802,10 +873,59 @@ export default function SettingsView() {
                   >
                     <Eye size={14} /> {showApiKey ? 'Hide' : 'Show'}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    onClick={handleTestApiKey}
+                    disabled={isTestingKey}
+                  >
+                    <RefreshCw size={13} className={isTestingKey ? 'animate-spin' : ''} />
+                    {isTestingKey ? 'Testing...' : 'Test & Save'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: keySaveSuccess ? 'rgba(16, 185, 129, 0.2)' : undefined, color: keySaveSuccess ? '#34d399' : undefined }}
+                    onClick={handleSaveApiKeyOnly}
+                    disabled={isSavingKey}
+                  >
+                    {keySaveSuccess ? <Check size={14} /> : <Save size={14} />}
+                    {keySaveSuccess ? 'Saved!' : 'Save Key'}
+                  </button>
                 </div>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                  🔒 Key is stored locally in your private database and never committed to GitHub.
-                </span>
+                
+                {testKeyResult && (
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    backgroundColor: testKeyResult.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                    border: testKeyResult.success ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)',
+                    color: testKeyResult.success ? '#34d399' : '#f87171',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    {testKeyResult.success ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+                    <span>{testKeyResult.message}</span>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    🔒 Key is saved locally to your secure app storage and never committed to git.
+                  </span>
+                  <a
+                    href="https://aistudio.google.com/app/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: '11px', color: 'var(--accent-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    Get Free Gemini API Key <ExternalLink size={11} />
+                  </a>
+                </div>
               </div>
             </div>
           </div>

@@ -4,6 +4,7 @@ import {
   BarChart3, PieChart, Calendar, RefreshCw, ArrowUpRight, ArrowDownRight, 
   CheckCircle2, AlertTriangle, Layers, Users, Clock, Compass
 } from 'lucide-react';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const MDRT_TIERS = {
   mdrt: { label: 'MDRT (Million Dollar Round Table)', target: 110000, color: '#34d399', bg: 'rgba(16, 185, 129, 0.15)', name: 'MDRT' },
@@ -14,12 +15,25 @@ const MDRT_TIERS = {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function SalesTrackingView() {
+  const { setAdvisorContext } = useAdvisorContext();
   const [pipeline, setPipeline] = useState([]);
   const [clients, setClients] = useState([]);
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedTierKey, setSelectedTierKey] = useState('mdrt'); // 'mdrt' | 'cot' | 'tot'
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'sales',
+      subSection: null,
+      activeSubTab: null,
+      entityContext: {
+        activeTier: selectedTierKey
+      }
+    });
+  }, [selectedTierKey, setAdvisorContext]);
 
   const loadData = async () => {
     setLoading(true);

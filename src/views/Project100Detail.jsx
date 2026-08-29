@@ -11,6 +11,7 @@ import {
 import DatePicker from '../components/DatePicker';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import InfoTooltip from '../components/InfoTooltip';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const CATEGORIES = [
   'Family',
@@ -77,6 +78,28 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  const { setAdvisorContext, registerActionHandler } = useAdvisorContext();
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'special-projects',
+      subSection: 'project-100',
+      activeSubTab: null,
+      entityContext: {
+        totalContacts: contacts.length
+      }
+    });
+  }, [contacts.length, setAdvisorContext]);
+
+  // Register Archie Action Handlers
+  useEffect(() => {
+    const unregAdd = registerActionHandler('addContact', () => {
+      setIsAddModalOpen(true);
+    });
+    return () => unregAdd();
+  }, [registerActionHandler]);
   const [selectedContact, setSelectedContact] = useState(null);
   const [isCaseModalOpen, setIsCaseModalOpen] = useState(false);
   const [caseContact, setCaseContact] = useState(null);

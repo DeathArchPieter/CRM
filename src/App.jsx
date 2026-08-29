@@ -3,6 +3,7 @@ import TitleBar from './components/TitleBar';
 import Sidebar from './components/Sidebar';
 import CommandPalette from './components/CommandPalette';
 import { ToastProvider } from './components/Toast';
+import { AdvisorContextProvider, useAdvisorContext } from './context/AdvisorContext';
 import DashboardView from './views/DashboardView';
 import ScheduleView from './views/ScheduleView';
 import ClientsView from './views/ClientsView';
@@ -17,22 +18,35 @@ import UpdateNotificationBanner from './components/UpdateNotificationBanner';
 import AssistantGuide from './components/AssistantGuide';
 import './index.css';
 
-function App() {
+function MainApp() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedClientForView, setSelectedClientForView] = useState(null);
+  const { setAdvisorContext, toggleArchie } = useAdvisorContext();
 
-  // Global Keyboard Listener for Ctrl + K / Cmd + K
+  // Sync activeTab into AdvisorContext
+  useEffect(() => {
+    setAdvisorContext({
+      section: activeTab,
+      subSection: null,
+      activeSubTab: null
+    });
+  }, [activeTab, setAdvisorContext]);
+
+  // Global Keyboard Listeners: Ctrl + K (Command Palette) & Ctrl + / (Archie Copilot)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen(prev => !prev);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === '/' || e.key === '?')) {
+        e.preventDefault();
+        toggleArchie();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [toggleArchie]);
 
   const handleSelectClientFromPalette = (client) => {
     setSelectedClientForView(client);
@@ -86,44 +100,51 @@ function App() {
   };
 
   return (
-    <ToastProvider>
-      <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-        {/* Draggable Title Bar for Frameless Window */}
-        <TitleBar />
-        
-        {/* Automatic App Update Banner / Modal */}
-        <UpdateNotificationBanner />
-        
-        {/* Main Layout */}
-        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Navigation Sidebar */}
-          <Sidebar 
-            activeTab={activeTab} 
-            setActiveTab={setActiveTab} 
-            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-          />
-          
-          {/* Dynamic Content Area */}
-          <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '28px', backgroundColor: 'var(--bg-base)' }}>
-            {renderView()}
-          </div>
-        </div>
-
-        {/* Global Command Palette Overlay */}
-        <CommandPalette
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          onNavigateTab={(tabId) => setActiveTab(tabId)}
-          onSelectClient={handleSelectClientFromPalette}
-          onSelectPipelineDeal={handleSelectPipelineDealFromPalette}
-        />
-
-        {/* Interactive Floating Advisor Guide Assistant ("Archie") */}
-        <AssistantGuide 
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      {/* Draggable Title Bar for Frameless Window */}
+      <TitleBar />
+      
+      {/* Automatic App Update Banner / Modal */}
+      <UpdateNotificationBanner />
+      
+      {/* Main Layout */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Navigation Sidebar */}
+        <Sidebar 
           activeTab={activeTab} 
-          onNavigateTab={setActiveTab} 
+          setActiveTab={setActiveTab} 
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         />
+        
+        {/* Dynamic Content Area */}
+        <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '28px', backgroundColor: 'var(--bg-base)' }}>
+          {renderView()}
+        </div>
       </div>
+
+      {/* Global Command Palette Overlay */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigateTab={(tabId) => setActiveTab(tabId)}
+        onSelectClient={handleSelectClientFromPalette}
+        onSelectPipelineDeal={handleSelectPipelineDealFromPalette}
+      />
+
+      {/* Interactive Floating Advisor Guide Assistant ("Archie 2.0") */}
+      <AssistantGuide 
+        onNavigateTab={setActiveTab} 
+      />
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <ToastProvider>
+      <AdvisorContextProvider activeMainTab="dashboard">
+        <MainApp />
+      </AdvisorContextProvider>
     </ToastProvider>
   );
 }

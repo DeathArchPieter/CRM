@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, Target, ShieldCheck, Repeat, PiggyBank,
   DollarSign, Briefcase, Clock, Award, RefreshCw, Sparkles, CheckCircle2, Calculator
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const getSpiRate = (ytdFyc, isNewConsultant) => {
   if (ytdFyc >= 80000) return 0.36;
@@ -42,8 +43,21 @@ const getCbRate = (recvYear) => {
 
 export default function RemunerationView() {
   const { addToast } = useToast();
+  const { setAdvisorContext } = useAdvisorContext();
   const [activeSubTab, setActiveSubTab] = useState('forward'); // 'forward' | 'reverse'
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'remuneration',
+      subSection: null,
+      activeSubTab: null,
+      entityContext: {
+        mode: activeSubTab
+      }
+    });
+  }, [activeSubTab, setAdvisorContext]);
 
   // --- Input State ---
   const [fycQ1, setFycQ1] = useState(12500);

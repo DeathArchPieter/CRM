@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
 import { useToast } from '../components/Toast';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const STAGES = ['Prospect', 'Fact Finding', 'Proposal Sent', 'Case Submitted', 'Case Issued', 'Closed/Lost'];
 
@@ -50,6 +51,20 @@ export default function PipelineView({ onSelectClient }) {
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
   const [isWeightedView, setIsWeightedView] = useState(false);
+
+  const { setAdvisorContext } = useAdvisorContext();
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'pipeline',
+      subSection: null,
+      activeSubTab: null,
+      entityContext: {
+        totalCases: cases.length
+      }
+    });
+  }, [cases.length, setAdvisorContext]);
 
   const load = async () => {
     setLoading(true);

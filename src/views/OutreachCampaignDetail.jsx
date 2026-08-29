@@ -9,6 +9,7 @@ import {
 import DatePicker from '../components/DatePicker';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import InfoTooltip from '../components/InfoTooltip';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const CAMPAIGN_STAGES = [
   '1. Segmented',
@@ -133,6 +134,27 @@ export default function OutreachCampaignDetail({ campaign: campaignProp, onBack,
   // Active Workspace Tab: 'workspace' | 'playbook' | 'analytics'
   const [activeTab, setActiveTab] = useState('workspace');
   const [search, setSearch] = useState('');
+
+  const { setAdvisorContext } = useAdvisorContext();
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    const tabMapping = {
+      'workspace': 'targets',
+      'playbook': 'playbook',
+      'analytics': 'analytics'
+    };
+    setAdvisorContext({
+      section: 'special-projects',
+      subSection: 'outreach-campaign',
+      activeSubTab: tabMapping[activeTab] || 'targets',
+      entityContext: {
+        campaignTitle: campaign.title,
+        productName: campaign.productName || campaign.productFocus,
+        totalContacts: contacts.length
+      }
+    });
+  }, [activeTab, campaign.title, campaign.productName, campaign.productFocus, contacts.length, setAdvisorContext]);
   const [filterStage, setFilterStage] = useState('All');
   const [copiedKey, setCopiedKey] = useState(null);
 

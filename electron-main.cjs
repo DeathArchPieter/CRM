@@ -24,7 +24,7 @@ function sendUpdateStatus(statusObj) {
 }
 
 function initAutoUpdater() {
-  autoUpdater.autoDownload = false; // Prompt user before downloading
+  autoUpdater.autoDownload = true; // Seamless inline background download
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {
@@ -84,7 +84,7 @@ function initAutoUpdater() {
   });
 }
 
-const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 function getGeminiApiKey() {
   // Priority 1: User-configured API key in app settings / database
@@ -440,9 +440,10 @@ function createWindow() {
   });
 
   ipcMain.handle('quit-and-install-update', () => {
-    writeToLogFile('[IPC] quit-and-install-update triggered');
+    writeToLogFile('[IPC] quit-and-install-update triggered (silent inline restart)');
     try {
-      autoUpdater.quitAndInstall(false, true);
+      // isSilent: true, isForceRunAfter: true -> Seamless background restart without NSIS wizard
+      autoUpdater.quitAndInstall(true, true);
       return { success: true };
     } catch (err) {
       writeToLogFile(`[IPC] quit-and-install-update failed: ${err.message}`);
@@ -479,13 +480,19 @@ function createWindow() {
         id,
         fullName: clientData.fullName || '',
         preferredName: clientData.preferredName || '',
+        companyName: clientData.companyName || '',
+        jobTitle: clientData.jobTitle || '',
         dob: clientData.dob || null,
         gender: clientData.gender || '',
         phone: clientData.phone || '',
         email: clientData.email || '',
         address: clientData.address || '',
+        unitNumber: clientData.unitNumber || '',
+        country: clientData.country || 'Singapore',
         clientStatus: clientData.clientStatus || 'Active',
+        tags: clientData.tags || [],
         notes: clientData.notes || '',
+        lastContactedAt: clientData.lastContactedAt || now,
         createdAt: now,
         updatedAt: now
       };
@@ -879,8 +886,7 @@ Provide a rigorous line-by-line financial audit and reconciliation.`;
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 3500,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 3500
           }
         })
       });
@@ -972,8 +978,7 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.4,
-            maxOutputTokens: 2500,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 2500
           }
         })
       });
@@ -1389,10 +1394,7 @@ ${productText.trim()}`;
           generationConfig: {
             temperature: 0.2,
             maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-            thinkingConfig: {
-              thinkingLevel: 'MINIMAL'
-            }
+            responseMimeType: 'application/json'
           }
         })
       });
@@ -1507,10 +1509,7 @@ Rules:
           }],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 8192,
-            thinkingConfig: {
-              thinkingLevel: 'MINIMAL'
-            }
+            maxOutputTokens: 8192
           },
           tools: [{ google_search: {} }]
         })
@@ -1638,10 +1637,7 @@ PENDING TASKS: ${pendingTasks.length}${pendingTasks.length > 0 ? '\n' + taskList
           contents: [{ role: 'user', parts: [{ text: userMessage }] }],
           generationConfig: {
             temperature: 0.85,
-            maxOutputTokens: 4096,
-            thinkingConfig: {
-              thinkingLevel: 'MINIMAL'
-            }
+            maxOutputTokens: 4096
           }
         })
       });
@@ -1732,10 +1728,7 @@ Please analyze this client and provide your strategic thoughts.`;
           contents: [{ role: 'user', parts: [{ text: userMessage }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 2048,
-            thinkingConfig: {
-              thinkingLevel: 'MINIMAL'
-            }
+            maxOutputTokens: 2048
           }
         })
       });
@@ -1826,8 +1819,7 @@ Return candidate profiles in the required JSON format.`;
           tools: [{ googleSearch: {} }],
           generationConfig: {
             temperature: 0.4,
-            maxOutputTokens: 2500,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 2500
           }
         })
       });
@@ -1921,8 +1913,7 @@ Extract topic milestone, financial planning signal, suggested product, and a tai
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.6,
-            maxOutputTokens: 1024,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 1024
           }
         })
       });
@@ -2335,8 +2326,7 @@ Perform deep web search grounding across Google, LinkedIn, Instagram, TikTok, Fa
           tools: [{ googleSearch: {} }],
           generationConfig: {
             temperature: 0.6,
-            maxOutputTokens: 4096,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 4096
           }
         })
       });
@@ -2516,8 +2506,7 @@ Synthesize all signals into the structured 90-Day Pre-Meeting Intelligence Brief
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.5,
-            maxOutputTokens: 3000,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 3000
           }
         })
       });
@@ -2701,8 +2690,7 @@ Synthesize an institutional CFP® / ChFC® / CFA® standard advisory blueprint i
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.4,
-            maxOutputTokens: 3500,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 3500
           }
         })
       });
@@ -2828,8 +2816,7 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           generationConfig: {
             temperature: 0.4,
-            maxOutputTokens: 3000,
-            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+            maxOutputTokens: 3000
           }
         })
       });
@@ -3884,12 +3871,93 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
   ipcMain.handle('save-app-settings', (event, settingsData) => {
     try {
       db.appSettings = { ...(db.appSettings || {}), ...settingsData };
+      if (settingsData.geminiApiKey && typeof settingsData.geminiApiKey === 'string' && settingsData.geminiApiKey.trim()) {
+        process.env.GEMINI_API_KEY = settingsData.geminiApiKey.trim();
+        db.aiBriefing = { text: '', generatedAt: null }; // clear cache so fresh key takes effect immediately
+        try {
+          const envPath = path.join(__dirname, '.env');
+          if (fs.existsSync(envPath)) {
+            let envContent = fs.readFileSync(envPath, 'utf8');
+            if (envContent.includes('GEMINI_API_KEY=')) {
+              envContent = envContent.replace(/GEMINI_API_KEY=.*/, `GEMINI_API_KEY=${settingsData.geminiApiKey.trim()}`);
+            } else {
+              envContent += `\nGEMINI_API_KEY=${settingsData.geminiApiKey.trim()}\n`;
+            }
+            fs.writeFileSync(envPath, envContent, 'utf8');
+          }
+        } catch (envErr) {
+          writeToLogFile(`[IPC] .env sync warning: ${envErr.message}`);
+        }
+      }
       saveDatabase();
       writeToLogFile(`[IPC] Successfully updated app/consultant settings for ${db.appSettings.consultantName}`);
       return { success: true, settings: db.appSettings };
     } catch (error) {
       writeToLogFile(`[IPC] save-app-settings failed: ${error.message}`);
       return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('test-gemini-key', async (event, customKey) => {
+    try {
+      const keyToTest = (customKey && typeof customKey === 'string' && customKey.trim()) 
+        ? customKey.trim() 
+        : getGeminiApiKey();
+
+      if (!keyToTest) {
+        return { success: false, error: 'No API key provided. Please enter a valid Gemini API key.' };
+      }
+
+      const model = getGeminiModel();
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${keyToTest}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Ping test. Respond with OK.' }] }]
+        })
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text();
+        let errMsg = `HTTP ${response.status}`;
+        try {
+          const json = JSON.parse(bodyText);
+          if (json.error?.message) {
+            errMsg = json.error.message;
+          }
+        } catch (_) {}
+        return { success: false, error: errMsg, statusCode: response.status };
+      }
+
+      // If test succeeds with custom key, immediately persist to database & .env!
+      if (customKey && typeof customKey === 'string' && customKey.trim()) {
+        if (!db.appSettings) db.appSettings = {};
+        db.appSettings.geminiApiKey = customKey.trim();
+        process.env.GEMINI_API_KEY = customKey.trim();
+        db.aiBriefing = { text: '', generatedAt: null }; // clear cache so fresh key takes effect immediately
+        saveDatabase();
+
+        try {
+          const envPath = path.join(__dirname, '.env');
+          if (fs.existsSync(envPath)) {
+            let envContent = fs.readFileSync(envPath, 'utf8');
+            if (envContent.includes('GEMINI_API_KEY=')) {
+              envContent = envContent.replace(/GEMINI_API_KEY=.*/, `GEMINI_API_KEY=${customKey.trim()}`);
+            } else {
+              envContent += `\nGEMINI_API_KEY=${customKey.trim()}\n`;
+            }
+            fs.writeFileSync(envPath, envContent, 'utf8');
+          }
+        } catch (envErr) {
+          writeToLogFile(`[IPC] .env sync warning on test: ${envErr.message}`);
+        }
+      }
+
+      return { success: true, model, saved: true };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   });
 
@@ -4614,27 +4682,58 @@ app.whenReady().then(() => {
     }
   }, 5000);
 
-  // Run a startup background sync if connected (after 5 seconds delay)
-  if (db.googleCalendarSettings?.tokens) {
-    setTimeout(async () => {
-      try {
-        console.log('Running startup Google Calendar sync...');
-        for (const task of db.tasks) {
-          if (task.dueDate && (!task.googleEventId || task.status === 'Pending')) {
-            await syncTaskToGoogleCalendar(task);
-          }
-        }
-        console.log('Startup Google Calendar sync completed.');
-      } catch (err) {
-        console.error('Startup Google Calendar sync failed:', err);
-      }
-    }, 5000);
-  }
+  // Start continuous, permanent background calendar sync
+  startContinuousCalendarSync();
 });
 
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit();
 });
+
+// Proactive continuous background calendar sync
+async function runBackgroundCalendarSync() {
+  const settings = db.googleCalendarSettings;
+  if (!settings || !settings.tokens) return;
+
+  try {
+    // 1. Proactively refresh access token if refresh token exists
+    if (settings.tokens.refresh_token && settings.clientId && settings.clientSecret) {
+      const refreshRes = await refreshAccessToken(settings.clientId, settings.clientSecret, settings.tokens.refresh_token);
+      if (refreshRes.success) {
+        settings.tokens.access_token = refreshRes.accessToken;
+        saveDatabase();
+        writeToLogFile('[Calendar Auto-Sync] Proactively refreshed Google access token.');
+      }
+    }
+
+    // 2. Synchronize all CRM tasks with due dates
+    let synced = 0;
+    if (Array.isArray(db.tasks)) {
+      for (const task of db.tasks) {
+        if (task.dueDate && (!task.googleEventId || task.status === 'Pending')) {
+          const res = await syncTaskToGoogleCalendar(task);
+          if (res.success) synced++;
+        }
+      }
+    }
+
+    if (synced > 0) {
+      writeToLogFile(`[Calendar Auto-Sync] Background synchronized ${synced} tasks to Google Calendar.`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('calendar-synced');
+      }
+    }
+  } catch (err) {
+    writeToLogFile(`[Calendar Auto-Sync] Warning: ${err.message}`);
+  }
+}
+
+function startContinuousCalendarSync() {
+  // Initial sync after 6 seconds
+  setTimeout(runBackgroundCalendarSync, 6000);
+  // Continuous sync every 3 minutes
+  setInterval(runBackgroundCalendarSync, 3 * 60 * 1000);
+}
 
 async function exchangeCodeForTokens(clientId, clientSecret, code, redirectUri) {
   try {

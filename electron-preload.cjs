@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App & Consultant Settings API
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   saveAppSettings: (settings) => ipcRenderer.invoke('save-app-settings', settings),
+  testGeminiKey: (apiKey) => ipcRenderer.invoke('test-gemini-key', apiKey),
 
   // Application Auto-Update & Version Control API
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

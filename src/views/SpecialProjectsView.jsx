@@ -7,6 +7,7 @@ import {
 import Project100Detail from './Project100Detail';
 import OutreachCampaignDetail from './OutreachCampaignDetail';
 import DatePicker from '../components/DatePicker';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const cardStyle = {
   background: 'var(--bg-surface)',
@@ -87,6 +88,15 @@ const CAMPAIGN_TEMPLATES = [
     productSummary: 'Covers 150+ early, intermediate, and major CI conditions with multiple claim resets, tailored for fresh graduates.'
   },
   {
+    id: 'tpl-pet-insurance',
+    title: 'PetCare & Veterinary Protection Campaign',
+    category: 'Pet Healthcare',
+    productName: 'AIA / MSIG Happy Tails & PetCare',
+    targetAudience: 'Dog & Cat Owners, Purebred Pet Parents',
+    description: 'Target pet parents with veterinary surgical inflation angles, third-party liability, and emergency clinical reimbursement.',
+    productSummary: 'Comprehensive pet healthcare covering up to 80% of accidental/surgical vet bills, cancer chemotherapy, and S$500k third-party bite liability.'
+  },
+  {
     id: 'tpl-disability-income',
     title: 'CareShield Life & Disability Income Booster',
     category: 'Income Protection',
@@ -147,10 +157,32 @@ export default function SpecialProjectsView({ onSelectClient, onNavigateTab }) {
     }
   };
 
+  const { setAdvisorContext, registerActionHandler } = useAdvisorContext();
+
   useEffect(() => {
     loadProject100Contacts();
     load();
   }, []);
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    if (!activeProject) {
+      setAdvisorContext({
+        section: 'special-projects',
+        subSection: activeTab === 'templates' ? 'template-library' : 'initiatives',
+        activeSubTab: null,
+        entityContext: { projectsCount: projects.length }
+      });
+    }
+  }, [activeProject, activeTab, projects.length, setAdvisorContext]);
+
+  // Register Archie Action Handlers
+  useEffect(() => {
+    const unregP100 = registerActionHandler('openProject100', () => {
+      setActiveProject('project-100');
+    });
+    return () => unregP100();
+  }, [registerActionHandler]);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);

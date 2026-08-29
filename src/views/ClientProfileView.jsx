@@ -12,6 +12,7 @@ import ClientSocialIntelligenceSection from '../components/ClientSocialIntellige
 import ClientClaimsSection from '../components/ClientClaimsSection';
 import CollapsibleSection from '../components/CollapsibleSection';
 import { getEngagementStatus } from './ClientsView';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const LinkedinIcon = ({ size = 14, color = "currentColor" }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -96,10 +97,57 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [touchpointSuccess, setTouchpointSuccess] = useState(false);
 
+  // Edit Task modal state
+  const [isEditTaskModalOpen, setIsEditTaskModalOpen] = useState(false);
+  const [editTaskForm, setEditTaskForm] = useState({
+    id: '',
+    description: '',
+    dueDate: '',
+    dueTime: '',
+    dueEndTime: '',
+    location: '',
+    status: 'Pending'
+  });
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+
+  const { setAdvisorContext, registerActionHandler } = useAdvisorContext();
+
   // Sub-Tab Workspace Navigation & View Mode State
   const [activeProfileTab, setActiveProfileTab] = useState(() => {
     return localStorage.getItem('crm_client_active_tab') || 'overview';
   });
+
+  // Synchronize active subtab and client data with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'clients',
+      subSection: 'client-profile',
+      activeSubTab: activeProfileTab,
+      entityContext: {
+        clientName: currentClient.fullName,
+        clientId: currentClient.id,
+        policiesCount: policies.length,
+        claimsCount: claims.length
+      }
+    });
+  }, [activeProfileTab, currentClient.fullName, currentClient.id, policies.length, claims.length, setAdvisorContext]);
+
+  // Register Archie Action Handlers
+  useEffect(() => {
+    const unregPlan = registerActionHandler('openFinancialPlan', () => {
+      if (typeof onOpenFinancialPlan === 'function') onOpenFinancialPlan(currentClient);
+    });
+    const unregPolicy = registerActionHandler('addPolicy', () => {
+      setPolicyData(initialPolicyState);
+      setEditingPolicyId(null);
+      setIsPolicyModalOpen(true);
+    });
+
+    return () => {
+      unregPlan();
+      unregPolicy();
+    };
+  }, [registerActionHandler, onOpenFinancialPlan, currentClient]);
   const [viewLayoutMode, setViewLayoutMode] = useState(() => {
     return localStorage.getItem('crm_client_layout_mode') || 'tabs'; // 'tabs' | 'accordion'
   });
@@ -158,7 +206,9 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     phone: currentClient.phone || '',
     dob: currentClient.dob || '',
     clientStatus: currentClient.clientStatus || 'Active',
-    address: currentClient.address || ''
+    address: currentClient.address || '',
+    unitNumber: currentClient.unitNumber || '',
+    country: currentClient.country || 'Singapore'
   });
   
   // Family Link Form State
@@ -300,6 +350,46 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         setNewTaskLocation('');
         loadData();
       }
+    }
+  };
+
+  const handleOpenEditTask = (task) => {
+    setEditTaskForm({
+      id: task.id,
+      description: task.description || '',
+      dueDate: task.dueDate || '',
+      dueTime: task.dueTime || '',
+      dueEndTime: task.dueEndTime || '',
+      location: task.location || '',
+      status: task.status || 'Pending'
+    });
+    setIsEditTaskModalOpen(true);
+  };
+
+  const handleSaveEditTask = async (e) => {
+    e.preventDefault();
+    if (!editTaskForm.description.trim()) return;
+    setIsUpdatingTask(true);
+    try {
+      if (window.electronAPI?.updateTask) {
+        const res = await window.electronAPI.updateTask({
+          id: editTaskForm.id,
+          description: editTaskForm.description.trim(),
+          dueDate: editTaskForm.dueDate || null,
+          dueTime: editTaskForm.dueTime || null,
+          dueEndTime: editTaskForm.dueEndTime || null,
+          location: editTaskForm.location.trim() || '',
+          status: editTaskForm.status
+        });
+        if (res.success) {
+          setIsEditTaskModalOpen(false);
+          loadData();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update task:", err);
+    } finally {
+      setIsUpdatingTask(false);
     }
   };
 
@@ -612,7 +702,9 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 phone: currentClient.phone || '',
                 dob: currentClient.dob || '',
                 clientStatus: currentClient.clientStatus || 'Active',
-                address: currentClient.address || ''
+                address: currentClient.address || '',
+                unitNumber: currentClient.unitNumber || '',
+                country: currentClient.country || 'Singapore'
               });
               setIsClientModalOpen(true);
             }}
@@ -673,7 +765,18 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
           </div>
           <div>
             <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '4px' }}>Residential / Office Address</div>
-            <div style={{ color: 'var(--text-primary)' }}>{currentClient.address || '-'}</div>
+            <div style={{ color: 'var(--text-primary)' }}>
+              {currentClient.address ? (
+                <div>
+                  <div>{currentClient.address}</div>
+                  {(currentClient.unitNumber || (currentClient.country && currentClient.country !== 'Singapore')) && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      {currentClient.unitNumber && `${currentClient.unitNumber}, `}{currentClient.country || 'Singapore'}
+                    </div>
+                  )}
+                </div>
+              ) : '-'}
+            </div>
           </div>
         </div>
 
@@ -996,13 +1099,22 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                       </div>
                     )}
                   </div>
-                  <button 
-                    onClick={() => handleDeleteTask(task.id)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5 }}
-                    title="Delete task"
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <button 
+                      onClick={() => handleOpenEditTask(task)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', opacity: 0.8, padding: '4px' }}
+                      title="Edit task & calendar schedule"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteTask(task.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5, padding: '4px' }}
+                      title="Delete task"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1833,14 +1945,40 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   </select>
                 </div>
               </div>
-              <div style={{ marginBottom: '32px' }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Address</label>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Street / Building Address</label>
                 <AddressAutocomplete 
                   name="address" 
                   value={clientData.address || ''} 
                   onChange={handleClientInputChange} 
                   placeholder="Search Singapore postal code (e.g. 048581), street, or building..."
                 />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Unit Number / Floor</label>
+                  <input 
+                    type="text" 
+                    name="unitNumber" 
+                    className="input-field" 
+                    style={{ width: '100%' }} 
+                    value={clientData.unitNumber || ''} 
+                    onChange={handleClientInputChange} 
+                    placeholder="e.g. #08-12" 
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Country</label>
+                  <input 
+                    type="text" 
+                    name="country" 
+                    className="input-field" 
+                    style={{ width: '100%' }} 
+                    value={clientData.country || 'Singapore'} 
+                    onChange={handleClientInputChange} 
+                    placeholder="Singapore" 
+                  />
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={() => setIsClientModalOpen(false)}>Cancel</button>
@@ -2194,6 +2332,119 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                 <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={() => setIsSocialModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary">Save Social Profiles</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Task Modal */}
+      {isEditTaskModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '520px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px' }}>
+            <h2 style={{ fontSize: '18px', marginBottom: '6px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Edit2 size={18} color="var(--accent-primary)" />
+              Edit Action Item & Follow-up
+            </h2>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '20px' }}>
+              Updates to due date, time, and location will immediately synchronize with your Schedule and Google Calendar.
+            </p>
+
+            <form onSubmit={handleSaveEditTask} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Description / Follow-up Details</label>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  style={{ width: '100%', fontSize: '13px' }} 
+                  placeholder="Task description..."
+                  value={editTaskForm.description}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                    <Calendar size={13} color="var(--text-muted)" /> Due Date
+                  </label>
+                  <DatePicker 
+                    style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
+                    placeholder="Select due date..."
+                    value={editTaskForm.dueDate}
+                    onChange={(e) => setEditTaskForm({ ...editTaskForm, dueDate: e.target.value })}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <Clock size={13} color="var(--text-muted)" /> Start Time
+                    </label>
+                    <input 
+                      type="time" 
+                      className="input-field" 
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                      value={editTaskForm.dueTime || ''}
+                      onChange={(e) => setEditTaskForm({ ...editTaskForm, dueTime: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <Clock size={13} color="var(--text-muted)" /> End Time
+                    </label>
+                    <input 
+                      type="time" 
+                      className="input-field" 
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                      value={editTaskForm.dueEndTime || ''}
+                      onChange={(e) => setEditTaskForm({ ...editTaskForm, dueEndTime: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Meeting Venue / Address (Optional)</label>
+                <AddressAutocomplete 
+                  value={editTaskForm.location}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, location: e.target.value })}
+                  placeholder="Search venue or address"
+                  style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
+                />
+              </div>
+
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Status</label>
+                <select 
+                  className="input-field"
+                  style={{ width: '100%', fontSize: '13px' }}
+                  value={editTaskForm.status}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, status: e.target.value })}
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button 
+                  type="button" 
+                  className="btn" 
+                  style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} 
+                  onClick={() => setIsEditTaskModalOpen(false)}
+                  disabled={isUpdatingTask}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  disabled={isUpdatingTask}
+                >
+                  {isUpdatingTask ? 'Updating & Syncing...' : 'Save & Sync'}
+                </button>
               </div>
             </form>
           </div>

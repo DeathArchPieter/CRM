@@ -413,9 +413,36 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
             </div>
           ) : (
             <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
-              <p style={{ fontSize: '13px', lineHeight: '1.75', color: 'var(--text-secondary)', margin: 0 }}>
-                {briefing || 'Click Refresh to generate your daily briefing.'}
-              </p>
+              {briefing && (briefing.toLowerCase().includes('403') || briefing.toLowerCase().includes('permission_denied') || briefing.toLowerCase().includes('unregistered') || briefing.toLowerCase().includes('leaked') || briefing.startsWith('Error:')) ? (
+                <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontSize: '12.5px', fontWeight: '600' }}>
+                    <AlertTriangle size={15} /> Gemini API Key Required or Revoked
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                    Google Gemini returned a permission error (the key was reported leaked or is not configured). Please obtain a free key from Google AI Studio and configure it in Settings.
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => onNavigateTab && onNavigateTab('settings')}
+                      className="btn btn-primary"
+                      style={{ fontSize: '11px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      ⚙️ Open Settings to Add Key
+                    </button>
+                    <button
+                      onClick={() => loadBriefing(true)}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '11px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <RefreshCw size={11} /> Retry Generation
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ fontSize: '13px', lineHeight: '1.75', color: 'var(--text-secondary)', margin: 0 }}>
+                  {briefing || 'Click Refresh to generate your daily briefing.'}
+                </p>
+              )}
             </div>
           )}
         </div>

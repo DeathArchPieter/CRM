@@ -5,6 +5,7 @@ import {
   Trash2, ExternalLink, ShieldCheck, Link2Off, Edit 
 } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
+import { useAdvisorContext } from '../context/AdvisorContext';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = [
@@ -13,6 +14,7 @@ const MONTHS = [
 ];
 
 export default function ScheduleView() {
+  const { setAdvisorContext } = useAdvisorContext();
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed
@@ -41,6 +43,19 @@ export default function ScheduleView() {
 
   // Fast task form state
   const [newDesc, setNewDesc] = useState('');
+
+  // Sync with Archie 2.0
+  useEffect(() => {
+    setAdvisorContext({
+      section: 'schedule',
+      subSection: null,
+      activeSubTab: null,
+      entityContext: {
+        totalTasks: crmTasks.length,
+        isGoogleConnected: googleSettings.connected
+      }
+    });
+  }, [crmTasks.length, googleSettings.connected, setAdvisorContext]);
   const [newClientId, setNewClientId] = useState('');
   const [addingTask, setAddingTask] = useState(false);
 
@@ -143,6 +158,15 @@ export default function ScheduleView() {
       loadGoogleEvents(currentYear, currentMonth);
     }
   }, [currentYear, currentMonth, googleSettings.connected]);
+
+  // Continuous live background sync & auto-refresh while view is open (every 2 minutes)
+  useEffect(() => {
+    if (!googleSettings.connected) return;
+    const interval = setInterval(() => {
+      loadGoogleEvents(currentYear, currentMonth);
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [googleSettings.connected, currentYear, currentMonth]);
 
   // Calendar Grid builder
   const calendarDays = useMemo(() => {
@@ -1273,13 +1297,21 @@ export default function ScheduleView() {
               Connect Google Calendar
             </h2>
 
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '20px' }}>
-              To sync your Google Calendar, you must provide your own OAuth client credentials from Google Cloud. 
-              This keeps your credentials private. 
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.6', marginBottom: '16px' }}>
+              To sync your Google Calendar, provide your OAuth client credentials from Google Cloud. 
               <br />
-              <span style={{ color: 'var(--accent-primary)', fontWeight: '600' }}>Setup Redirect URL: </span>
+              <span style={{ color: 'var(--accent-primary)', fontWeight: '600' }}>Redirect URL: </span>
               <code>http://localhost:18430/auth-callback</code>
             </p>
+
+            <div style={{ padding: '12px 14px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⭐ How to Keep Sync Permanent Forever (No 7-Day Expiry)
+              </div>
+              <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                In your Google Cloud Console → <strong>APIs & Services</strong> → <strong>OAuth consent screen</strong>, click <strong>"Publish App"</strong> to switch status from <em>"Testing"</em> to <em>"In production"</em>. This ensures your authorization stays permanent and never expires every week!
+              </div>
+            </div>
 
             <form onSubmit={handleConnectGoogle} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
