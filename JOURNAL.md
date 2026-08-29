@@ -614,6 +614,23 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 
 ---
 
+## Feature Release: Pre-Configured Organization Gemini AI Architecture & UI Masking (August 2026)
+
+### Summary of Completed Improvements
+
+1. **Packaged Build Environment Configuration (`package.json`, `electron-main.cjs`)**:
+   - **Local `.env` Packaging**: Included `.env` in `electron-builder` `build.files` so that the maintainer's local environment config is packaged into the distribution binary (`app.asar`) at build time without ever committing the secret key to public Git (`.gitignore` protects `.env`).
+   - **Multi-Path Environment Discovery**: Upgraded `.env` initialization in `electron-main.cjs` to search across `__dirname`, `process.cwd()`, and `process.resourcesPath` for seamless operation across dev and packaged desktop builds.
+2. **Secure Key Masking & Organization Status (`electron-main.cjs`, `SettingsView.jsx`)**:
+   - **Zero Plain-Text Leakage**: Sanitized `get-app-settings` IPC handler so raw environment keys are never transmitted to the renderer DOM.
+   - **Organization License UI**: Displays `🛡️ Organization License Active` and `●●●●●●●●●●●●●●●● (Pre-Configured by Beetsma Consultancy)` in Settings.
+   - **1-Click Connectivity Verification**: Added `⚡ Test AI Connection` button that verifies the packaged Gemini 2.5 Flash connection without exposing keys.
+   - **Custom Key Override & Revert**: Allows advisors to optionally supply a personal API key or click `Revert to Default` to return to the organization license.
+3. **Desktop Dist Rebuild**:
+   - Synchronized build distribution package (`dist/Beetsma-Consultancy-CRM-Setup-0.0.2.exe`).
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.

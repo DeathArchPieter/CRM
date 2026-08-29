@@ -1,8 +1,30 @@
-require('dotenv').config();
-const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+
+// Robust .env discovery across development & packaged Electron builds
+try {
+  const possibleEnvPaths = [
+    path.join(__dirname, '.env'),
+    path.join(process.cwd(), '.env'),
+    ...(process.resourcesPath ? [path.join(process.resourcesPath, '.env'), path.join(process.resourcesPath, 'app.asar', '.env')] : [])
+  ];
+  let loadedEnv = false;
+  for (const p of possibleEnvPaths) {
+    if (fs.existsSync(p)) {
+      require('dotenv').config({ path: p });
+      loadedEnv = true;
+      break;
+    }
+  }
+  if (!loadedEnv) {
+    require('dotenv').config();
+  }
+} catch (_) {
+  require('dotenv').config();
+}
+
+const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const http = require('http');
 
@@ -3862,7 +3884,17 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
           defaultRetirementAge: 62
         };
       }
-      return { success: true, settings: db.appSettings };
+      const hasBuiltIn = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+      const hasUserKey = Boolean(db.appSettings.geminiApiKey && typeof db.appSettings.geminiApiKey === 'string' && db.appSettings.geminiApiKey.trim());
+      
+      const responseSettings = {
+        ...db.appSettings,
+        hasBuiltInKey: hasBuiltIn,
+        hasConfiguredKey: hasBuiltIn || hasUserKey,
+        // Only return the plain-text key if it was explicitly typed by the user as a custom override
+        geminiApiKey: hasUserKey ? db.appSettings.geminiApiKey : ''
+      };
+      return { success: true, settings: responseSettings };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -3871,27 +3903,27 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
   ipcMain.handle('save-app-settings', (event, settingsData) => {
     try {
       db.appSettings = { ...(db.appSettings || {}), ...settingsData };
-      if (settingsData.geminiApiKey && typeof settingsData.geminiApiKey === 'string' && settingsData.geminiApiKey.trim()) {
-        process.env.GEMINI_API_KEY = settingsData.geminiApiKey.trim();
-        db.aiBriefing = { text: '', generatedAt: null }; // clear cache so fresh key takes effect immediately
-        try {
-          const envPath = path.join(__dirname, '.env');
-          if (fs.existsSync(envPath)) {
-            let envContent = fs.readFileSync(envPath, 'utf8');
-            if (envContent.includes('GEMINI_API_KEY=')) {
-              envContent = envContent.replace(/GEMINI_API_KEY=.*/, `GEMINI_API_KEY=${settingsData.geminiApiKey.trim()}`);
-            } else {
-              envContent += `\nGEMINI_API_KEY=${settingsData.geminiApiKey.trim()}\n`;
-            }
-            fs.writeFileSync(envPath, envContent, 'utf8');
-          }
-        } catch (envErr) {
-          writeToLogFile(`[IPC] .env sync warning: ${envErr.message}`);
+      if (settingsData.geminiApiKey !== undefined) {
+        if (typeof settingsData.geminiApiKey === 'string' && settingsData.geminiApiKey.trim()) {
+          db.appSettings.geminiApiKey = settingsData.geminiApiKey.trim();
+          process.env.GEMINI_API_KEY = settingsData.geminiApiKey.trim();
+        } else {
+          // If cleared, delete user override so it reverts cleanly to built-in key
+          delete db.appSettings.geminiApiKey;
         }
+        db.aiBriefing = { text: '', generatedAt: null }; // clear cache so fresh key takes effect immediately
       }
       saveDatabase();
       writeToLogFile(`[IPC] Successfully updated app/consultant settings for ${db.appSettings.consultantName}`);
-      return { success: true, settings: db.appSettings };
+      return { 
+        success: true, 
+        settings: {
+          ...db.appSettings,
+          hasBuiltInKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()),
+          hasConfiguredKey: Boolean((process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()) || (db.appSettings.geminiApiKey && db.appSettings.geminiApiKey.trim())),
+          geminiApiKey: db.appSettings.geminiApiKey || ''
+        } 
+      };
     } catch (error) {
       writeToLogFile(`[IPC] save-app-settings failed: ${error.message}`);
       return { success: false, error: error.message };
@@ -3900,12 +3932,13 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
 
   ipcMain.handle('test-gemini-key', async (event, customKey) => {
     try {
-      const keyToTest = (customKey && typeof customKey === 'string' && customKey.trim()) 
+      const isCustomKey = Boolean(customKey && typeof customKey === 'string' && customKey.trim());
+      const keyToTest = isCustomKey 
         ? customKey.trim() 
         : getGeminiApiKey();
 
       if (!keyToTest) {
-        return { success: false, error: 'No API key provided. Please enter a valid Gemini API key.' };
+        return { success: false, error: 'No API key configured. Please enter a valid Gemini API key or ensure organization pre-configuration is active.' };
       }
 
       const model = getGeminiModel();
@@ -3931,31 +3964,25 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
         return { success: false, error: errMsg, statusCode: response.status };
       }
 
-      // If test succeeds with custom key, immediately persist to database & .env!
-      if (customKey && typeof customKey === 'string' && customKey.trim()) {
+      // If test succeeds with custom key, persist to database
+      if (isCustomKey) {
         if (!db.appSettings) db.appSettings = {};
         db.appSettings.geminiApiKey = customKey.trim();
         process.env.GEMINI_API_KEY = customKey.trim();
         db.aiBriefing = { text: '', generatedAt: null }; // clear cache so fresh key takes effect immediately
         saveDatabase();
-
-        try {
-          const envPath = path.join(__dirname, '.env');
-          if (fs.existsSync(envPath)) {
-            let envContent = fs.readFileSync(envPath, 'utf8');
-            if (envContent.includes('GEMINI_API_KEY=')) {
-              envContent = envContent.replace(/GEMINI_API_KEY=.*/, `GEMINI_API_KEY=${customKey.trim()}`);
-            } else {
-              envContent += `\nGEMINI_API_KEY=${customKey.trim()}\n`;
-            }
-            fs.writeFileSync(envPath, envContent, 'utf8');
-          }
-        } catch (envErr) {
-          writeToLogFile(`[IPC] .env sync warning on test: ${envErr.message}`);
-        }
       }
 
-      return { success: true, model, saved: true };
+      return { 
+        success: true, 
+        model, 
+        isBuiltIn: !isCustomKey,
+        saved: isCustomKey 
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
     } catch (err) {
       return { success: false, error: err.message };
     }

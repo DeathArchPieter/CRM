@@ -87,16 +87,19 @@ export default function SettingsView() {
       if (window.electronAPI?.testGeminiKey) {
         const res = await window.electronAPI.testGeminiKey(settings.geminiApiKey);
         if (res.success) {
+          const modelName = res.model || 'gemini-2.5-flash';
           setTestKeyResult({
             success: true,
-            message: `✓ Connected to Google Gemini (${res.model || 'gemini-3.7-flash'}). API key is valid and automatically saved to your local database!`
+            message: res.isBuiltIn
+              ? `✓ Connected to Google Gemini (${modelName}) via Pre-Configured License. AI briefing, dossiers & blueprints are active and ready!`
+              : `✓ Connected to Google Gemini (${modelName}). Custom API key is valid and saved to local settings.`
           });
           setKeySaveSuccess(true);
           setTimeout(() => setKeySaveSuccess(false), 4000);
         } else {
           setTestKeyResult({
             success: false,
-            message: `✗ API Error: ${res.error || 'Permission Denied / Invalid Key'}. Please check your key at aistudio.google.com.`
+            message: `✗ API Error: ${res.error || 'Connection failed'}. Please verify your key or network connection.`
           });
         }
       }
@@ -835,7 +838,7 @@ export default function SettingsView() {
 
           {/* Gemini AI API Configuration Card */}
           <div className="glass-panel" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <h3 style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Sparkles size={18} color="var(--accent-primary)" />
@@ -845,34 +848,45 @@ export default function SettingsView() {
                   Powers Pre-Meeting Intelligence Briefs, Multimodal Campaign Brochure Scanners, and Actuarial Blueprints.
                 </p>
               </div>
-              <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-                Gemini 3.7 Flash Active
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {settings.hasBuiltInKey && !settings.geminiApiKey && (
+                  <span style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Shield size={12} /> Organization License Active
+                  </span>
+                )}
+                <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+                  Gemini 2.5 Flash Active
+                </span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label className="form-label" style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>
-                  Google Gemini API Key (Stored securely on local PC)
+                  {settings.hasBuiltInKey && !settings.geminiApiKey 
+                    ? 'AI Engine Access (Pre-Configured & Organization Managed)' 
+                    : 'Google Gemini API Key (Custom Advisor Override)'}
                 </label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     className="form-control"
-                    placeholder="Enter your Gemini API key (or leave blank to use .env)"
+                    placeholder={settings.hasBuiltInKey ? '●●●●●●●●●●●●●●●● (Pre-Configured by Beetsma Consultancy)' : 'Enter your Gemini API key'}
                     value={settings.geminiApiKey || ''}
                     onChange={(e) => handleChange('geminiApiKey', e.target.value)}
                     onBlur={handleSaveApiKeyOnly}
                     style={{ flex: 1, minWidth: '240px', fontFamily: 'monospace' }}
                   />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                    onClick={() => setShowApiKey(prev => !prev)}
-                  >
-                    <Eye size={14} /> {showApiKey ? 'Hide' : 'Show'}
-                  </button>
+                  {settings.geminiApiKey && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={() => setShowApiKey(prev => !prev)}
+                    >
+                      <Eye size={14} /> {showApiKey ? 'Hide' : 'Show'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-primary"
@@ -881,18 +895,36 @@ export default function SettingsView() {
                     disabled={isTestingKey}
                   >
                     <RefreshCw size={13} className={isTestingKey ? 'animate-spin' : ''} />
-                    {isTestingKey ? 'Testing...' : 'Test & Save'}
+                    {isTestingKey ? 'Testing...' : (settings.geminiApiKey ? 'Test & Save' : 'Test AI Connection')}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: keySaveSuccess ? 'rgba(16, 185, 129, 0.2)' : undefined, color: keySaveSuccess ? '#34d399' : undefined }}
-                    onClick={handleSaveApiKeyOnly}
-                    disabled={isSavingKey}
-                  >
-                    {keySaveSuccess ? <Check size={14} /> : <Save size={14} />}
-                    {keySaveSuccess ? 'Saved!' : 'Save Key'}
-                  </button>
+                  {settings.geminiApiKey ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: keySaveSuccess ? 'rgba(16, 185, 129, 0.2)' : undefined, color: keySaveSuccess ? '#34d399' : undefined }}
+                      onClick={handleSaveApiKeyOnly}
+                      disabled={isSavingKey}
+                    >
+                      {keySaveSuccess ? <Check size={14} /> : <Save size={14} />}
+                      {keySaveSuccess ? 'Saved!' : 'Save Key'}
+                    </button>
+                  ) : null}
+                  {settings.hasBuiltInKey && settings.geminiApiKey && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)' }}
+                      title="Revert to built-in organization license"
+                      onClick={() => {
+                        handleChange('geminiApiKey', '');
+                        if (window.electronAPI?.saveAppSettings) {
+                          window.electronAPI.saveAppSettings({ ...settings, geminiApiKey: '' });
+                        }
+                      }}
+                    >
+                      <RotateCcw size={13} /> Revert to Default
+                    </button>
+                  )}
                 </div>
                 
                 {testKeyResult && (
@@ -915,16 +947,20 @@ export default function SettingsView() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap', gap: '8px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    🔒 Key is saved locally to your secure app storage and never committed to git.
+                    {settings.hasBuiltInKey && !settings.geminiApiKey
+                      ? '🔒 Organization license active. All AI features work automatically with zero configuration needed.'
+                      : '🔒 Custom key is saved locally in secure app storage and never committed to git.'}
                   </span>
-                  <a
-                    href="https://aistudio.google.com/app/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '11px', color: 'var(--accent-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    Get Free Gemini API Key <ExternalLink size={11} />
-                  </a>
+                  {!settings.hasBuiltInKey && (
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ fontSize: '11px', color: 'var(--accent-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      Get Free Gemini API Key <ExternalLink size={11} />
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
