@@ -3983,10 +3983,6 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       return { success: false, error: err.message };
     }
   });
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
 
   ipcMain.handle('export-financial-plan-pdf', async (event, payload) => {
     try {
