@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import { useAdvisorContext } from '../context/AdvisorContext';
+import { useToast } from '../components/Toast';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = [
@@ -15,6 +16,7 @@ const MONTHS = [
 
 export default function ScheduleView() {
   const { setAdvisorContext } = useAdvisorContext();
+  const { addToast } = useToast();
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed
@@ -35,11 +37,18 @@ export default function ScheduleView() {
     connected: false
   });
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isPermanentGuideOpen, setIsPermanentGuideOpen] = useState(false);
   const [syncingTasks, setSyncingTasks] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [googleSyncError, setGoogleSyncError] = useState('');
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+
+  const isAuthError = useMemo(() => {
+    if (!googleSyncError) return false;
+    const err = googleSyncError.toLowerCase();
+    return err.includes('expired') || err.includes('invalid_grant') || err.includes('401') || err.includes('not authenticated') || err.includes('unauthorized') || err.includes('token refresh');
+  }, [googleSyncError]);
 
   // Fast task form state
   const [newDesc, setNewDesc] = useState('');
@@ -109,8 +118,11 @@ export default function ScheduleView() {
       if (results.clients?.success) setClients(results.clients.data);
       if (results.settings?.success) {
         setGoogleSettings(results.settings.data);
-        setFormClientId(results.settings.data.clientId);
-        setFormClientSecret(results.settings.data.clientSecret);
+        setFormClientId(results.settings.data.clientId || '');
+        setFormClientSecret(results.settings.data.clientSecret || '');
+        if (results.settings.data.lastAuthError) {
+          setGoogleSyncError(results.settings.data.lastAuthError);
+        }
       }
       if (results.pipeline?.success) setPipelineCases(results.pipeline.data);
 
@@ -249,15 +261,62 @@ export default function ScheduleView() {
         });
         if (res.success) {
           setIsSyncModalOpen(false);
+          setGoogleSyncError('');
           await loadData();
+          addToast('Google Calendar connected and synchronized successfully!', 'success');
         } else {
           setSyncError(res.error || 'Authentication timed out or failed.');
+          addToast(res.error || 'Google connection failed.', 'error');
         }
       } catch (err) {
         setSyncError(`Error launching OAuth: ${err.message}`);
+        addToast(`Error launching OAuth: ${err.message}`, 'error');
       } finally {
         setSyncLoading(false);
       }
+    }
+  };
+
+  const handleQuickReconnect = async () => {
+    const id = formClientId.trim() || googleSettings.clientId?.trim();
+    const secret = formClientSecret.trim() || googleSettings.clientSecret?.trim();
+    if (!id || !secret) {
+      setIsSyncModalOpen(true);
+      return;
+    }
+    setSyncLoading(true);
+    setGoogleSyncError('');
+    if (window.electronAPI?.startGoogleOauth) {
+      try {
+        const res = await window.electronAPI.startGoogleOauth({
+          clientId: id,
+          clientSecret: secret
+        });
+        if (res.success) {
+          setIsSyncModalOpen(false);
+          setIsPermanentGuideOpen(false);
+          setGoogleSyncError('');
+          await loadData();
+          addToast('Google Calendar re-authenticated and synchronized successfully!', 'success');
+        } else {
+          setGoogleSyncError(res.error || 'Re-authentication failed.');
+          addToast(res.error || 'Re-authentication failed.', 'error');
+        }
+      } catch (err) {
+        setGoogleSyncError(`Reconnection error: ${err.message}`);
+        addToast(`Reconnection error: ${err.message}`, 'error');
+      } finally {
+        setSyncLoading(false);
+      }
+    }
+  };
+
+  const handleOpenGoogleConsole = () => {
+    const url = 'https://console.cloud.google.com/apis/credentials/consent';
+    if (window.electronAPI?.openPath) {
+      window.electronAPI.openPath(url);
+    } else {
+      window.open(url, '_blank');
     }
   };
 
@@ -700,6 +759,14 @@ export default function ScheduleView() {
               </span>
               <button 
                 className="btn btn-secondary" 
+                style={{ padding: '4px 8px', fontSize: '11px', gap: '4px', backgroundColor: 'rgba(59,130,246,0.08)', color: '#60a5fa', borderColor: 'rgba(59,130,246,0.2)', display: 'inline-flex', alignItems: 'center' }}
+                onClick={() => setIsPermanentGuideOpen(true)}
+                title="Ensure your calendar sync never expires every 7 days"
+              >
+                <ShieldCheck size={12} /> Permanent Sync Guide
+              </button>
+              <button 
+                className="btn btn-secondary" 
                 style={{ padding: '4px 8px', fontSize: '11px', gap: '4px', backgroundColor: 'rgba(255,255,255,0.03)', display: 'inline-flex', alignItems: 'center' }}
                 onClick={handleSyncAllTasks}
                 disabled={syncingTasks}
@@ -716,13 +783,22 @@ export default function ScheduleView() {
               </button>
             </div>
           ) : (
-            <button 
-              className="btn btn-primary" 
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '13px' }}
-              onClick={() => setIsSyncModalOpen(true)}
-            >
-              <RefreshCw size={14} /> Sync Google Calendar
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button 
+                className="btn btn-secondary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', fontSize: '12px', borderColor: 'rgba(59,130,246,0.25)', color: '#60a5fa' }}
+                onClick={() => setIsPermanentGuideOpen(true)}
+              >
+                <ShieldCheck size={14} /> Permanent Sync Guide
+              </button>
+              <button 
+                className="btn btn-primary" 
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontSize: '13px' }}
+                onClick={() => setIsSyncModalOpen(true)}
+              >
+                <RefreshCw size={14} /> Sync Google Calendar
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -734,34 +810,62 @@ export default function ScheduleView() {
           justifyContent: 'space-between', 
           alignItems: 'center', 
           padding: '12px 20px', 
-          backgroundColor: 'rgba(239,68,68,0.08)', 
-          border: '1px solid rgba(239,68,68,0.2)', 
+          backgroundColor: isAuthError ? 'rgba(234,179,8,0.08)' : 'rgba(239,68,68,0.08)', 
+          border: `1px solid ${isAuthError ? 'rgba(234,179,8,0.25)' : 'rgba(239,68,68,0.2)'}`, 
           borderRadius: '8px', 
           marginBottom: '20px',
           animation: 'fadeIn 0.2s ease-out'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <AlertCircle size={16} color="#f87171" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: '13px', color: '#f87171' }}>
-              <strong>Sync Warning:</strong> {googleSyncError}
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertCircle size={18} color={isAuthError ? "#eab308" : "#f87171"} style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: '13px', color: isAuthError ? '#fef08a' : '#f87171', fontWeight: '500' }}>
+                <strong>{isAuthError ? 'Google Authorization Expired (7-Day Testing Limit):' : 'Sync Warning:'}</strong> {googleSyncError}
+              </div>
+              {isAuthError && (
+                <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Google invalidates refresh tokens every 7 days if your Google Cloud project is in <em>"Testing"</em> mode. Switching to <em>"In production"</em> makes sync permanent forever.
+                </div>
+              )}
+            </div>
           </div>
-          <button 
-            className="btn btn-secondary" 
-            style={{ 
-              padding: '6px 12px', 
-              fontSize: '12px', 
-              backgroundColor: 'rgba(239,68,68,0.1)', 
-              borderColor: 'rgba(239,68,68,0.2)',
-              color: '#f87171',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px' 
-            }}
-            onClick={() => loadGoogleEvents(currentYear, currentMonth)}
-          >
-            <RefreshCw size={12} /> Retry Sync
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {isAuthError && (
+              <>
+                <button 
+                  className="btn btn-primary"
+                  style={{ padding: '6px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  onClick={handleQuickReconnect}
+                  disabled={syncLoading}
+                >
+                  <RefreshCw size={12} className={syncLoading ? 'animate-spin' : ''} /> {syncLoading ? 'Connecting...' : '1-Click Reconnect'}
+                </button>
+                <button 
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(59,130,246,0.1)', color: '#60a5fa', borderColor: 'rgba(59,130,246,0.25)' }}
+                  onClick={() => setIsPermanentGuideOpen(true)}
+                >
+                  <ShieldCheck size={12} /> Permanent Sync Guide
+                </button>
+              </>
+            )}
+            <button 
+              className="btn btn-secondary" 
+              style={{ 
+                padding: '6px 12px', 
+                fontSize: '12px', 
+                backgroundColor: 'rgba(255,255,255,0.04)', 
+                borderColor: 'var(--border-light)',
+                color: 'var(--text-secondary)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px' 
+              }}
+              onClick={() => loadGoogleEvents(currentYear, currentMonth)}
+            >
+              <RefreshCw size={12} /> Retry Sync
+            </button>
+          </div>
         </div>
       )}
 
@@ -986,13 +1090,16 @@ export default function ScheduleView() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {selectedDayData.tasks.map(task => {
                       const isCompleted = task.status === 'Completed';
+                      const tType = task.type || 'task';
+                      const borderCol = isCompleted ? 'var(--accent-success)' : (tType === 'meeting' ? '#8b5cf6' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)'))));
+                      const bgCol = isCompleted ? 'rgba(16,185,129,0.04)' : (tType === 'meeting' ? 'rgba(139,92,246,0.04)' : (tType === 'followup' ? 'rgba(6,182,212,0.04)' : 'rgba(59,130,246,0.04)'));
                       return (
                         <div 
                           key={task.id} 
                           style={{ 
                             padding: '10px 12px', 
-                            backgroundColor: isCompleted ? 'rgba(16,185,129,0.04)' : 'rgba(139,92,246,0.04)', 
-                            borderLeft: `3px solid ${isCompleted ? 'var(--accent-success)' : 'var(--accent-primary)'}`, 
+                            backgroundColor: bgCol, 
+                            borderLeft: `3px solid ${borderCol}`, 
                             borderRadius: '6px',
                             display: 'flex',
                             alignItems: 'flex-start',
@@ -1006,16 +1113,48 @@ export default function ScheduleView() {
                             {isCompleted ? <CheckCircle2 size={15} /> : <Circle size={15} />}
                           </button>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ 
-                              fontSize: '13px', 
-                              color: isCompleted ? 'var(--text-muted)' : 'var(--text-primary)', 
-                              textDecoration: isCompleted ? 'line-through' : 'none',
-                              wordBreak: 'break-word' 
-                            }}>
-                              {task.description}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                              {tType === 'meeting' && (
+                                <span style={{ fontSize: '9.5px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#c084fc' }}>
+                                  📅 Meeting
+                                </span>
+                              )}
+                              {tType === 'followup' && (
+                                <span style={{ fontSize: '9.5px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(6,182,212,0.15)', color: '#38bdf8' }}>
+                                  📞 Follow-up {task.channel ? `(${task.channel})` : ''}
+                                </span>
+                              )}
+                              {tType === 'task' && (
+                                <span style={{ fontSize: '9.5px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(59,130,246,0.12)', color: '#93c5fd' }}>
+                                  📋 Task
+                                </span>
+                              )}
+                              {tType === 'task' && task.priority && task.priority !== 'Normal' && (
+                                <span style={{
+                                  fontSize: '9px',
+                                  fontWeight: '600',
+                                  padding: '1px 4px',
+                                  borderRadius: '3px',
+                                  backgroundColor: task.priority === 'Urgent' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                                  color: task.priority === 'Urgent' ? '#f87171' : '#fbbf24'
+                                }}>
+                                  {task.priority}
+                                </span>
+                              )}
+                              <span style={{ 
+                                fontSize: '13px', 
+                                color: isCompleted ? 'var(--text-muted)' : 'var(--text-primary)', 
+                                textDecoration: isCompleted ? 'line-through' : 'none',
+                                wordBreak: 'break-word',
+                                fontWeight: '500'
+                              }}>
+                                {task.description}
+                              </span>
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                              <span>Client: {task.clientName} {task.dueTime ? `| Time: ${task.dueTime}${task.dueEndTime ? ` - ${task.dueEndTime}` : ''}` : ''} {task.location ? `| Loc: ${task.location}` : ''}</span>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span>Client: <strong style={{ color: 'var(--text-primary)' }}>{task.clientName}</strong></span>
+                              {task.dueTime && <span>• {task.dueTime}{task.dueEndTime ? ` – ${task.dueEndTime}` : ''}</span>}
+                              {task.location && <span>• 📍 {task.location}</span>}
                               {task.googleEventId && (
                                 <span style={{ fontSize: '8px', backgroundColor: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)', padding: '0px 4px', borderRadius: '3px' }} title="Synced to Google Calendar">
                                   Synced
@@ -1305,11 +1444,20 @@ export default function ScheduleView() {
             </p>
 
             <div style={{ padding: '12px 14px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ⭐ How to Keep Sync Permanent Forever (No 7-Day Expiry)
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  ⭐ Prevent 7-Day Disconnections Forever
+                </span>
+                <button 
+                  type="button" 
+                  onClick={() => setIsPermanentGuideOpen(true)}
+                  style={{ background: 'none', border: 'none', color: '#93c5fd', fontSize: '11px', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                >
+                  Step-by-Step Guide →
+                </button>
               </div>
               <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                In your Google Cloud Console → <strong>APIs & Services</strong> → <strong>OAuth consent screen</strong>, click <strong>"Publish App"</strong> to switch status from <em>"Testing"</em> to <em>"In production"</em>. This ensures your authorization stays permanent and never expires every week!
+                In Google Cloud Console → <strong>APIs & Services</strong> → <strong>OAuth consent screen</strong>, click <strong>"Publish App"</strong> to set status to <strong>"In production"</strong>. This ensures your authorization stays permanent and never expires every week!
               </div>
             </div>
 
@@ -1364,6 +1512,140 @@ export default function ScheduleView() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Sync Guide Modal */}
+      {isPermanentGuideOpen && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', padding: '20px' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '620px', maxHeight: '90vh', overflowY: 'auto', padding: '28px', animation: 'fadeIn 0.2s ease-out', borderRadius: '12px', border: '1px solid rgba(59,130,246,0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                  <ShieldCheck size={24} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: 0, fontWeight: '600' }}>
+                    How to Enable Permanent Google Sync
+                  </h2>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                    Stop having to disconnect and reconnect every 7 days
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                style={{ padding: '4px 8px', fontSize: '12px' }}
+                onClick={() => setIsPermanentGuideOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Why does this happen banner */}
+            <div style={{ padding: '12px 16px', backgroundColor: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: '8px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#eab308', marginBottom: '4px' }}>
+                Why does Google disconnect every week?
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                When creating a project in Google Cloud Console, Google automatically marks your OAuth Consent Screen as <strong>"Testing"</strong>. By Google's security rule, <em>all refresh tokens in "Testing" mode expire after exactly 7 days</em>.
+              </div>
+            </div>
+
+            {/* Step-by-step instructions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+              
+              <div style={{ display: 'flex', gap: '12px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
+                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', flexShrink: 0 }}>
+                  1
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Open Google Cloud Console
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4', marginBottom: '8px' }}>
+                    Go to the OAuth Consent Screen in your Google Cloud account for your CRM project.
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary" 
+                    style={{ fontSize: '11px', padding: '4px 10px', gap: '6px', display: 'inline-flex', alignItems: 'center', color: '#60a5fa', borderColor: 'rgba(59,130,246,0.3)' }}
+                    onClick={handleOpenGoogleConsole}
+                  >
+                    <ExternalLink size={12} /> Open OAuth Consent Screen in Browser
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
+                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', flexShrink: 0 }}>
+                  2
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Click "PUBLISH APP"
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    Under <strong>Publishing status</strong>, click the <strong>"PUBLISH APP"</strong> button and click <strong>"Confirm"</strong>. This changes status from <em>"Testing"</em> to <em>"In production"</em>.
+                  </div>
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.03)', padding: '6px 8px', borderRadius: '4px' }}>
+                    ℹ️ <em>Note on Verification:</em> Google will say "Needs verification". You can safely <strong>IGNORE</strong> this! Google allows personal/internal apps in production up to 100 users with no verification review needed.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)', borderRadius: '8px' }}>
+                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', flexShrink: 0 }}>
+                  3
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    Reconnect One Last Time
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    Click the <strong>Reconnect Now</strong> button below. When Google displays <em>"Google hasn't verified this app"</em>, click <strong>"Advanced"</strong> → <strong>"Go to [App Name] (unsafe)"</strong>, then click <strong>"Continue / Allow"</strong> to complete 1-click sync.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', padding: '12px', backgroundColor: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px' }}>
+                <div style={{ width: '24px', height: '24px', borderRadius: '50%', backgroundColor: 'var(--accent-success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold', flexShrink: 0 }}>
+                  ✓
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#34d399', marginBottom: '2px' }}>
+                    Permanent Sync Active!
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    Your refresh token will now <strong>never expire every week</strong>. Background calendar sync will run continuously without interruptions!
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid var(--border-light)' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={() => setIsPermanentGuideOpen(false)}
+              >
+                Close
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary"
+                onClick={() => {
+                  setIsPermanentGuideOpen(false);
+                  handleQuickReconnect();
+                }}
+                disabled={syncLoading}
+              >
+                <RefreshCw size={13} className={syncLoading ? 'animate-spin' : ''} /> {syncLoading ? 'Connecting...' : 'Reconnect Now'}
+              </button>
+            </div>
           </div>
         </div>
       )}

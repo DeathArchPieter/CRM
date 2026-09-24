@@ -23,12 +23,16 @@ try {
   require('dotenv').config();
 }
 
-const { app, BrowserWindow, ipcMain, shell, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, dialog, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const http = require('http');
 
 const isDev = !app.isPackaged;
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.beetsma.crm');
+}
 
 let mainWindow = null;
 let updateStatus = {
@@ -346,6 +350,21 @@ function initDatabase() {
         ];
         saveDatabase();
       }
+
+      // Ensure client dependents and policy insuredType migration defaults exist
+      if (Array.isArray(db.clients)) {
+        db.clients.forEach(c => {
+          if (!c.dependents) c.dependents = [];
+          if (!c.familyMembers) c.familyMembers = [];
+        });
+      }
+      if (Array.isArray(db.policies)) {
+        db.policies.forEach(p => {
+          if (!p.insuredType) p.insuredType = 'Self';
+          if (!p.insuredName) p.insuredName = '';
+          if (!p.insuredRelationship) p.insuredRelationship = 'Self';
+        });
+      }
     } else {
       saveDatabase();
     }
@@ -514,6 +533,8 @@ function createWindow() {
         clientStatus: clientData.clientStatus || 'Active',
         tags: clientData.tags || [],
         notes: clientData.notes || '',
+        dependents: clientData.dependents || [],
+        familyMembers: clientData.familyMembers || [],
         lastContactedAt: clientData.lastContactedAt || now,
         createdAt: now,
         updatedAt: now
@@ -554,6 +575,12 @@ function createWindow() {
       const newPolicy = {
         id,
         clientId: policyData.clientId,
+        insuredType: policyData.insuredType || 'Self',
+        insuredPersonId: policyData.insuredPersonId || null,
+        insuredName: policyData.insuredName || '',
+        insuredRelationship: policyData.insuredRelationship || (policyData.insuredType === 'Dependent' ? 'Child' : 'Self'),
+        insuredDob: policyData.insuredDob || null,
+        insuredGender: policyData.insuredGender || '',
         policyName: policyData.policyName || '',
         policyNumber: policyData.policyNumber || '',
         provider: policyData.provider || '',
@@ -621,6 +648,12 @@ function createWindow() {
       db.policies[index] = {
         ...db.policies[index],
         ...policyData,
+        insuredType: policyData.insuredType !== undefined ? policyData.insuredType : (db.policies[index].insuredType || 'Self'),
+        insuredPersonId: policyData.insuredPersonId !== undefined ? policyData.insuredPersonId : (db.policies[index].insuredPersonId || null),
+        insuredName: policyData.insuredName !== undefined ? policyData.insuredName : (db.policies[index].insuredName || ''),
+        insuredRelationship: policyData.insuredRelationship !== undefined ? policyData.insuredRelationship : (db.policies[index].insuredRelationship || 'Self'),
+        insuredDob: policyData.insuredDob !== undefined ? policyData.insuredDob : (db.policies[index].insuredDob || null),
+        insuredGender: policyData.insuredGender !== undefined ? policyData.insuredGender : (db.policies[index].insuredGender || ''),
         policyName: policyData.policyName || db.policies[index].policyName || '',
         premiumAmount: Number(policyData.premiumAmount) || 0,
         coverages: policyData.coverages || {},
@@ -832,6 +865,221 @@ function createWindow() {
       }
       return { success: true };
     } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Automatic Claim Bill Ingestion & AI Auto-Tagging
+  ipcMain.handle('auto-tag-claim-bill', async (event, { clientId, claimId, fileName, fileType, filePath, fileBase64, mimeType }) => {
+    try {
+      const userData = app.getPath('userData');
+      const safeClientId = String(clientId || 'general').replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const safeClaimId = String(claimId || 'temp').replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const targetDir = path.join(userData, 'claims_documents', safeClientId, safeClaimId);
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const origExt = path.extname(fileName || 'invoice.pdf') || (fileType ? `.${fileType.replace('.', '')}` : '.pdf');
+      const origBase = path.basename(fileName || 'Medical_Bill', origExt);
+      const cleanBase = origBase.replace(/[^a-zA-Z0-9_\- ]/g, '_').trim() || 'Medical_Bill';
+      const destFileName = `${cleanBase}_${Date.now()}${origExt}`;
+      const destPath = path.join(targetDir, destFileName);
+
+      // Save file to destination vault
+      if (filePath && fs.existsSync(filePath)) {
+        fs.copyFileSync(filePath, destPath);
+      } else if (fileBase64) {
+        fs.writeFileSync(destPath, Buffer.from(fileBase64, 'base64'));
+      } else {
+        throw new Error('No file path or file base64 data provided');
+      }
+
+      const stat = fs.statSync(destPath);
+      
+      // Determine MIME type
+      let finalMimeType = mimeType;
+      const lowerExt = origExt.toLowerCase();
+      if (!finalMimeType || finalMimeType === 'application/octet-stream') {
+        if (lowerExt === '.pdf') finalMimeType = 'application/pdf';
+        else if (lowerExt === '.png') finalMimeType = 'image/png';
+        else if (lowerExt === '.jpg' || lowerExt === '.jpeg') finalMimeType = 'image/jpeg';
+        else if (lowerExt === '.webp') finalMimeType = 'image/webp';
+        else finalMimeType = 'application/pdf';
+      }
+
+      // Read base64 for Gemini if not already loaded
+      let base64Payload = fileBase64;
+      if (!base64Payload) {
+        base64Payload = fs.readFileSync(destPath).toString('base64');
+      }
+
+      let parsedData = null;
+      let isAiSuccess = false;
+
+      // Attempt Gemini AI extraction if key is present
+      const apiKey = getGeminiApiKey();
+      if (apiKey && ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(finalMimeType)) {
+        try {
+          const systemInstruction = `You are an expert Singapore medical claims auditor and healthcare invoice analyst at Beetsma Consultancy.
+Analyze the attached medical bill, clinic receipt, hospital tax invoice, or pharmacy statement and extract the key billing parameters.
+
+Extract the following into a strict JSON object:
+- "billDate": Date of service, consultation, admission, or invoice in "YYYY-MM-DD" format. Default to the date printed on the invoice.
+- "provider": Name of healthcare provider, specialist center, hospital, or clinic (e.g., Mount Elizabeth Novena, Gleneagles, Raffles Hospital, Singapore General Hospital, Thomson Medical, Novena Specialist Clinic, etc.).
+- "description": Concise description of medical treatment, surgery, diagnostic test, or consultation (e.g., 'Pre-op MRI Knee Scan', 'Emergency Appendectomy & 3-Day Inpatient Ward', 'Orthopaedic Specialist Consultation & Medication', 'Physiotherapy Treatment').
+- "billNumber": Invoice number, tax invoice #, receipt #, or statement reference (e.g. 'INV-2026-0812').
+- "incurredAmount": Total final payable / incurred billed amount as a number (e.g. 1850.50). Search for "Total Payable", "Total Charges (incl. GST)", "Net Total Due", or "Final Bill Amount".
+- "claimedAmount": Eligible claimed amount as a number (defaults to same as incurredAmount).
+- "notes": Concise note of notable itemized charges (e.g., 'Surgeon Fee S$2,500, Ward & Room S$850, Pharmacy S$120, GST 9% included').
+
+Respond ONLY with the raw JSON object. Do not include markdown code block syntax (no \`\`\`json).`;
+
+          const response = await fetch(getGeminiUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemInstruction }] },
+              contents: [{
+                role: 'user',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: finalMimeType,
+                      data: base64Payload
+                    }
+                  },
+                  {
+                    text: 'Extract the medical bill particulars from this document into the required JSON schema.'
+                  }
+                ]
+              }],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 2048,
+                responseMimeType: 'application/json'
+              }
+            })
+          });
+
+          if (response.ok) {
+            const jsonRes = await response.json();
+            let rawText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+            rawText = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+            parsedData = JSON.parse(rawText);
+            isAiSuccess = true;
+          } else {
+            const errText = await response.text();
+            writeToLogFile(`[IPC] auto-tag-claim-bill Gemini HTTP ${response.status}: ${errText}`);
+          }
+        } catch (aiErr) {
+          writeToLogFile(`[IPC] auto-tag-claim-bill Gemini exception: ${aiErr.message}`);
+        }
+      }
+
+      // Fallback heuristics if AI failed or was unavailable
+      if (!isAiSuccess || !parsedData) {
+        // 1. Extract Date from filename
+        let extractedDate = new Date().toISOString().split('T')[0];
+        const dateMatch = origBase.match(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/);
+        if (dateMatch) {
+          extractedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+        } else {
+          const reverseDateMatch = origBase.match(/(?:^|[\s_])(0[1-9]|[12]\d|3[01])[-_/.](0[1-9]|1[0-2])[-_/.](20\d{2})(?:$|[\s_])/);
+          if (reverseDateMatch) {
+            extractedDate = `${reverseDateMatch[3]}-${reverseDateMatch[2]}-${reverseDateMatch[1]}`;
+          }
+        }
+
+        // 2. Extract Amount from filename
+        let textWithoutDate = origBase;
+        if (dateMatch) {
+          textWithoutDate = textWithoutDate.replace(dateMatch[0], ' ');
+        }
+
+        let extractedAmount = 0;
+        const explicitAmountMatch = textWithoutDate.match(/(?:\$|SGD|S\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
+        if (explicitAmountMatch) {
+          extractedAmount = parseFloat(explicitAmountMatch[1].replace(/,/g, '')) || 0;
+        } else {
+          const decimalMatch = textWithoutDate.match(/(?:^|[\s_])([0-9]+(?:\.[0-9]{2}))(?:$|[\s_])/);
+          if (decimalMatch) {
+            extractedAmount = parseFloat(decimalMatch[1]) || 0;
+          } else {
+            const numberMatch = textWithoutDate.match(/(?:^|[\s_])([1-9][0-9]{1,5})(?:$|[\s_])/);
+            if (numberMatch) {
+              extractedAmount = parseFloat(numberMatch[1]) || 0;
+            }
+          }
+        }
+
+        // 3. Healthcare Provider Guess
+        let providerGuess = 'Clinic / Hospital';
+        const cleanNameLower = origBase.toLowerCase();
+        if (cleanNameLower.includes('mount elizabeth') || cleanNameLower.includes('mte') || cleanNameLower.includes('novena')) providerGuess = 'Mount Elizabeth Hospital';
+        else if (cleanNameLower.includes('raffles')) providerGuess = 'Raffles Medical Group';
+        else if (cleanNameLower.includes('gleneagles')) providerGuess = 'Gleneagles Hospital';
+        else if (cleanNameLower.includes('thomson')) providerGuess = 'Thomson Medical Centre';
+        else if (cleanNameLower.includes('sgh') || cleanNameLower.includes('singapore general')) providerGuess = 'Singapore General Hospital';
+        else if (cleanNameLower.includes('nuh') || cleanNameLower.includes('national university')) providerGuess = 'National University Hospital';
+        else if (cleanNameLower.includes('ttsh') || cleanNameLower.includes('tan tock seng')) providerGuess = 'Tan Tock Seng Hospital';
+        else if (cleanNameLower.includes('clinic')) providerGuess = 'Specialist Medical Clinic';
+
+        // 4. Clean description
+        const descriptionReadable = origBase
+          .replace(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/g, ' ')
+          .replace(/(?:\$|SGD|S\$)\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?/gi, ' ')
+          .replace(/(?:^|[\s_])[0-9]+(?:\.[0-9]{2})(?:$|[\s_])/g, ' ')
+          .replace(/(?:^|[\s_])[1-9][0-9]{1,5}(?:$|[\s_])/g, ' ')
+          .replace(/[-_]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+
+        parsedData = {
+          billDate: extractedDate,
+          provider: providerGuess,
+          description: descriptionReadable || 'Medical Consultation & Bill',
+          billNumber: '',
+          incurredAmount: extractedAmount,
+          claimedAmount: extractedAmount,
+          notes: 'Auto-tagged from document file. Please verify details.'
+        };
+      }
+
+      // Sanitize numeric and string values
+      const incurredVal = Number(parsedData.incurredAmount) || 0;
+      const claimedVal = Number(parsedData.claimedAmount) || incurredVal;
+
+      const billItem = {
+        id: crypto.randomUUID(),
+        billDate: parsedData.billDate || new Date().toISOString().split('T')[0],
+        provider: parsedData.provider || 'Clinic / Hospital',
+        description: parsedData.description || 'Medical Bill',
+        billNumber: parsedData.billNumber || '',
+        incurredAmount: Math.round(incurredVal * 100) / 100,
+        claimedAmount: Math.round(claimedVal * 100) / 100,
+        insurerPaidAmount: 0,
+        deductibleOrCoPay: 0,
+        medisaveOffset: 0,
+        status: 'Pending Insurer Payout',
+        notes: parsedData.notes || '',
+        receiptFilePath: destPath,
+        receiptFileName: path.basename(destPath),
+        fileSize: stat.size,
+        aiTagged: isAiSuccess,
+        uploadedAt: new Date().toISOString()
+      };
+
+      writeToLogFile(`[IPC] auto-tag-claim-bill success: ${billItem.description} ($${billItem.incurredAmount}) [AI: ${isAiSuccess}]`);
+
+      return {
+        success: true,
+        billItem,
+        isAiSuccess
+      };
+    } catch (error) {
+      writeToLogFile(`[IPC] auto-tag-claim-bill failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -1249,16 +1497,30 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
       const newTask = {
         id,
         clientId: taskData.clientId,
+        type: taskData.type || 'task', // 'task' | 'meeting' | 'followup'
         description: taskData.description || '',
         status: taskData.status || 'Pending', // Pending | Completed
         dueDate: taskData.dueDate || null,
         dueTime: taskData.dueTime || null,
         dueEndTime: taskData.dueEndTime || null,
         location: taskData.location || '',
+        priority: taskData.priority || 'Normal', // 'Normal' | 'High' | 'Urgent'
+        channel: taskData.channel || null, // 'WhatsApp' | 'Phone Call' | 'Email' | 'Coffee' | 'Office' | 'In-Person'
+        logTouchpointOnComplete: !!taskData.logTouchpointOnComplete,
         createdAt: now,
         updatedAt: now
       };
       db.tasks.push(newTask);
+
+      // Invalidate client AI insights cache so new tasks trigger fresh advisory insights
+      if (taskData.clientId) {
+        const clientIndex = db.clients.findIndex(c => c.id === taskData.clientId);
+        if (clientIndex !== -1) {
+          db.clients[clientIndex].aiInsights = null;
+          db.clients[clientIndex].aiInsightsGeneratedAt = null;
+        }
+      }
+
       saveDatabase();
 
       // Sync in background (non-blocking)
@@ -1286,10 +1548,32 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
       };
       db.tasks[index] = updatedTask;
 
-      if (updatedTask.status === 'Completed' && updatedTask.clientId) {
+      if (updatedTask.clientId) {
         const clientIndex = db.clients.findIndex(c => c.id === updatedTask.clientId);
         if (clientIndex !== -1) {
-          db.clients[clientIndex].lastContactedAt = new Date().toISOString();
+          if (updatedTask.status === 'Completed') {
+            db.clients[clientIndex].lastContactedAt = new Date().toISOString();
+            
+            // Automatically log touchpoint if marked as completed follow-up/meeting or explicitly requested
+            if (updatedTask.logTouchpointOnComplete || updatedTask.type === 'followup' || updatedTask.type === 'meeting') {
+              db.clients[clientIndex].touchpoints = db.clients[clientIndex].touchpoints || [];
+              const touchpointDate = updatedTask.dueDate || new Date().toISOString().split('T')[0];
+              const alreadyLogged = db.clients[clientIndex].touchpoints.some(tp => {
+                if (typeof tp === 'string') return tp === touchpointDate;
+                return tp.date === touchpointDate && tp.notes === updatedTask.description;
+              });
+              if (!alreadyLogged) {
+                db.clients[clientIndex].touchpoints.push({
+                  date: touchpointDate,
+                  type: updatedTask.type === 'meeting' ? 'Meeting' : (updatedTask.channel || 'Follow-up'),
+                  notes: updatedTask.description
+                });
+              }
+            }
+          }
+          // Invalidate client AI insights cache on task modification/completion
+          db.clients[clientIndex].aiInsights = null;
+          db.clients[clientIndex].aiInsightsGeneratedAt = null;
         }
       }
 
@@ -1315,6 +1599,14 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
       
       const task = db.tasks[taskIndex];
       const googleEventId = task.googleEventId;
+
+      if (task.clientId) {
+        const clientIndex = db.clients.findIndex(c => c.id === task.clientId);
+        if (clientIndex !== -1) {
+          db.clients[clientIndex].aiInsights = null;
+          db.clients[clientIndex].aiInsightsGeneratedAt = null;
+        }
+      }
 
       db.tasks.splice(taskIndex, 1);
       saveDatabase();
@@ -1343,11 +1635,95 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
           const client = db.clients.find(c => c.id === t.clientId);
           return {
             ...t,
-            clientName: client ? client.fullName : 'Unknown Client'
+            clientName: client ? client.fullName : 'Unknown Client',
+            clientPreferredName: client ? (client.preferredName || client.fullName) : null,
+            clientPhone: client ? client.phone : null,
+            clientEmail: client ? client.email : null
           };
         })
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
       return { success: true, data: pendingTasks };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Snooze task / meeting / follow-up
+  ipcMain.handle('snooze-task', async (event, { taskId, option, customDate, customTime }) => {
+    writeToLogFile(`[IPC] snooze-task called for task ID: ${taskId}, option: ${option}`);
+    try {
+      const index = db.tasks.findIndex(t => t.id === taskId);
+      if (index === -1) throw new Error('Task not found');
+      const task = db.tasks[index];
+
+      const now = new Date();
+      let targetDate = new Date();
+
+      if (option === '30m') {
+        targetDate = new Date(now.getTime() + 30 * 60 * 1000);
+      } else if (option === '2h') {
+        targetDate = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+      } else if (option === 'tomorrow-9am') {
+        targetDate = new Date(now);
+        targetDate.setDate(targetDate.getDate() + 1);
+        targetDate.setHours(9, 0, 0, 0);
+      } else if (option === 'next-monday-9am') {
+        targetDate = new Date(now);
+        const day = targetDate.getDay();
+        const daysUntilNextMonday = ((1 + 7 - day) % 7) || 7;
+        targetDate.setDate(targetDate.getDate() + daysUntilNextMonday);
+        targetDate.setHours(9, 0, 0, 0);
+      } else if (option === 'custom' && customDate) {
+        const parts = customDate.split('-');
+        targetDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (customTime) {
+          const [h, m] = customTime.split(':');
+          targetDate.setHours(Number(h), Number(m), 0, 0);
+        } else {
+          targetDate.setHours(9, 0, 0, 0);
+        }
+      }
+
+      const yyyy = targetDate.getFullYear();
+      const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(targetDate.getDate()).padStart(2, '0');
+      const hh = String(targetDate.getHours()).padStart(2, '0');
+      const min = String(targetDate.getMinutes()).padStart(2, '0');
+
+      task.dueDate = `${yyyy}-${mm}-${dd}`;
+      task.dueTime = `${hh}:${min}`;
+      task.updatedAt = new Date().toISOString();
+
+      saveDatabase();
+
+      // Re-sync with Google Calendar if enabled
+      if (db.googleCalendarSettings?.tokens) {
+        syncTaskToGoogleCalendar(task).catch(err => {
+          console.error('Background task snooze sync failed:', err);
+        });
+      }
+
+      writeToLogFile(`[IPC] snooze-task successfully postponed task to ${task.dueDate} ${task.dueTime}`);
+      return { success: true, task };
+    } catch (error) {
+      writeToLogFile(`[IPC] snooze-task failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Desktop Notification Test
+  ipcMain.handle('test-notification', () => {
+    try {
+      if (!Notification.isSupported()) {
+        return { success: false, error: 'Desktop notifications are not supported on this platform' };
+      }
+      showTaskDesktopNotification({
+        title: '🔔 Beetsma CRM Desktop Reminders Active',
+        body: 'Windows desktop notifications are active and will alert you for upcoming meetings and follow-ups.',
+        task: { id: 'test-ping', priority: 'Normal', type: 'meeting' },
+        client: null
+      });
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
@@ -1718,18 +2094,112 @@ PENDING TASKS: ${pendingTasks.length}${pendingTasks.length > 0 ? '\n' + taskList
         ageText = `${age} years old`;
       }
 
-      const systemInstruction = `You are a premier financial consultancy mentor and sales assistant at Beetsma Consultancy. Your role is to analyze a client's profile, existing policy portfolio, active sales pipeline cases, and pending tasks, and write custom, strategic advisor thoughts for the consultant.
-Focus on:
-1. Gaps in coverage (e.g. if they have no Critical Illness cover, high premiums but low coverage, etc.).
-2. Next steps based on pending tasks and active pipeline status.
-3. Personal context or relationship advice based on the user's personal remarks/notes.
-Provide your response in a warm, analytical, and professional tone. Keep it to 3-4 bullet points (max 150 words total). Use formatting like bold text for key recommendations. Do not use markdown headers or code blocks.`;
+      // Current date & baseline for temporal analysis
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const todayFormatted = now.toLocaleDateString('en-SG', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
 
-      const userMessage = `Here is the client's data:
+      // Split tasks into pending and completed
+      const pendingTasks = clientTasks.filter(t => t.status === 'Pending');
+      const completedTasks = clientTasks.filter(t => t.status === 'Completed');
+
+      // Sort pending tasks chronologically (soonest due date first, tasks without due date last)
+      pendingTasks.sort((a, b) => {
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return 0;
+      });
+
+      const formattedPendingTasks = pendingTasks.length > 0
+        ? pendingTasks.map(t => {
+            let timingInfo = 'No due date specified';
+            let urgencyTag = '';
+            if (t.dueDate) {
+              const taskDate = new Date(t.dueDate + 'T00:00:00');
+              const diffMs = taskDate.getTime() - new Date(todayStr + 'T00:00:00').getTime();
+              const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+              const formattedDueDate = taskDate.toLocaleDateString('en-SG', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              });
+
+              if (diffDays < 0) {
+                urgencyTag = ` [⚠️ OVERDUE by ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} - URGENT]`;
+              } else if (diffDays === 0) {
+                urgencyTag = ' [⚡ DUE TODAY - HIGH PRIORITY]';
+              } else if (diffDays === 1) {
+                urgencyTag = ' [TOMORROW]';
+              } else {
+                urgencyTag = ` [Upcoming in ${diffDays} days]`;
+              }
+
+              timingInfo = `Due: ${formattedDueDate}`;
+              if (t.dueTime) {
+                timingInfo += ` at ${t.dueTime}${t.dueEndTime ? ` - ${t.dueEndTime}` : ''}`;
+              }
+            }
+
+            const locInfo = t.location ? ` | Location: ${t.location}` : '';
+            return `- "${t.description}" (${timingInfo}${locInfo})${urgencyTag}`;
+          }).join('\n')
+        : 'No pending tasks or follow-ups.';
+
+      // Recent completed tasks (last 3)
+      const recentCompletedTasks = completedTasks.slice(0, 3).map(t => {
+        const completedDate = t.updatedAt ? new Date(t.updatedAt).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }) : 'Recently';
+        return `- "${t.description}" (Completed on ${completedDate})`;
+      }).join('\n');
+
+      // Client financial blueprint summary if available
+      let blueprintInfo = 'No financial blueprint configured.';
+      if (client.financialPlan) {
+        const bp = client.financialPlan;
+        blueprintInfo = `Target Retirement: Age ${bp.profile?.targetRetirementAge || 'N/A'}, Monthly Surplus: $${bp.cashflow?.monthlySurplus || 0}, Net Worth: $${bp.balanceSheet?.totalNetWorth || 0}`;
+      }
+
+      const systemInstruction = `You are an elite financial advisory mentor, senior director, and strategic sales coach at Beetsma Consultancy. Your role is to analyze a client's profile, existing policy portfolio, active pipeline deals, consultant remarks, and CRITICALLY their upcoming scheduled tasks, meetings, and follow-ups. You produce high-impact, actionable advisor insights for the consultant.
+
+TODAY'S DATE: ${todayFormatted} (${todayStr})
+
+CRITICAL ADVISORY PRIORITIES:
+1. UPCOMING TASKS & FOLLOW-UPS (MANDATORY FOCUS):
+   - You MUST explicitly recognize and address scheduled upcoming tasks, meetings, and follow-ups.
+   - For any upcoming meeting, call, or follow-up, provide concrete, tactical talking points and preparation guidance (e.g. specific policy comparisons, actuarial questions to ask, objection counters, or documents to bring).
+   - If any task is OVERDUE or DUE TODAY, explicitly warn the advisor and recommend immediate resolution.
+2. COVERAGE GAPS & ACTIVE PIPELINE OPPORTUNITIES:
+   - Identify glaring gaps in coverage (e.g. missing Critical Illness, inadequate death/TPD cover, high premium with low sum assured, unassigned nominations).
+   - Link active pipeline cases to upcoming follow-ups where applicable.
+3. CLIENT CONTEXT & CONSULTANT REMARKS:
+   - Integrate consultant remarks, life stage, family status, and behavioral cues.
+
+OUTPUT FORMAT & CONSTRAINTS:
+- Write exactly 3 to 4 impactful bullet points (150-200 words total).
+- Lead each bullet with a bold action-oriented header, for example:
+  • **Upcoming Meeting Prep ([Date/Topic])**: [Concrete advice and talking points]
+  • **Urgent Follow-up ([Task/Overdue])**: [Immediate recommended action]
+  • **Portfolio Protection Gap**: [Strategic coverage insight]
+  • **Relationship & Next Steps**: [Contextual advisory advice]
+- Maintain a sharp, professional, encouraging, and highly analytical tone.
+- Do NOT use markdown code blocks or generic filler.`;
+
+      const userMessage = `Here is the client's current profile and schedule:
 - Name: ${client.fullName} ${client.preferredName ? `(Preferred: ${client.preferredName})` : ''}
 - Age / DOB: ${ageText}
 - Status: ${client.clientStatus}
 - User's Personal Remarks: ${client.notes || 'None recorded yet.'}
+- Financial Blueprint: ${blueprintInfo}
+
+SCHEDULED TASKS & UPCOMING FOLLOW-UPS:
+${formattedPendingTasks}
+${recentCompletedTasks ? `\nRECENT COMPLETED TOUCHPOINTS:\n${recentCompletedTasks}` : ''}
 
 POLICIES IN PORTFOLIO:
 ${clientPolicies.map(p => `- ${p.policyName} (${p.policyType}) by ${p.provider}: Premium ${p.premiumAmount} ${p.premiumFrequency}, Status: ${p.status}, Coverages: ${JSON.stringify(p.coverages)}`).join('\n') || 'No policies active.'}
@@ -1737,10 +2207,7 @@ ${clientPolicies.map(p => `- ${p.policyName} (${p.policyType}) by ${p.provider}:
 ACTIVE SALES PIPELINE:
 ${clientPipeline.map(c => `- ${c.policyName} (${c.policyType}): Stage: ${c.stage}, Est. Premium: $${c.estimatedPremium}, Est. FYC: $${c.estimatedFYC}`).join('\n') || 'No pipeline cases active.'}
 
-PENDING TASKS:
-${clientTasks.filter(t => t.status === 'Pending').map(t => `- ${t.description}`).join('\n') || 'No pending tasks.'}
-
-Please analyze this client and provide your strategic thoughts.`;
+Please analyze this client and provide your strategic thoughts, paying special attention to preparing the consultant for upcoming tasks, meetings, and follow-ups.`;
 
       const response = await fetch(getGeminiUrl(), {
         method: 'POST',
@@ -3606,7 +4073,7 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       const width = 680;
       const height = 115;
       const pad = { top: 16, right: 25, bottom: 20, left: 55 };
-      const maxVal = Math.max(...retireData.map(d => Math.max(d.targetLiving, d.guaranteedCpf + d.actualDrawdown + d.shortfall)), 50000);
+      const maxVal = Math.max(...retireData.map(d => Math.max(d.targetLiving, d.guaranteedCpf + d.passive + d.actualDrawdown + d.shortfall)), 50000);
 
       const getX = (age) => pad.left + ((age - retireAge) / Math.max(1, maxAge - retireAge)) * (width - pad.left - pad.right);
       const getY = (val) => height - pad.bottom - (Math.max(0, val) / maxVal) * (height - pad.top - pad.bottom);
@@ -3635,12 +4102,17 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
         const x = getX(d.age) - (barWidth / 2);
         let currentY = height - pad.bottom;
         const hCpf = (d.guaranteedCpf / maxVal) * (height - pad.top - pad.bottom);
+        const hPassive = (d.passive / maxVal) * (height - pad.top - pad.bottom);
         const hDraw = (d.actualDrawdown / maxVal) * (height - pad.top - pad.bottom);
         const hShort = (d.shortfall / maxVal) * (height - pad.top - pad.bottom);
 
         if (hCpf > 0) {
           bars += `<rect x="${x}" y="${currentY - hCpf}" width="${barWidth}" height="${hCpf}" fill="#818CF8" opacity="0.9" rx="0.5" />`;
           currentY -= hCpf;
+        }
+        if (hPassive > 0) {
+          bars += `<rect x="${x}" y="${currentY - hPassive}" width="${barWidth}" height="${hPassive}" fill="#06B6D4" opacity="0.9" rx="0.5" />`;
+          currentY -= hPassive;
         }
         if (hDraw > 0) {
           bars += `<rect x="${x}" y="${currentY - hDraw}" width="${barWidth}" height="${hDraw}" fill="#10B981" opacity="0.9" rx="0.5" />`;
@@ -3660,20 +4132,22 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
         ${ageTicks}
         ${bars}
         <polyline points="${targetPoints}" fill="none" stroke="#D97706" stroke-width="2" stroke-dasharray="3,2" />
-        <g transform="translate(${width - 260}, ${pad.top - 6})">
-          <rect x="0" y="0" width="7" height="5" fill="#818CF8" />
-          <text x="10" y="5" fill="#334155" font-size="7">CPF LIFE / Annuity</text>
-          <rect x="80" y="0" width="7" height="5" fill="#10B981" />
-          <text x="90" y="5" fill="#334155" font-size="7">Portfolio Drawdown</text>
-          <line x1="165" y1="2.5" x2="175" y2="2.5" stroke="#D97706" stroke-width="1.5" stroke-dasharray="2,1" />
-          <text x="179" y="5" fill="#B45309" font-size="7">Target Need</text>
+        <g transform="translate(${width - 340}, ${pad.top - 6})">
+          <rect x="0" y="0" width="6" height="5" fill="#818CF8" />
+          <text x="8" y="5" fill="#334155" font-size="6.5">CPF LIFE</text>
+          <rect x="58" y="0" width="6" height="5" fill="#06B6D4" />
+          <text x="66" y="5" fill="#334155" font-size="6.5">Passive/Rent</text>
+          <rect x="130" y="0" width="6" height="5" fill="#10B981" />
+          <text x="138" y="5" fill="#334155" font-size="6.5">Drawdown</text>
+          <line x1="195" y1="2.5" x2="205" y2="2.5" stroke="#D97706" stroke-width="1.5" stroke-dasharray="2,1" />
+          <text x="209" y="5" fill="#B45309" font-size="6.5">Target Need</text>
         </g>
       </svg>`;
     })()}
 
     <div style="font-size: 8.5px; color: #475569; line-height: 1.4; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #E2E8F0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
       <div>
-        <strong>Guaranteed Annuity Floor (CPF LIFE):</strong> Provides a lifelong income layer of <strong>${formatCur(retirement.expectedAnnuityPensions || 0)}/mo</strong> to cover baseline living expenses.
+        <strong>Guaranteed Annuity Floor (CPF LIFE):</strong> Provides a lifelong income layer of <strong>${formatCur(retirement.expectedAnnuityPensions || 0)}/mo</strong> (${Math.round(((Number(retirement.expectedAnnuityPensions || 0) + (Number(cashflow.monthlyPassiveIncome) || 0)) / Math.max(1, Number(retirement.desiredMonthlyIncome) || 1)) * 100)}% coverage of baseline living expenses).
       </div>
       <div>
         <strong>Portfolio Drawdown & Longevity:</strong> Covers discretionary retirement expenses. Solvency Status: <strong style="color: ${retirement.isRetirementOnTrack ? '#059669' : '#DC2626'};">${retirement.isRetirementOnTrack ? '✓ Capital sustained past age ' + lifeExpectancy : '⚠️ Projected depletion at age ' + (retirement.baselineDepletion || 'N/A')}</strong>.
@@ -3732,7 +4206,11 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       ${policies.map(p => `
       <tr>
         <td><strong>${p.insurer || 'Insurer'}</strong><br><span style="font-size: 8.5px; color: #64748B;">#${p.policyNumber || 'N/A'}</span></td>
-        <td>${p.policyName || 'Plan Name'}<br><span style="font-size: 8.5px; color: #2563EB;">${p.policyType || 'General'}</span></td>
+        <td>
+          ${p.policyName || 'Plan Name'}<br>
+          <span style="font-size: 8.5px; color: #2563EB;">${p.policyType || 'General'}</span>
+          ${p.insuredType === 'Dependent' ? ` &bull; <span style="font-size: 8px; color: #7C3AED; font-weight: 600; background: #F3E8FF; padding: 1px 4px; border-radius: 3px;">👶 Insured: ${p.insuredName || 'Dependent'} (${p.insuredRelationship || 'Family'})</span>` : ' &bull; <span style="font-size: 8px; color: #64748B;">👤 Insured: Self</span>'}
+        </td>
         <td>${formatCur(p.premium)} / ${p.premiumFrequency || 'yr'}</td>
         <td><span class="${p.status === 'In Force' ? 'badge-success' : 'badge-primary'}">${p.status || 'Active'}</span></td>
         <td>
@@ -3743,10 +4221,10 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
   </table>`}
 
   <div style="font-size: 9.5px; font-weight: 700; color: #0F172A; text-transform: uppercase; margin-bottom: 4px;">
-    Insurance Coverage vs. Recommended Guidelines
+    Insurance Coverage vs. Recommended Guidelines (Primary Client)
   </div>
 
-  <table class="doc-table">
+  <table class="doc-table" style="margin-bottom: ${policies.some(p => p.insuredType === 'Dependent') ? '10px' : '0'};">
     <thead>
       <tr>
         <th style="width: 26%;">Risk Category</th>
@@ -3788,6 +4266,36 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       </tr>
     </tbody>
   </table>
+
+  ${(() => {
+    const depPolicies = policies.filter(p => p.insuredType === 'Dependent');
+    if (depPolicies.length === 0) return '';
+    return `
+    <div style="font-size: 9px; font-weight: 700; color: #6D28D9; text-transform: uppercase; margin-top: 8px; margin-bottom: 3px;">
+      👶 Children & Dependents In-Force Protection Schedule (${depPolicies.length} Policies)
+    </div>
+    <table class="doc-table" style="background-color: #FAF5FF; border-color: #E9D5FF;">
+      <thead>
+        <tr style="background-color: #F3E8FF;">
+          <th style="width: 25%;">Insured Dependent</th>
+          <th style="width: 32%;">Plan & Insurer</th>
+          <th style="width: 18%;">Annual Premium</th>
+          <th style="width: 25%;">Benefits & Coverages</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${depPolicies.map(dp => `
+        <tr>
+          <td><strong>${dp.insuredName || 'Dependent'}</strong><br><span style="font-size: 8px; color: #7C3AED;">${dp.insuredRelationship || 'Family'}</span></td>
+          <td>${dp.policyName || 'Plan'}<br><span style="font-size: 8px; color: #64748B;">${dp.insurer || ''} • ${dp.policyType || ''}</span></td>
+          <td>${formatCur(dp.premium)} / ${dp.premiumFrequency || 'yr'}</td>
+          <td>
+            ${dp.coverages && Object.keys(dp.coverages).length > 0 ? Object.entries(dp.coverages).map(([k, v]) => `<span style="font-size: 8px; background: #EDE9FE; color: #5B21B6; padding: 1px 4px; border-radius: 3px; margin: 1px; display: inline-block;">${k}: ${formatCur(v)}</span>`).join(' ') : '<span style="font-size: 8px; color: #7C3AED;">In Force</span>'}
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  })()}
 
   <div class="running-footer">
     <span>Prepared for: ${clientName}</span>
@@ -4423,7 +4931,8 @@ Generate the tweaked outreach message script template in the specified JSON form
         clientId: db.googleCalendarSettings?.clientId || '',
         clientSecret: db.googleCalendarSettings?.clientSecret || '',
         email: db.googleCalendarSettings?.email || '',
-        connected: !!db.googleCalendarSettings?.tokens
+        connected: !!db.googleCalendarSettings?.tokens,
+        lastAuthError: db.googleCalendarSettings?.lastAuthError || null
       }
     };
   });
@@ -4438,6 +4947,10 @@ Generate the tweaked outreach message script template in the specified JSON form
 
   ipcMain.handle('open-path', async (event, pathString) => {
     try {
+      if (pathString && (pathString.startsWith('http://') || pathString.startsWith('https://'))) {
+        await shell.openExternal(pathString);
+        return { success: true };
+      }
       await shell.openPath(pathString);
       return { success: true };
     } catch (err) {
@@ -4475,43 +4988,218 @@ Generate the tweaked outreach message script template in the specified JSON form
     }
   });
 
-  ipcMain.handle('start-google-oauth', (event, { clientId, clientSecret }) => {
+  function renderAuthCallbackHtml({ success, title, message, authUrl, email }) {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} — Beetsma Consultancy CRM</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    body {
+      background: #090d16;
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid ${success ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'};
+      box-shadow: 0 20px 40px -15px ${success ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'};
+      border-radius: 16px;
+      padding: 36px 32px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .icon-badge {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: ${success ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)'};
+      border: 1px solid ${success ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'};
+      color: ${success ? '#34d399' : '#f87171'};
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin: 0 auto 20px auto;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+    p {
+      font-size: 14.5px;
+      line-height: 1.55;
+      color: #94a3b8;
+      margin-bottom: 20px;
+    }
+    .email-pill {
+      display: inline-block;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      color: #60a5fa;
+      padding: 4px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 18px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      background: #4f46e5;
+      color: #ffffff;
+      border: 1px solid #6366f1;
+    }
+    .btn:hover {
+      background: #4338ca;
+    }
+    .tip {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 18px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-badge">${success ? '✓' : '⚠️'}</div>
+    <h1>${title}</h1>
+    ${email ? `<div class="email-pill">${email}</div>` : ''}
+    <p>${message}</p>
+    ${!success && authUrl ? `<a href="${authUrl}" class="btn">Try Again</a>` : ''}
+    <div class="tip">${success ? 'You may close this browser tab and return to the CRM app.' : 'Return to Beetsma Consultancy CRM to manage your connection.'}</div>
+  </div>
+  ${success ? `<script>setTimeout(() => { window.close(); }, 3500);</script>` : ''}
+</body>
+</html>`;
+  }
+
+  ipcMain.handle('start-google-oauth', async (event, { clientId, clientSecret }) => {
+    db.googleCalendarSettings = db.googleCalendarSettings || {};
+    db.googleCalendarSettings.clientId = clientId;
+    db.googleCalendarSettings.clientSecret = clientSecret;
+    saveDatabase();
+
+    const PORT = 18430;
+    const redirectUri = `http://localhost:${PORT}/auth-callback`;
+    // Use ONLY the calendar scope to avoid Google's Granular Consent unbundling (which leaves the calendar box unchecked by default)
+    const scopes = 'https://www.googleapis.com/auth/calendar';
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&include_granted_scopes=true`;
+
+    if (authServer) {
+      try {
+        await new Promise((res) => authServer.close(res));
+      } catch(e){}
+      authServer = null;
+    }
+
     return new Promise((resolve) => {
-      db.googleCalendarSettings = db.googleCalendarSettings || {};
-      db.googleCalendarSettings.clientId = clientId;
-      db.googleCalendarSettings.clientSecret = clientSecret;
-      saveDatabase();
+      let isResolved = false;
+      const safeResolve = (val) => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve(val);
+        }
+      };
 
-      const PORT = 18430;
-      const redirectUri = `http://localhost:${PORT}/auth-callback`;
+      const serverTimeout = setTimeout(() => {
+        if (authServer) {
+          try { authServer.close(); } catch(e){}
+          authServer = null;
+        }
+        safeResolve({ success: false, error: 'Authentication timed out. Please try again from the CRM.' });
+      }, 5 * 60 * 1000);
 
-      if (authServer) {
-        try { authServer.close(); } catch(e){}
-      }
+      const closeServerGracefully = (delayMs = 1500) => {
+        clearTimeout(serverTimeout);
+        setTimeout(() => {
+          if (authServer) {
+            try { authServer.close(); } catch(e){}
+            authServer = null;
+          }
+        }, delayMs);
+      };
 
       authServer = http.createServer(async (req, res) => {
         try {
           const urlObj = new URL(req.url, `http://${req.headers.host}`);
           if (urlObj.pathname === '/auth-callback') {
             const code = urlObj.searchParams.get('code');
+            const errorParam = urlObj.searchParams.get('error');
+
+            if (errorParam) {
+              const errorDesc = urlObj.searchParams.get('error_description') || errorParam;
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(renderAuthCallbackHtml({
+                success: false,
+                title: 'Connection Cancelled',
+                message: errorParam === 'access_denied'
+                  ? 'Google Calendar access was not granted or was cancelled. Click the button below to try again.'
+                  : `Google authentication error: ${errorDesc}. Click below to try again.`,
+                authUrl
+              }));
+              safeResolve({ success: false, error: `Google auth error: ${errorDesc}` });
+              closeServerGracefully();
+              return;
+            }
+
             if (code) {
               const tokenRes = await exchangeCodeForTokens(clientId, clientSecret, code, redirectUri);
               if (tokenRes.success) {
-                // Check if calendar scope was actually granted by the user
+                // Verify calendar scope was granted
                 const grantedScope = tokenRes.tokens.scope || '';
                 if (!grantedScope.includes('https://www.googleapis.com/auth/calendar')) {
-                  res.writeHead(400, { 'Content-Type': 'text/html' });
-                  res.end('<h1>Authentication incomplete</h1><p>Google Calendar permissions were not granted. Please go back, authenticate again, and make sure to tick the checkbox to allow calendar access.</p>');
-                  resolve({ success: false, error: 'Calendar access permission was not granted. Please re-authenticate and tick the calendar permission box.' });
-                  authServer.close();
-                  authServer = null;
+                  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                  res.end(renderAuthCallbackHtml({
+                    success: false,
+                    title: 'Calendar Permission Required',
+                    message: 'Google Calendar permissions were not granted. Please click below to try again and ensure calendar access is allowed.',
+                    authUrl
+                  }));
+                  safeResolve({ success: false, error: 'Calendar access permission was not granted. Please re-authenticate and allow calendar access.' });
+                  closeServerGracefully();
                   return;
                 }
 
                 db.googleCalendarSettings.tokens = tokenRes.tokens;
-                const userinfo = await fetchUserInfo(tokenRes.tokens.access_token);
-                if (userinfo.success) {
-                  db.googleCalendarSettings.email = userinfo.email;
+                delete db.googleCalendarSettings.lastAuthError;
+
+                // Detect user email: first from Google primary calendar (which always matches owner email), fallback to userinfo
+                let detectedEmail = '';
+                const calEmailRes = await fetchCalendarEmail(tokenRes.tokens.access_token);
+                if (calEmailRes.success && calEmailRes.email && calEmailRes.email.includes('@')) {
+                  detectedEmail = calEmailRes.email;
+                } else {
+                  const userinfo = await fetchUserInfo(tokenRes.tokens.access_token);
+                  if (userinfo.success && userinfo.email) {
+                    detectedEmail = userinfo.email;
+                  }
+                }
+                if (detectedEmail) {
+                  db.googleCalendarSettings.email = detectedEmail;
                 }
                 saveDatabase();
                 
@@ -4524,39 +5212,62 @@ Generate the tweaked outreach message script template in the specified JSON form
                       }
                     }
                   } catch (syncErr) {
-                    console.error('Initial bulk sync after OAuth failed:', syncErr);
+                    writeToLogFile(`[Google Calendar] Initial bulk sync warning: ${syncErr.message}`);
                   }
                 })();
 
-                res.writeHead(200, { 'Content-Type': 'text/html' });
-                res.end('<h1>Authentication successful!</h1><p>You can close this tab and return to the CRM app.</p>');
-                resolve({ success: true, email: db.googleCalendarSettings.email });
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(renderAuthCallbackHtml({
+                  success: true,
+                  title: 'Google Calendar Connected!',
+                  message: 'Your Google Calendar has been successfully authenticated and synchronized with Beetsma Consultancy CRM.',
+                  email: db.googleCalendarSettings.email
+                }));
+                safeResolve({ success: true, email: db.googleCalendarSettings.email });
+                closeServerGracefully();
               } else {
-                res.writeHead(400, { 'Content-Type': 'text/html' });
-                res.end(`<h1>Authentication failed</h1><p>${tokenRes.error}</p>`);
-                resolve({ success: false, error: tokenRes.error });
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(renderAuthCallbackHtml({
+                  success: false,
+                  title: 'Authentication Failed',
+                  message: `Google token exchange failed: ${tokenRes.error}`,
+                  authUrl
+                }));
+                safeResolve({ success: false, error: tokenRes.error });
+                closeServerGracefully();
               }
             } else {
-              res.writeHead(400, { 'Content-Type': 'text/html' });
-              res.end('<h1>Authentication code not found</h1>');
-              resolve({ success: false, error: 'Code not found' });
+              res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+              res.end(renderAuthCallbackHtml({
+                success: false,
+                title: 'Authorization Code Missing',
+                message: 'No authorization code was returned by Google. Please try again.',
+                authUrl
+              }));
+              safeResolve({ success: false, error: 'Code not found' });
+              closeServerGracefully();
             }
-            authServer.close();
-            authServer = null;
           } else {
             res.writeHead(404);
             res.end();
           }
         } catch(err) {
-          res.writeHead(500);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
           res.end(err.message);
-          resolve({ success: false, error: err.message });
+          safeResolve({ success: false, error: err.message });
+          closeServerGracefully(500);
         }
       });
 
+      authServer.on('error', (err) => {
+        writeToLogFile(`[Google OAuth] Callback server error: ${err.message}`);
+        clearTimeout(serverTimeout);
+        safeResolve({ success: false, error: `Could not start local authorization listener: ${err.message}` });
+        authServer = null;
+      });
+
       authServer.listen(PORT, () => {
-        const scopes = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/userinfo.email';
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
+        writeToLogFile(`[Google OAuth] Started local callback listener on port ${PORT}`);
         shell.openExternal(authUrl);
       });
     });
@@ -4707,6 +5418,9 @@ app.whenReady().then(() => {
 
   // Start continuous, permanent background calendar sync
   startContinuousCalendarSync();
+
+  // Start continuous native desktop reminder scheduler
+  startContinuousReminderScheduler();
 });
 
 app.on('window-all-closed', function () {
@@ -4719,13 +5433,24 @@ async function runBackgroundCalendarSync() {
   if (!settings || !settings.tokens) return;
 
   try {
-    // 1. Proactively refresh access token if refresh token exists
-    if (settings.tokens.refresh_token && settings.clientId && settings.clientSecret) {
+    // 1. Proactively refresh access token ONLY when expiring within 5 minutes or already expired
+    const isExpiringSoon = !settings.tokens.expiry_date || (Date.now() > (settings.tokens.expiry_date - 5 * 60 * 1000));
+    if (isExpiringSoon && settings.tokens.refresh_token && settings.clientId && settings.clientSecret) {
       const refreshRes = await refreshAccessToken(settings.clientId, settings.clientSecret, settings.tokens.refresh_token);
       if (refreshRes.success) {
         settings.tokens.access_token = refreshRes.accessToken;
+        if (refreshRes.refreshToken) {
+          settings.tokens.refresh_token = refreshRes.refreshToken;
+        }
+        settings.tokens.expiry_date = Date.now() + (refreshRes.expiresIn || 3600) * 1000;
+        delete settings.lastAuthError;
         saveDatabase();
         writeToLogFile('[Calendar Auto-Sync] Proactively refreshed Google access token.');
+      } else {
+        settings.lastAuthError = refreshRes.error;
+        saveDatabase();
+        writeToLogFile(`[Calendar Auto-Sync] Token refresh warning: ${refreshRes.error}`);
+        return; // Don't proceed to sync if token refresh failed
       }
     }
 
@@ -4776,8 +5501,30 @@ async function exchangeCodeForTokens(clientId, clientSecret, code, redirectUri) 
       throw new Error(`Token exchange failed: ${text}`);
     }
     const tokens = await response.json();
+    if (tokens && tokens.expires_in) {
+      tokens.expiry_date = Date.now() + (tokens.expires_in * 1000);
+    }
     return { success: true, tokens };
   } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+async function fetchCalendarEmail(accessToken) {
+  try {
+    const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary', {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      writeToLogFile(`[Google Calendar] Primary calendar fetch returned ${response.status}: ${errText}`);
+      return { success: false, error: `Status ${response.status}` };
+    }
+    const data = await response.json();
+    const email = data.id || data.summary || '';
+    return { success: true, email };
+  } catch (err) {
+    writeToLogFile(`[Google Calendar] Failed to fetch primary calendar: ${err.message}`);
     return { success: false, error: err.message };
   }
 }
@@ -4812,7 +5559,12 @@ async function refreshAccessToken(clientId, clientSecret, refreshToken) {
       throw new Error(`Token refresh failed: ${text}`);
     }
     const data = await response.json();
-    return { success: true, accessToken: data.access_token, expiresIn: data.expires_in };
+    return { 
+      success: true, 
+      accessToken: data.access_token, 
+      expiresIn: data.expires_in,
+      refreshToken: data.refresh_token || refreshToken
+    };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -4850,13 +5602,22 @@ async function callGoogleCalendarAPI(endpoint, options = {}) {
       const refreshRes = await refreshAccessToken(settings.clientId, settings.clientSecret, settings.tokens.refresh_token);
       if (refreshRes.success) {
         settings.tokens.access_token = refreshRes.accessToken;
+        if (refreshRes.refreshToken) {
+          settings.tokens.refresh_token = refreshRes.refreshToken;
+        }
+        settings.tokens.expiry_date = Date.now() + (refreshRes.expiresIn || 3600) * 1000;
+        delete settings.lastAuthError;
         saveDatabase();
         accessToken = refreshRes.accessToken;
         response = await makeRequest(accessToken);
       } else {
+        settings.lastAuthError = refreshRes.error;
+        saveDatabase();
         throw new Error(`Google authorization expired: ${refreshRes.error}`);
       }
     } else {
+      settings.lastAuthError = 'Google authorization expired (no refresh token available)';
+      saveDatabase();
       throw new Error('Google authorization expired (no refresh token available)');
     }
   }
@@ -4897,8 +5658,35 @@ async function syncTaskToGoogleCalendar(task) {
   const client = db.clients.find(c => c.id === task.clientId);
   const clientName = client ? client.fullName : 'Unknown Client';
   const prefix = task.status === 'Completed' ? '✓ ' : '';
-  const summary = `${prefix}CRM Task: ${task.description} (${clientName})`;
-  const description = `Linked to CRM Client: ${clientName}\nStatus: ${task.status}\nCreated: ${new Date(task.createdAt).toLocaleString()}`;
+  
+  let summary = '';
+  let colorId = '3'; // Grape by default
+
+  const type = task.type || 'task';
+  if (type === 'meeting') {
+    summary = `${prefix}📅 Meeting: ${task.description} (${clientName})`;
+    colorId = '3'; // Grape (violet)
+  } else if (type === 'followup') {
+    const ch = task.channel ? ` [${task.channel}]` : '';
+    summary = `${prefix}📞 Follow-up${ch}: ${task.description} (${clientName})`;
+    colorId = '7'; // Peacock (cyan)
+  } else {
+    const prio = task.priority && task.priority !== 'Normal' ? ` [${task.priority}]` : '';
+    summary = `${prefix}📋 Task${prio}: ${task.description} (${clientName})`;
+    colorId = task.priority === 'Urgent' ? '11' : (task.priority === 'High' ? '4' : '5'); // Flamingo (red) or Banana (yellow)
+  }
+
+  const descLines = [
+    `Linked to CRM Client: ${clientName}`,
+    `Type: ${type.toUpperCase()}`,
+    task.priority ? `Priority: ${task.priority}` : null,
+    task.channel ? `Channel: ${task.channel}` : null,
+    task.location ? `Venue: ${task.location}` : null,
+    `Status: ${task.status}`,
+    `Created: ${new Date(task.createdAt).toLocaleString()}`
+  ].filter(Boolean);
+
+  const description = descLines.join('\n');
   
   // Handle start and end times
   let start, end;
@@ -4931,7 +5719,7 @@ async function syncTaskToGoogleCalendar(task) {
     location: task.location || '',
     start,
     end,
-    colorId: '3', // Set to Grape (violet) to match Beetsma Consultancy branding
+    colorId,
     reminders: {
       useDefault: true
     }
@@ -4973,3 +5761,124 @@ async function syncTaskToGoogleCalendar(task) {
     return { success: false, error: err.message };
   }
 }
+
+// Native OS Notifications & Background Reminder Scheduler
+const notifiedTaskKeys = new Set();
+
+function showTaskDesktopNotification({ title, body, task, client }) {
+  try {
+    if (!Notification.isSupported()) return;
+    const notif = new Notification({
+      title,
+      body: body || 'Beetsma CRM Advisory Reminder',
+      urgency: task?.priority === 'Urgent' ? 'critical' : 'normal',
+      timeoutType: 'default'
+    });
+
+    notif.on('click', () => {
+      writeToLogFile(`[Reminder] Desktop notification clicked for task: ${task?.id}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('navigate-to-client', {
+          clientId: task?.clientId || (client ? client.id : null),
+          taskId: task?.id
+        });
+      }
+    });
+
+    notif.show();
+    writeToLogFile(`[Reminder] Triggered native desktop notification: "${title}"`);
+  } catch (err) {
+    writeToLogFile(`[Reminder] Failed to trigger desktop notification: ${err.message}`);
+  }
+}
+
+function runTaskReminderCheck() {
+  try {
+    if (!Notification.isSupported()) return;
+    if (!db.tasks || db.tasks.length === 0) return;
+
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    const pendingTasks = db.tasks.filter(t => t.status === 'Pending');
+
+    for (const task of pendingTasks) {
+      if (!task.dueDate) continue;
+
+      const client = db.clients.find(c => c.id === task.clientId);
+      const clientName = client ? (client.preferredName || client.fullName) : (task.clientName || 'Client');
+
+      // 1. Timed events today
+      if (task.dueDate === todayStr && task.dueTime) {
+        const [taskH, taskM] = task.dueTime.split(':').map(Number);
+        if (!isNaN(taskH) && !isNaN(taskM)) {
+          const taskMinutes = taskH * 60 + taskM;
+          const diffMinutes = taskMinutes - currentMinutes;
+
+          // Alert 15 minutes before (within 1 to 15 minute window)
+          if (diffMinutes > 0 && diffMinutes <= 15) {
+            const key15m = `${task.id}-15m-${todayStr}`;
+            if (!notifiedTaskKeys.has(key15m)) {
+              notifiedTaskKeys.add(key15m);
+              showTaskDesktopNotification({
+                title: task.type === 'meeting' 
+                  ? `📅 Meeting in ${diffMinutes}m: ${clientName}` 
+                  : (task.type === 'followup' ? `📞 Follow-up in ${diffMinutes}m: ${clientName}` : `📋 Task due in ${diffMinutes}m: ${clientName}`),
+                body: `${task.description}${task.location ? ` • ${task.location}` : ''}${task.channel ? ` • ${task.channel}` : ''}`,
+                task,
+                client
+              });
+            }
+          }
+
+          // Alert when starting / due now (0 to -10 minutes window)
+          if (diffMinutes <= 0 && diffMinutes >= -10) {
+            const keyDue = `${task.id}-due-${todayStr}`;
+            if (!notifiedTaskKeys.has(keyDue)) {
+              notifiedTaskKeys.add(keyDue);
+              showTaskDesktopNotification({
+                title: task.type === 'meeting'
+                  ? `📅 Meeting Starting Now: ${clientName}`
+                  : (task.type === 'followup' ? `📞 Follow-up Due Now: ${clientName}` : `📋 Task Deadline: ${clientName}`),
+                body: `${task.description}${task.location ? ` • ${task.location}` : ''}`,
+                task,
+                client
+              });
+            }
+          }
+        }
+      } else if (task.dueDate === todayStr && !task.dueTime) {
+        // All-day item: alert once in the morning after 9:00 AM
+        if (now.getHours() >= 9) {
+          const keyAllDay = `${task.id}-allday-${todayStr}`;
+          if (!notifiedTaskKeys.has(keyAllDay)) {
+            notifiedTaskKeys.add(keyAllDay);
+            showTaskDesktopNotification({
+              title: `📅 Due Today: ${clientName}`,
+              body: `${task.description}`,
+              task,
+              client
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    writeToLogFile(`[Reminder] Check error: ${err.message}`);
+  }
+}
+
+function startContinuousReminderScheduler() {
+  setTimeout(() => {
+    runTaskReminderCheck();
+    setInterval(runTaskReminderCheck, 60000); // Check every 60 seconds
+  }, 4000);
+}
+

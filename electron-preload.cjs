@@ -1,6 +1,16 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  getPathForFile: (file) => {
+    try {
+      if (webUtils && typeof webUtils.getPathForFile === 'function') {
+        return webUtils.getPathForFile(file);
+      }
+    } catch (e) {
+      // fallback
+    }
+    return file?.path || '';
+  },
   minimize: () => ipcRenderer.send('window-minimize'),
   maximize: () => ipcRenderer.send('window-maximize'),
   close: () => ipcRenderer.send('window-close'),
@@ -25,7 +35,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addTask: (taskData) => ipcRenderer.invoke('add-task', taskData),
   updateTask: (taskData) => ipcRenderer.invoke('update-task', taskData),
   deleteTask: (taskId) => ipcRenderer.invoke('delete-task', taskId),
+  snoozeTask: (payload) => ipcRenderer.invoke('snooze-task', payload),
   getAllTasks: () => ipcRenderer.invoke('get-all-tasks'),
+  testNotification: () => ipcRenderer.invoke('test-notification'),
+  onNavigateToClient: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('navigate-to-client', subscription);
+    return () => ipcRenderer.removeListener('navigate-to-client', subscription);
+  },
   getAiBriefing: (forceRefresh) => ipcRenderer.invoke('get-ai-briefing', forceRefresh),
   analyseProduct: (payload) => ipcRenderer.invoke('analyse-product', payload),
   analyseCardStatement: (payload) => ipcRenderer.invoke('analyse-card-statement', payload),
@@ -83,6 +100,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteClaimFile: (filePath) => ipcRenderer.invoke('delete-claim-file', filePath),
   analyseClaimSettlementReconciliation: (payload) => ipcRenderer.invoke('analyse-claim-settlement-reconciliation', payload),
   generateClaimAiAssist: (payload) => ipcRenderer.invoke('generate-claim-ai-assist', payload),
+  autoTagClaimBill: (payload) => ipcRenderer.invoke('auto-tag-claim-bill', payload),
 
   // Logging API
   writeLog: (message) => ipcRenderer.invoke('write-log', message),

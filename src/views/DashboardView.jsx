@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, 
   AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar, 
-  Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle 
+  Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle,
+  Bell, ChevronDown, ChevronUp, Check
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
@@ -49,6 +50,39 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingTime, setBriefingTime] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeDashboardSnoozeId, setActiveDashboardSnoozeId] = useState(null);
+  const [isActionCenterCollapsed, setIsActionCenterCollapsed] = useState(false);
+
+  const todayDateStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const overduePendingTasks = useMemo(() => {
+    return pendingTasks.filter(t => t.dueDate && t.dueDate < todayDateStr);
+  }, [pendingTasks, todayDateStr]);
+
+  const todayPendingTasks = useMemo(() => {
+    return pendingTasks.filter(t => t.dueDate && t.dueDate === todayDateStr);
+  }, [pendingTasks, todayDateStr]);
+
+  const urgentActionItems = useMemo(() => {
+    return [...overduePendingTasks, ...todayPendingTasks].sort((a, b) => {
+      if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      if (a.dueTime && b.dueTime) return a.dueTime.localeCompare(b.dueTime);
+      return 0;
+    });
+  }, [overduePendingTasks, todayPendingTasks]);
+
+  const handleSnoozeTask = async (taskId, option) => {
+    if (window.electronAPI?.snoozeTask) {
+      const res = await window.electronAPI.snoozeTask({ taskId, option });
+      if (res.success) {
+        addToast('Task postponed successfully', 'info');
+        loadData();
+      }
+    }
+  };
 
   const isSameDay = (d1, d2) => {
     return d1.getFullYear() === d2.getFullYear() &&
@@ -372,6 +406,293 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           onClick={() => onNavigateTab && onNavigateTab('sales')}
         />
       </div>
+
+      {/* ── Action Center: High-Priority Reminders & Follow-ups Banner ── */}
+      {urgentActionItems.length > 0 && (
+        <div style={{
+          background: overduePendingTasks.length > 0
+            ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%)'
+            : 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%)',
+          border: overduePendingTasks.length > 0
+            ? '1px solid rgba(239, 68, 68, 0.3)'
+            : '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: '14px',
+          padding: '14px 18px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+        }}>
+          {/* Banner Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+              <div style={{
+                padding: '6px',
+                borderRadius: '8px',
+                backgroundColor: overduePendingTasks.length > 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                color: overduePendingTasks.length > 0 ? '#f87171' : '#fbbf24',
+                display: 'flex'
+              }}>
+                <Bell size={16} style={{ animation: overduePendingTasks.length > 0 ? 'pulse 2s infinite' : 'none' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Action Center: Priorities & Due Items</span>
+                  {overduePendingTasks.length > 0 && (
+                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                      {overduePendingTasks.length} Overdue
+                    </span>
+                  )}
+                  {todayPendingTasks.length > 0 && (
+                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.25)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                      {todayPendingTasks.length} Due Today
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Complete or postpone follow-ups to maintain prompt client engagement
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('schedule')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--accent-primary)',
+                  fontSize: '11.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                Full Calendar <ChevronRight size={12} />
+              </button>
+              <button
+                onClick={() => setIsActionCenterCollapsed(prev => !prev)}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '6px',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                {isActionCenterCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                <span>{isActionCenterCollapsed ? 'Expand' : 'Collapse'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Banner Item Cards Grid */}
+          {!isActionCenterCollapsed && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '10px'
+            }}>
+              {urgentActionItems.slice(0, 4).map(task => {
+                const isOverdue = task.dueDate < todayDateStr;
+                const isSnoozeOpen = activeDashboardSnoozeId === task.id;
+                const matchedClient = clients.find(c => c.id === task.clientId);
+                const clientName = matchedClient ? (matchedClient.preferredName || matchedClient.fullName) : (task.clientName || 'Client');
+                const clientPhone = matchedClient ? matchedClient.phone : task.clientPhone;
+
+                return (
+                  <div
+                    key={task.id}
+                    style={{
+                      background: 'rgba(18, 18, 24, 0.7)',
+                      border: isOverdue ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-light)',
+                      borderLeft: `3px solid ${isOverdue ? '#f87171' : '#fbbf24'}`,
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '7px',
+                      position: 'relative'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        {task.type === 'meeting' && (
+                          <span style={{ fontSize: '9.5px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(139, 92, 246, 0.2)', color: '#c084fc' }}>
+                            📅 Meeting
+                          </span>
+                        )}
+                        {task.type === 'followup' && (
+                          <span style={{ fontSize: '9.5px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(6, 182, 212, 0.2)', color: '#38bdf8' }}>
+                            📞 Follow-up
+                          </span>
+                        )}
+                        {(!task.type || task.type === 'task') && (
+                          <span style={{ fontSize: '9.5px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: 'var(--text-secondary)' }}>
+                            📋 Task
+                          </span>
+                        )}
+                        {task.priority && task.priority !== 'Normal' && (
+                          <span style={{
+                            fontSize: '8.5px',
+                            fontWeight: '700',
+                            padding: '1px 4px',
+                            borderRadius: '3px',
+                            backgroundColor: task.priority === 'Urgent' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(245, 158, 11, 0.2)',
+                            color: task.priority === 'Urgent' ? '#f87171' : '#fbbf24'
+                          }}>
+                            {task.priority}
+                          </span>
+                        )}
+                      </div>
+
+                      <span style={{ fontSize: '10.5px', fontWeight: '600', color: isOverdue ? '#f87171' : '#fbbf24', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Clock size={10} />
+                        {isOverdue ? `Overdue (${task.dueDate})` : (task.dueTime ? `Today at ${task.dueTime}` : 'Due Today')}
+                      </span>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '12.5px', fontWeight: '500', color: 'var(--text-primary)', lineHeight: '1.3', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.description}>
+                        {task.description}
+                      </div>
+                      <div
+                        style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: '600', marginTop: '2px', cursor: 'pointer', textDecoration: 'underline' }}
+                        onClick={() => matchedClient && handleOpenClient(matchedClient)}
+                        title="Click to view client file"
+                      >
+                        {clientName}
+                      </div>
+                    </div>
+
+                    {/* Action Row */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                      <div style={{ display: 'flex', gap: '5px' }}>
+                        <button
+                          onClick={() => handleCompleteTask(task)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '10.5px',
+                            fontWeight: '600',
+                            backgroundColor: 'rgba(52, 211, 153, 0.15)',
+                            color: '#34d399',
+                            border: '1px solid rgba(52, 211, 153, 0.3)',
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            cursor: 'pointer'
+                          }}
+                          title="Complete and log touchpoint"
+                        >
+                          <Check size={11} /> Done
+                        </button>
+
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => setActiveDashboardSnoozeId(isSnoozeOpen ? null : task.id)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              fontSize: '10.5px',
+                              backgroundColor: 'rgba(255,255,255,0.05)',
+                              color: 'var(--text-secondary)',
+                              border: '1px solid var(--border-light)',
+                              padding: '3px 7px',
+                              borderRadius: '5px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Clock size={10} /> Snooze
+                          </button>
+
+                          {isSnoozeOpen && (
+                            <div style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: 0,
+                              marginBottom: '5px',
+                              width: '140px',
+                              backgroundColor: 'rgba(24, 24, 32, 0.98)',
+                              backdropFilter: 'blur(16px)',
+                              border: '1px solid var(--border-light)',
+                              borderRadius: '7px',
+                              boxShadow: '0 8px 20px rgba(0,0,0,0.5)',
+                              padding: '3px',
+                              zIndex: 20,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px'
+                            }}>
+                              {[
+                                { id: '30m', label: '+30 Minutes' },
+                                { id: '2h', label: '+2 Hours' },
+                                { id: 'tomorrow-9am', label: 'Tomorrow 9am' },
+                                { id: 'next-monday-9am', label: 'Next Mon 9am' },
+                              ].map(opt => (
+                                <button
+                                  key={opt.id}
+                                  onClick={() => {
+                                    handleSnoozeTask(task.id, opt.id);
+                                    setActiveDashboardSnoozeId(null);
+                                  }}
+                                  style={{
+                                    textAlign: 'left',
+                                    padding: '5px 7px',
+                                    fontSize: '10.5px',
+                                    color: 'var(--text-primary)',
+                                    backgroundColor: 'transparent',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(139, 92, 246, 0.2)'}
+                                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {clientPhone && (
+                        <button
+                          onClick={() => handleWhatsApp(clientPhone, clientName)}
+                          style={{
+                            background: 'rgba(37, 211, 102, 0.12)',
+                            border: '1px solid rgba(37, 211, 102, 0.25)',
+                            color: '#25D366',
+                            padding: '3px 6px',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '10.5px'
+                          }}
+                          title="WhatsApp client"
+                        >
+                          <MessageCircle size={11} /> WhatsApp
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Row 2: AI Briefing (span 2) + Today's Schedule + Overdue ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
@@ -701,8 +1022,36 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                     <Circle size={15} />
                   </button>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', color: 'var(--text-primary)', wordBreak: 'break-word' }}>{task.description}</div>
-                    <div style={{ fontSize: '11px', color: '#a78bfa', marginTop: '2px' }}>{task.clientName}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      {task.type === 'meeting' && (
+                        <span style={{ fontSize: '9px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#c084fc' }}>
+                          📅 Meeting
+                        </span>
+                      )}
+                      {task.type === 'followup' && (
+                        <span style={{ fontSize: '9px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(6,182,212,0.15)', color: '#38bdf8' }}>
+                          📞 Follow-up
+                        </span>
+                      )}
+                      {task.priority && task.priority !== 'Normal' && (
+                        <span style={{
+                          fontSize: '8.5px',
+                          fontWeight: '600',
+                          padding: '0px 4px',
+                          borderRadius: '3px',
+                          backgroundColor: task.priority === 'Urgent' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                          color: task.priority === 'Urgent' ? '#f87171' : '#fbbf24'
+                        }}>
+                          {task.priority}
+                        </span>
+                      )}
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)', wordBreak: 'break-word' }}>{task.description}</span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#a78bfa', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{task.clientName}</span>
+                      {task.dueDate && <span style={{ color: 'var(--text-muted)' }}>• Due {task.dueDate}</span>}
+                      {task.dueTime && <span style={{ color: 'var(--text-muted)' }}>• {task.dueTime}</span>}
+                    </div>
                   </div>
                   <button
                     onClick={() => handleDeleteTask(task.id)}

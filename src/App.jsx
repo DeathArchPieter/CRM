@@ -48,6 +48,35 @@ function MainApp() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleArchie]);
 
+  // Deep-link navigation from Windows OS desktop toast notification clicks
+  useEffect(() => {
+    if (window.electronAPI?.onNavigateToClient) {
+      const unsubscribe = window.electronAPI.onNavigateToClient(async ({ clientId, taskId }) => {
+        if (clientId) {
+          try {
+            if (window.electronAPI?.getClients) {
+              const res = await window.electronAPI.getClients();
+              if (res.success && Array.isArray(res.data)) {
+                const matched = res.data.find(c => c.id === clientId);
+                if (matched) {
+                  setSelectedClientForView(matched);
+                  setActiveTab('clients');
+                  return;
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Failed to handle notification client navigation:', err);
+          }
+        }
+        setActiveTab('schedule');
+      });
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    }
+  }, []);
+
   const handleSelectClientFromPalette = (client) => {
     setSelectedClientForView(client);
     setActiveTab('clients');
@@ -101,8 +130,11 @@ function MainApp() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-      {/* Draggable Title Bar for Frameless Window */}
-      <TitleBar />
+      {/* Draggable Title Bar for Frameless Window with Notifications */}
+      <TitleBar 
+        onSelectClient={handleSelectClientFromPalette}
+        onNavigateTab={setActiveTab}
+      />
       
       {/* Automatic App Update Banner / Modal */}
       <UpdateNotificationBanner />

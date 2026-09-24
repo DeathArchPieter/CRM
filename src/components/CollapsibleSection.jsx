@@ -54,7 +54,7 @@ export default function CollapsibleSection({
       style={{
         padding: '0',
         borderRadius: '16px',
-        overflow: 'hidden',
+        overflow: isOpen ? 'visible' : 'hidden',
         border: '1px solid var(--border-light)',
         transition: 'box-shadow 0.2s ease, border-color 0.2s ease',
         ...style
@@ -72,6 +72,10 @@ export default function CollapsibleSection({
           userSelect: 'none',
           backgroundColor: isOpen ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.01)',
           borderBottom: isOpen ? '1px solid var(--border-light)' : 'none',
+          borderTopLeftRadius: '15px',
+          borderTopRightRadius: '15px',
+          borderBottomLeftRadius: !isOpen ? '15px' : '0',
+          borderBottomRightRadius: !isOpen ? '15px' : '0',
           transition: 'background-color 0.15s ease',
           ...headerStyle
         }}

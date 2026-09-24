@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Shield, Plus, FileText, Sparkles, CheckCircle2, Clock, AlertTriangle, 
   DollarSign, Layers, Edit2, Trash2, ExternalLink, ChevronRight, ArrowRight,
-  TrendingUp, Check, Building, FileCheck
+  TrendingUp, Check, Building, FileCheck, Baby
 } from 'lucide-react';
 import ClaimModal from './ClaimModal';
 import ClaimAiAssistantModal from './ClaimAiAssistantModal';
@@ -304,6 +304,22 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
                       }}>
                         {policy ? `${policy.provider} • ${policy.policyType}` : claim.claimType}
                       </span>
+
+                      {policy && policy.insuredType === 'Dependent' && (
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
+                          color: '#c084fc',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          <Baby size={11} /> Patient: {policy.insuredName || 'Dependent'} ({policy.insuredRelationship || 'Family'})
+                        </span>
+                      )}
 
                       {claim.claimNumber && (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>

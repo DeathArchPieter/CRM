@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, Plus, Trash2, FileText, Upload, CheckCircle2, Clock, AlertTriangle, 
   ExternalLink, Folder, Layers, DollarSign, Calendar, Sparkles, Building, User,
-  FileCheck, Shield, ChevronRight, Check, ArrowRight, Receipt, Scale, BookOpen
+  FileCheck, Shield, ChevronRight, Check, ArrowRight, Receipt, Scale, BookOpen,
+  Edit2, Loader2
 } from 'lucide-react';
 import DatePicker from './DatePicker';
 
@@ -113,6 +114,14 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     notes: ''
   });
   const [isAddingBill, setIsAddingBill] = useState(false);
+  const [editingBillId, setEditingBillId] = useState(null);
+
+  // State for Drag & Drop Bill Auto-Tagging (Step 2)
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isAutoTagging, setIsAutoTagging] = useState(false);
+  const [taggingProgress, setTaggingProgress] = useState({ total: 0, current: 0, currentFileName: '', successCount: 0 });
+  const [autoTagNotification, setAutoTagNotification] = useState(null);
+  const fileInputRef = useRef(null);
 
   // State for adding new Settlement entry (Step 3)
   const [newSettlement, setNewSettlement] = useState({
@@ -136,6 +145,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     if (claim) {
       setFormData({
         ...claim,
+        id: claim.id || crypto.randomUUID(),
         billItems: claim.billItems || [],
         settlementEntries: claim.settlementEntries || [],
         documentChecklist: claim.documentChecklist || [],
@@ -144,7 +154,9 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     } else {
       // New Claim defaults
       const initialTemplate = CHECKLIST_TEMPLATES['Hospitalisation / Shield'] || [];
+      const newClaimId = crypto.randomUUID();
       setFormData({
+        id: newClaimId,
         clientId: client?.id || '',
         policyId: policies[0]?.id || '',
         additionalPolicyIds: [],
@@ -352,27 +364,165 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     });
   };
 
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = reader.result;
+      const comma = typeof res === 'string' ? res.indexOf(',') : -1;
+      resolve(comma !== -1 ? res.substring(comma + 1) : res);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const handleProcessBills = async (files) => {
+    const allowedExts = ['pdf', 'png', 'jpg', 'jpeg', 'webp'];
+    const validFiles = files.filter(f => {
+      const ext = f.name.split('.').pop()?.toLowerCase();
+      return allowedExts.includes(ext);
+    });
+
+    if (validFiles.length === 0) {
+      alert("Please upload medical bills in PDF, PNG, JPG, or WEBP format.");
+      return;
+    }
+
+    const currentClaimId = formData.id || crypto.randomUUID();
+    if (!formData.id) {
+      setFormData(prev => ({ ...prev, id: currentClaimId }));
+    }
+
+    setIsAutoTagging(true);
+    setTaggingProgress({
+      total: validFiles.length,
+      current: 0,
+      currentFileName: validFiles[0]?.name || '',
+      successCount: 0
+    });
+
+    let successCount = 0;
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      setTaggingProgress(prev => ({
+        ...prev,
+        current: i + 1,
+        currentFileName: file.name
+      }));
+
+      try {
+        const filePath = window.electronAPI?.getPathForFile ? window.electronAPI.getPathForFile(file) : (file.path || '');
+        const base64 = await fileToBase64(file);
+
+        if (window.electronAPI?.autoTagClaimBill) {
+          const res = await window.electronAPI.autoTagClaimBill({
+            clientId: client?.id || 'general',
+            claimId: currentClaimId,
+            fileName: file.name,
+            fileType: file.type || file.name.split('.').pop(),
+            filePath,
+            fileBase64: base64
+          });
+
+          if (res?.success && res.billItem) {
+            successCount++;
+            setFormData(prev => ({
+              ...prev,
+              id: currentClaimId,
+              billItems: [...prev.billItems, res.billItem]
+            }));
+          }
+        }
+      } catch (err) {
+        console.error("Error auto-tagging bill:", file.name, err);
+      }
+    }
+
+    setIsAutoTagging(false);
+    setTaggingProgress({ total: 0, current: 0, currentFileName: '', successCount: 0 });
+
+    if (successCount > 0) {
+      setAutoTagNotification({
+        message: `Successfully auto-tagged & vaulted ${successCount} ${successCount === 1 ? 'bill' : 'bills'}!`,
+        count: successCount
+      });
+      setTimeout(() => {
+        setAutoTagNotification(null);
+      }, 6000);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+      await handleProcessBills(files);
+    }
+  };
+
+  const handleFileInputChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      await handleProcessBills(files);
+    }
+    e.target.value = '';
+  };
+
   const handleAddBillItem = (e) => {
     e.preventDefault();
     if (!newBill.description || !newBill.incurredAmount) return;
-    const item = {
-      id: crypto.randomUUID(),
-      billDate: newBill.billDate,
-      provider: newBill.provider || formData.hospitalOrClinic || 'Clinic / Hospital',
-      description: newBill.description,
-      billNumber: newBill.billNumber,
-      incurredAmount: Number(newBill.incurredAmount) || 0,
-      claimedAmount: Number(newBill.claimedAmount) || Number(newBill.incurredAmount) || 0,
-      insurerPaidAmount: Number(newBill.insurerPaidAmount) || 0,
-      deductibleOrCoPay: Number(newBill.deductibleOrCoPay) || 0,
-      medisaveOffset: Number(newBill.medisaveOffset) || 0,
-      status: newBill.status || 'Pending Insurer Payout',
-      notes: newBill.notes || ''
-    };
-    setFormData(prev => ({
-      ...prev,
-      billItems: [...prev.billItems, item]
-    }));
+
+    if (editingBillId) {
+      setFormData(prev => ({
+        ...prev,
+        billItems: prev.billItems.map(b => b.id === editingBillId ? {
+          ...b,
+          billDate: newBill.billDate,
+          provider: newBill.provider || b.provider || 'Clinic / Hospital',
+          description: newBill.description,
+          billNumber: newBill.billNumber,
+          incurredAmount: Number(newBill.incurredAmount) || 0,
+          claimedAmount: Number(newBill.claimedAmount) || Number(newBill.incurredAmount) || 0,
+          status: newBill.status || b.status,
+          notes: newBill.notes || ''
+        } : b)
+      }));
+      setEditingBillId(null);
+    } else {
+      const item = {
+        id: crypto.randomUUID(),
+        billDate: newBill.billDate,
+        provider: newBill.provider || formData.hospitalOrClinic || 'Clinic / Hospital',
+        description: newBill.description,
+        billNumber: newBill.billNumber,
+        incurredAmount: Number(newBill.incurredAmount) || 0,
+        claimedAmount: Number(newBill.claimedAmount) || Number(newBill.incurredAmount) || 0,
+        insurerPaidAmount: Number(newBill.insurerPaidAmount) || 0,
+        deductibleOrCoPay: Number(newBill.deductibleOrCoPay) || 0,
+        medisaveOffset: Number(newBill.medisaveOffset) || 0,
+        status: newBill.status || 'Pending Insurer Payout',
+        notes: newBill.notes || ''
+      };
+      setFormData(prev => ({
+        ...prev,
+        billItems: [...prev.billItems, item]
+      }));
+    }
+
     setNewBill({
       billDate: new Date().toISOString().split('T')[0],
       provider: '',
@@ -387,6 +537,42 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
       notes: ''
     });
     setIsAddingBill(false);
+  };
+
+  const handleEditBill = (item) => {
+    setNewBill({
+      billDate: item.billDate || new Date().toISOString().split('T')[0],
+      provider: item.provider || '',
+      description: item.description || '',
+      billNumber: item.billNumber || '',
+      incurredAmount: item.incurredAmount || '',
+      claimedAmount: item.claimedAmount || '',
+      insurerPaidAmount: item.insurerPaidAmount || '',
+      deductibleOrCoPay: item.deductibleOrCoPay || '',
+      medisaveOffset: item.medisaveOffset || '',
+      status: item.status || 'Pending Insurer Payout',
+      notes: item.notes || ''
+    });
+    setEditingBillId(item.id);
+    setIsAddingBill(true);
+  };
+
+  const handleCancelBillEdit = () => {
+    setEditingBillId(null);
+    setIsAddingBill(false);
+    setNewBill({
+      billDate: new Date().toISOString().split('T')[0],
+      provider: '',
+      description: '',
+      billNumber: '',
+      incurredAmount: '',
+      claimedAmount: '',
+      insurerPaidAmount: '',
+      deductibleOrCoPay: '',
+      medisaveOffset: '',
+      status: 'Pending Insurer Payout',
+      notes: ''
+    });
   };
 
   const handleDeleteBillItem = (billId) => {
@@ -481,7 +667,25 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
       justifyContent: 'center',
       padding: '20px'
     }}>
-      <div className="glass-panel animate-fade-in" style={{
+      <div 
+        className="glass-panel animate-fade-in" 
+        onDragOver={(e) => {
+          if (activeTab === 'bills') {
+            e.preventDefault();
+            setIsDraggingOver(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (activeTab === 'bills' && !e.currentTarget.contains(e.relatedTarget)) {
+            setIsDraggingOver(false);
+          }
+        }}
+        onDrop={(e) => {
+          if (activeTab === 'bills') {
+            handleDrop(e);
+          }
+        }}
+        style={{
         width: '100%',
         maxWidth: '1020px',
         maxHeight: '94vh',
@@ -690,7 +894,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                     <option value="">-- Select Policy --</option>
                     {policies.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.provider} • {p.policyName} ({p.policyNumber || 'No Policy#'})
+                        {p.provider} • {p.policyName} ({p.policyNumber || 'No Policy#'}) {p.insuredType === 'Dependent' ? `[👶 Insured: ${p.insuredName || 'Dependent'} (${p.insuredRelationship || 'Family'})]` : '[👤 Self]'}
                       </option>
                     ))}
                   </select>
@@ -800,7 +1004,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 color: 'var(--text-secondary)',
                 lineHeight: '1.5'
               }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Step 2 — Tag Bills to this Event:</strong> Add and tag every medical receipt as the client receives them (pre-admission diagnostic scans, hospital surgery invoices, follow-up consultations, physiotherapy batches). Attach local receipt files for instant pulling.
+                <strong style={{ color: 'var(--text-primary)' }}>Step 2 — Tag Bills to this Event:</strong> Drag & drop medical receipts or clinic invoices directly into the workspace. The AI automatically scans each bill, tags the date, clinic provider, procedure, invoice #, and amounts, and stores the receipt in the client claim vault.
               </div>
 
               {/* Bills Summary KPIs */}
@@ -827,6 +1031,139 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 </div>
               </div>
 
+              {/* Drag & Drop Medical Bills Auto-Tag Zone */}
+              <div
+                onDragOver={handleDragOver}
+                onDragEnter={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  border: isDraggingOver ? '2px dashed var(--accent-primary)' : '2px dashed rgba(139, 92, 246, 0.35)',
+                  borderRadius: '12px',
+                  padding: '24px 20px',
+                  textAlign: 'center',
+                  backgroundColor: isDraggingOver ? 'rgba(139, 92, 246, 0.15)' : 'rgba(139, 92, 246, 0.03)',
+                  boxShadow: isDraggingOver ? '0 0 25px rgba(139, 92, 246, 0.3)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.webp"
+                  style={{ display: 'none' }}
+                  onChange={handleFileInputChange}
+                />
+                
+                <div style={{
+                  width: '46px',
+                  height: '46px',
+                  borderRadius: '50%',
+                  backgroundColor: isDraggingOver ? 'var(--accent-primary)' : 'rgba(139, 92, 246, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: isDraggingOver ? '#fff' : 'var(--accent-primary)',
+                  transition: 'all 0.2s ease'
+                }}>
+                  <Sparkles size={22} />
+                </div>
+
+                <div style={{ fontSize: '14.5px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                  {isDraggingOver ? 'Drop bills here to auto-tag with AI!' : 'Drag & Drop Medical Bills or Clinic Invoices Here'}
+                </div>
+
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '580px', margin: 0, lineHeight: '1.4' }}>
+                  Drag one or a bunch of bills (PDF, PNG, JPG, WEBP). Archie AI extracts provider, procedure, invoice #, and amounts automatically.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
+                  <span className="btn btn-secondary" style={{ fontSize: '11.5px', padding: '5px 14px', pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Upload size={13} /> Or Click to Browse Files
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    • Multi-file batch tagging supported
+                  </span>
+                </div>
+              </div>
+
+              {/* Batch Processing Status Card */}
+              {isAutoTagging && (
+                <div className="glass-panel animate-fade-in" style={{
+                  padding: '16px 20px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                  border: '1px solid rgba(139, 92, 246, 0.35)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div className="animate-spin" style={{ color: 'var(--accent-primary)', display: 'flex' }}>
+                        <Loader2 size={18} />
+                      </div>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                        ⚡ Archie AI Auto-Tagging in Progress... ({taggingProgress.current} of {taggingProgress.total} completed)
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--accent-primary)', fontWeight: '700' }}>
+                      {taggingProgress.total > 0 ? Math.round((taggingProgress.current / taggingProgress.total) * 100) : 0}%
+                    </span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div style={{ width: '100%', height: '6px', borderRadius: '3px', backgroundColor: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${taggingProgress.total > 0 ? (taggingProgress.current / taggingProgress.total) * 100 : 0}%`,
+                      height: '100%',
+                      backgroundColor: 'var(--accent-primary)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+
+                  <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>Analyzing document:</span>
+                    <strong style={{ color: 'var(--text-secondary)' }}>{taggingProgress.currentFileName}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Notification Alert */}
+              {autoTagNotification && (
+                <div className="animate-fade-in" style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  color: 'var(--accent-success)',
+                  fontSize: '12.5px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CheckCircle2 size={16} />
+                    <span>{autoTagNotification.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAutoTagNotification(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', opacity: 0.7 }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Add Bill Button / Inline Form Header */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -837,16 +1174,21 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                   type="button"
                   className="btn btn-primary"
                   style={{ fontSize: '12px', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => setIsAddingBill(true)}
+                  onClick={() => {
+                    setEditingBillId(null);
+                    setIsAddingBill(true);
+                  }}
                 >
-                  <Plus size={14} /> Tag New Bill
+                  <Plus size={14} /> Tag Manual Bill
                 </button>
               </div>
 
-              {/* Inline Add Bill Form */}
+              {/* Inline Add/Edit Bill Form */}
               {isAddingBill && (
                 <div className="glass-panel animate-fade-in" style={{ padding: '18px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-                  <h4 style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)' }}>Tag New Clinic / Hospital Bill to Event</h4>
+                  <h4 style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    {editingBillId ? 'Edit Tagged Clinic / Hospital Bill' : 'Tag New Clinic / Hospital Bill to Event'}
+                  </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '12px' }}>
                     <div>
                       <label className="input-label" style={{ fontSize: '11px' }}>Bill / Invoice Date *</label>
@@ -940,7 +1282,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                       type="button"
                       className="btn"
                       style={{ fontSize: '12px', padding: '6px 12px' }}
-                      onClick={() => setIsAddingBill(false)}
+                      onClick={handleCancelBillEdit}
                     >
                       Cancel
                     </button>
@@ -950,7 +1292,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                       style={{ fontSize: '12px', padding: '6px 16px' }}
                       onClick={handleAddBillItem}
                     >
-                      Tag Bill
+                      {editingBillId ? 'Update Bill' : 'Tag Bill'}
                     </button>
                   </div>
                 </div>
@@ -959,7 +1301,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
               {/* Tagged Bills Table */}
               {formData.billItems.length === 0 ? (
                 <div style={{ padding: '32px', textAlign: 'center', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '10px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                  No bills tagged to this event yet. Click "Tag New Bill" to add invoices and receipts.
+                  No bills tagged to this event yet. Drag and drop bills into the box above or click "Tag Manual Bill".
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--border-light)', borderRadius: '10px', overflow: 'hidden' }}>
@@ -973,7 +1315,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                         <th style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>Claimed ($)</th>
                         <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--text-secondary)' }}>Status</th>
                         <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>Receipt File</th>
-                        <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}></th>
+                        <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -981,7 +1323,24 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                         <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                           <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{item.billDate || '-'}</td>
                           <td style={{ padding: '10px 12px', color: 'var(--text-primary)', fontWeight: '500' }}>
-                            <div>{item.description}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>{item.description}</span>
+                              {item.aiTagged && (
+                                <span style={{
+                                  fontSize: '10px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                                  color: 'var(--accent-primary)',
+                                  fontWeight: '600',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}>
+                                  <Sparkles size={10} /> AI
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{item.provider}</div>
                           </td>
                           <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{item.billNumber || '-'}</td>
@@ -1025,13 +1384,24 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                             )}
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteBillItem(item.id)}
-                              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.6 }}
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleEditBill(item)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.7 }}
+                                title="Edit Bill Details"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBillItem(item.id)}
+                                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', opacity: 0.6 }}
+                                title="Delete Bill"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

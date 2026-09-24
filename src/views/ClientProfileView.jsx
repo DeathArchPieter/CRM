@@ -4,7 +4,7 @@ import {
   Clock, AlertTriangle, Link, FileText, Users, Heart, ExternalLink, Calendar, Check,
   Globe, Sparkles, Copy, Compass, TrendingUp, Target, MessageSquare, Share2, Search, Newspaper,
   ChevronDown, ChevronUp, Image, LayoutGrid, List, LayoutDashboard, Layers, Folder, Phone, Mail,
-  Maximize2, Minimize2, Eye
+  Maximize2, Minimize2, Eye, Coffee, MapPin, Flag, CalendarDays, CheckSquare, MessageCircle, Baby
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -78,6 +78,19 @@ const formatDateDDMMYYYY = (dateStr) => {
   return `${day}/${month}/${year}`;
 };
 
+const calculateAge = (dobString) => {
+  if (!dobString) return null;
+  const birth = new Date(dobString.includes('T') ? dobString : dobString + 'T00:00:00');
+  if (isNaN(birth.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age >= 0 ? age : null;
+};
+
 export default function ClientProfileView({ client, onBack, onOpenFinancialPlan, onUpdateClient }) {
   const [currentClient, setCurrentClient] = useState(client);
   const [policies, setPolicies] = useState([]);
@@ -86,11 +99,16 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [allClients, setAllClients] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [eventType, setEventType] = useState('task'); // 'task' | 'meeting' | 'followup'
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskDueTime, setNewTaskDueTime] = useState('');
   const [newTaskDueEndTime, setNewTaskDueEndTime] = useState('');
   const [newTaskLocation, setNewTaskLocation] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('Normal'); // 'Normal' | 'High' | 'Urgent'
+  const [newTaskChannel, setNewTaskChannel] = useState('WhatsApp'); // 'WhatsApp' | 'Phone Call' | 'Email' | 'Coffee' | 'Office' | 'In-Person'
+  const [newTaskLogTouchpoint, setNewTaskLogTouchpoint] = useState(true);
+  const [taskFilterType, setTaskFilterType] = useState('all'); // 'all' | 'task' | 'meeting' | 'followup'
   const [remarksText, setRemarksText] = useState(client.notes || '');
   const [isSavingRemarks, setIsSavingRemarks] = useState(false);
   const [aiInsights, setAiInsights] = useState('');
@@ -101,11 +119,15 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [isEditTaskModalOpen, setIsEditTaskModalOpen] = useState(false);
   const [editTaskForm, setEditTaskForm] = useState({
     id: '',
+    type: 'task',
     description: '',
     dueDate: '',
     dueTime: '',
     dueEndTime: '',
     location: '',
+    priority: 'Normal',
+    channel: 'WhatsApp',
+    logTouchpointOnComplete: false,
     status: 'Pending'
   });
   const [isUpdatingTask, setIsUpdatingTask] = useState(false);
@@ -179,6 +201,17 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
 
   // Form states
   const [editingPolicyId, setEditingPolicyId] = useState(null);
+  const [policyInsuredFilter, setPolicyInsuredFilter] = useState('all'); // 'all' | 'self' | 'dependents' | depId
+  const [isDependentModalOpen, setIsDependentModalOpen] = useState(false);
+  const [editingDependentId, setEditingDependentId] = useState(null);
+  const initialDependentState = {
+    fullName: '',
+    relationship: 'Child',
+    dob: '',
+    gender: 'Female',
+    notes: ''
+  };
+  const [dependentForm, setDependentForm] = useState(initialDependentState);
 
   const initialPolicyState = {
     policyName: '',
@@ -186,6 +219,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     provider: 'AIA',
     policyType: 'Life',
     status: 'In Force',
+    insuredType: 'Self', // 'Self' | 'Dependent'
+    insuredPersonId: '',
+    insuredName: '',
+    insuredRelationship: 'Self',
+    insuredDob: '',
+    insuredGender: '',
     premiumAmount: '',
     medisavePremium: '',
     cashPremium: '',
@@ -329,18 +368,38 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     setRemarksText(currentClient.notes || '');
   }, [currentClient.notes]);
 
-  // Task Handlers
+  // Task & Event Handlers
+  const handleSetMeetingDuration = (minutes) => {
+    const baseTime = newTaskDueTime || '10:00';
+    if (!newTaskDueTime) setNewTaskDueTime('10:00');
+    const [h, m] = baseTime.split(':').map(Number);
+    const totalMinutes = h * 60 + m + minutes;
+    const endH = Math.floor(totalMinutes / 60) % 24;
+    const endM = totalMinutes % 60;
+    setNewTaskDueEndTime(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
+  };
+
+  const handleSetQuickDate = (offsetDays) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    setNewTaskDueDate(d.toISOString().split('T')[0]);
+  };
+
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
     if (window.electronAPI?.addTask) {
       const res = await window.electronAPI.addTask({ 
         clientId: currentClient.id, 
-        description: newTaskText,
+        type: eventType,
+        description: newTaskText.trim(),
         dueDate: newTaskDueDate || null,
         dueTime: newTaskDueTime || null,
-        dueEndTime: newTaskDueEndTime || null,
-        location: newTaskLocation.trim() || ''
+        dueEndTime: eventType === 'meeting' ? (newTaskDueEndTime || null) : null,
+        location: newTaskLocation.trim() || '',
+        priority: eventType === 'task' ? newTaskPriority : 'Normal',
+        channel: eventType === 'followup' ? newTaskChannel : null,
+        logTouchpointOnComplete: eventType === 'followup' ? newTaskLogTouchpoint : false
       });
       if (res.success) {
         setNewTaskText('');
@@ -348,7 +407,10 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         setNewTaskDueTime('');
         setNewTaskDueEndTime('');
         setNewTaskLocation('');
-        loadData();
+        setNewTaskPriority('Normal');
+        setNewTaskChannel('WhatsApp');
+        await loadData();
+        loadAiInsights(false);
       }
     }
   };
@@ -356,11 +418,15 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const handleOpenEditTask = (task) => {
     setEditTaskForm({
       id: task.id,
+      type: task.type || 'task',
       description: task.description || '',
       dueDate: task.dueDate || '',
       dueTime: task.dueTime || '',
       dueEndTime: task.dueEndTime || '',
       location: task.location || '',
+      priority: task.priority || 'Normal',
+      channel: task.channel || 'WhatsApp',
+      logTouchpointOnComplete: !!task.logTouchpointOnComplete,
       status: task.status || 'Pending'
     });
     setIsEditTaskModalOpen(true);
@@ -374,16 +440,21 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
       if (window.electronAPI?.updateTask) {
         const res = await window.electronAPI.updateTask({
           id: editTaskForm.id,
+          type: editTaskForm.type || 'task',
           description: editTaskForm.description.trim(),
           dueDate: editTaskForm.dueDate || null,
           dueTime: editTaskForm.dueTime || null,
           dueEndTime: editTaskForm.dueEndTime || null,
           location: editTaskForm.location.trim() || '',
+          priority: editTaskForm.priority || 'Normal',
+          channel: editTaskForm.channel || null,
+          logTouchpointOnComplete: editTaskForm.logTouchpointOnComplete,
           status: editTaskForm.status
         });
         if (res.success) {
           setIsEditTaskModalOpen(false);
-          loadData();
+          await loadData();
+          loadAiInsights(false);
         }
       }
     } catch (err) {
@@ -397,14 +468,16 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     if (window.electronAPI?.updateTask) {
       const newStatus = task.status === 'Completed' ? 'Pending' : 'Completed';
       await window.electronAPI.updateTask({ id: task.id, status: newStatus });
-      loadData();
+      await loadData();
+      loadAiInsights(false);
     }
   };
 
   const handleDeleteTask = async (taskId) => {
     if (window.electronAPI?.deleteTask) {
       await window.electronAPI.deleteTask(taskId);
-      loadData();
+      await loadData();
+      loadAiInsights(false);
     }
   };
 
@@ -442,7 +515,28 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
 
   const openAddPolicy = () => {
     setEditingPolicyId(null);
-    setPolicyData(initialPolicyState);
+    setPolicyData({
+      ...initialPolicyState,
+      insuredType: 'Self',
+      insuredPersonId: '',
+      insuredName: currentClient.fullName,
+      insuredRelationship: 'Self',
+      insuredDob: currentClient.dob || ''
+    });
+    setIsPolicyModalOpen(true);
+  };
+
+  const openAddPolicyForDependent = (dep) => {
+    setEditingPolicyId(null);
+    setPolicyData({
+      ...initialPolicyState,
+      insuredType: 'Dependent',
+      insuredPersonId: dep.id,
+      insuredName: dep.fullName,
+      insuredRelationship: dep.relationship || 'Child',
+      insuredDob: dep.dob || '',
+      insuredGender: dep.gender || ''
+    });
     setIsPolicyModalOpen(true);
   };
 
@@ -451,6 +545,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     setPolicyData({
       ...initialPolicyState,
       ...policy,
+      insuredType: policy.insuredType || 'Self',
+      insuredPersonId: policy.insuredPersonId || '',
+      insuredName: policy.insuredName || (policy.insuredType === 'Dependent' ? '' : currentClient.fullName),
+      insuredRelationship: policy.insuredRelationship || (policy.insuredType === 'Dependent' ? 'Child' : 'Self'),
+      insuredDob: policy.insuredDob || '',
+      insuredGender: policy.insuredGender || '',
       remarks: policy.remarks !== undefined ? policy.remarks : (policy.notes || ''),
       notes: policy.remarks !== undefined ? policy.remarks : (policy.notes || ''),
       medisavePremium: policy.medisavePremium !== undefined ? policy.medisavePremium : '',
@@ -462,17 +562,122 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
 
   const handleSavePolicy = async (e) => {
     e.preventDefault();
-    if (window.electronAPI) {
-      const isEditing = !!editingPolicyId;
-      const apiCall = isEditing ? window.electronAPI.updatePolicy : window.electronAPI.addPolicy;
-      const payload = isEditing ? { ...policyData } : { ...policyData, clientId: currentClient.id };
-      
-      const response = await apiCall(payload);
-      if (response.success) {
-        setIsPolicyModalOpen(false);
-        setPolicyData(initialPolicyState);
-        setEditingPolicyId(null);
-        loadData();
+    if (!window.electronAPI) return;
+
+    let updatedPolicyData = { ...policyData };
+
+    // Auto-register dependent if user entered a new dependent name
+    if (updatedPolicyData.insuredType === 'Dependent' && updatedPolicyData.insuredName?.trim()) {
+      const existingDeps = currentClient.dependents || [];
+      const matchDep = existingDeps.find(d => 
+        (updatedPolicyData.insuredPersonId && d.id === updatedPolicyData.insuredPersonId) ||
+        (d.fullName && d.fullName.toLowerCase() === updatedPolicyData.insuredName.trim().toLowerCase())
+      );
+
+      if (!matchDep) {
+        const newDep = {
+          id: updatedPolicyData.insuredPersonId && updatedPolicyData.insuredPersonId !== 'NEW' ? updatedPolicyData.insuredPersonId : crypto.randomUUID(),
+          fullName: updatedPolicyData.insuredName.trim(),
+          relationship: updatedPolicyData.insuredRelationship || 'Child',
+          dob: updatedPolicyData.insuredDob || '',
+          gender: updatedPolicyData.insuredGender || '',
+          notes: ''
+        };
+        const updatedDeps = [...existingDeps, newDep];
+        updatedPolicyData.insuredPersonId = newDep.id;
+
+        if (window.electronAPI.updateClient) {
+          const clientRes = await window.electronAPI.updateClient({
+            ...currentClient,
+            dependents: updatedDeps
+          });
+          if (clientRes.success) {
+            setCurrentClient(prev => ({ ...prev, dependents: updatedDeps }));
+            if (onUpdateClient) onUpdateClient({ ...currentClient, dependents: updatedDeps });
+          }
+        }
+      } else {
+        updatedPolicyData.insuredPersonId = matchDep.id;
+        if (!updatedPolicyData.insuredDob && matchDep.dob) updatedPolicyData.insuredDob = matchDep.dob;
+        if (!updatedPolicyData.insuredGender && matchDep.gender) updatedPolicyData.insuredGender = matchDep.gender;
+      }
+    }
+
+    const isEditing = !!editingPolicyId;
+    const apiCall = isEditing ? window.electronAPI.updatePolicy : window.electronAPI.addPolicy;
+    const payload = isEditing ? { ...updatedPolicyData } : { ...updatedPolicyData, clientId: currentClient.id };
+    
+    const response = await apiCall(payload);
+    if (response.success) {
+      setIsPolicyModalOpen(false);
+      setPolicyData(initialPolicyState);
+      setEditingPolicyId(null);
+      loadData();
+    }
+  };
+
+  // Dependent Handlers
+  const handleOpenAddDependent = () => {
+    setEditingDependentId(null);
+    setDependentForm(initialDependentState);
+    setIsDependentModalOpen(true);
+  };
+
+  const handleOpenEditDependent = (dep) => {
+    setEditingDependentId(dep.id);
+    setDependentForm({
+      fullName: dep.fullName || '',
+      relationship: dep.relationship || 'Child',
+      dob: dep.dob || '',
+      gender: dep.gender || 'Female',
+      notes: dep.notes || ''
+    });
+    setIsDependentModalOpen(true);
+  };
+
+  const handleSaveDependent = async (e) => {
+    e.preventDefault();
+    if (!dependentForm.fullName.trim()) return;
+
+    const existingDeps = currentClient.dependents || [];
+    let updatedDeps;
+    if (editingDependentId) {
+      updatedDeps = existingDeps.map(d => d.id === editingDependentId ? { ...d, ...dependentForm, fullName: dependentForm.fullName.trim() } : d);
+    } else {
+      const newDep = {
+        id: crypto.randomUUID(),
+        ...dependentForm,
+        fullName: dependentForm.fullName.trim()
+      };
+      updatedDeps = [...existingDeps, newDep];
+    }
+
+    if (window.electronAPI?.updateClient) {
+      const res = await window.electronAPI.updateClient({
+        ...currentClient,
+        dependents: updatedDeps
+      });
+      if (res.success) {
+        setCurrentClient(prev => ({ ...prev, dependents: updatedDeps }));
+        if (onUpdateClient) onUpdateClient({ ...currentClient, dependents: updatedDeps });
+        setIsDependentModalOpen(false);
+        setEditingDependentId(null);
+        setDependentForm(initialDependentState);
+      }
+    }
+  };
+
+  const handleDeleteDependent = async (depId) => {
+    if (!window.confirm("Remove this dependent from the client profile? Policies insured under them will remain in the CRM.")) return;
+    const updatedDeps = (currentClient.dependents || []).filter(d => d.id !== depId);
+    if (window.electronAPI?.updateClient) {
+      const res = await window.electronAPI.updateClient({
+        ...currentClient,
+        dependents: updatedDeps
+      });
+      if (res.success) {
+        setCurrentClient(prev => ({ ...prev, dependents: updatedDeps }));
+        if (onUpdateClient) onUpdateClient({ ...currentClient, dependents: updatedDeps });
       }
     }
   };
@@ -676,7 +881,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
       id: 'family-docs',
       label: 'Family & Documents',
       icon: <Users size={15} />,
-      badge: `${(currentClient.familyMembers?.length || 0) + (currentClient.documents?.length || 0)} items`
+      badge: `${(currentClient.dependents?.length || 0) + (currentClient.familyMembers?.length || 0) + (currentClient.documents?.length || 0)} items`
     }
   ];
 
@@ -984,455 +1189,1257 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   );
 
   // Helper renderer for Tasks Card
-  const renderTasksCard = () => (
-    <CollapsibleSection
-      id="tasks_list"
-      title="Tasks, Meetings & Follow-ups"
-      icon={<CheckCircle2 size={18} color="var(--accent-success)" />}
-      badge={
-        <span style={{
-          fontSize: '11px',
-          fontWeight: '600',
-          padding: '2px 8px',
-          borderRadius: '10px',
-          backgroundColor: pendingTasksCount > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)',
-          color: pendingTasksCount > 0 ? '#34d399' : 'var(--text-muted)'
-        }}>
-          {pendingTasksCount} Pending • {completedTasksCount} Completed
-        </span>
-      }
-    >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-        {/* Add Task Form */}
-        <form onSubmit={handleAddTask} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Add Actionable Follow-up</div>
-          <input 
-            type="text" 
-            className="input-field" 
-            style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }} 
-            placeholder="Follow-up description (e.g. Call client for policy review)..."
-            value={newTaskText}
-            onChange={(e) => setNewTaskText(e.target.value)}
-            required
-          />
+  // Helper renderer for Tasks, Meetings & Follow-ups Card
+  const renderTasksCard = () => {
+    const tasksCount = tasks.filter(t => (t.type || 'task') === 'task').length;
+    const meetingsCount = tasks.filter(t => t.type === 'meeting').length;
+    const followupsCount = tasks.filter(t => t.type === 'followup').length;
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px 12px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-            <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
-                <Calendar size={12} color="var(--text-muted)" /> Due Date
-              </label>
-              <DatePicker 
-                style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
-                placeholder="Select due date..."
-                value={newTaskDueDate}
-                onChange={(e) => setNewTaskDueDate(e.target.value)}
-              />
-            </div>
+    const filteredTasks = tasks.filter(t => {
+      if (taskFilterType === 'all') return true;
+      return (t.type || 'task') === taskFilterType;
+    });
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
-                  <Clock size={12} color="var(--text-muted)" /> Start Time
-                </label>
-                <input 
-                  type="time" 
-                  className="input-field" 
-                  style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
-                  value={newTaskDueTime}
-                  onChange={(e) => setNewTaskDueTime(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
-                  <Clock size={12} color="var(--text-muted)" /> End Time
-                </label>
-                <input 
-                  type="time" 
-                  className="input-field" 
-                  style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
-                  value={newTaskDueEndTime}
-                  onChange={(e) => setNewTaskDueEndTime(e.target.value)}
-                />
-              </div>
-            </div>
+    return (
+      <CollapsibleSection
+        id="tasks_list"
+        title="Schedule, Meetings & Tasks"
+        icon={<CheckCircle2 size={18} color="var(--accent-success)" />}
+        badge={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              padding: '2px 8px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(139, 92, 246, 0.15)',
+              color: '#c084fc'
+            }}>
+              {meetingsCount} Meetings
+            </span>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              padding: '2px 8px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(6, 182, 212, 0.15)',
+              color: '#38bdf8'
+            }}>
+              {followupsCount} Follow-ups
+            </span>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              padding: '2px 8px',
+              borderRadius: '10px',
+              backgroundColor: pendingTasksCount > 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.05)',
+              color: pendingTasksCount > 0 ? '#34d399' : 'var(--text-muted)'
+            }}>
+              {tasksCount} Tasks ({pendingTasksCount} Pending)
+            </span>
           </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <div style={{ flex: 1 }}>
-              <AddressAutocomplete 
-                value={newTaskLocation}
-                onChange={(e) => setNewTaskLocation(e.target.value)}
-                placeholder="Search venue or address (Optional)"
-                style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
-              />
-            </div>
-            <button type="submit" className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-              <Plus size={14} /> Add Task
-            </button>
-          </div>
-        </form>
-
-        {/* Tasks List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '2px' }}>
-            Active Schedule ({tasks.length})
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
-            {tasks.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '24px 0' }}>No active tasks or follow-ups</div>
-            ) : (
-              tasks.map(task => (
-                <div key={task.id} className="card hover-row" style={{ padding: '10px 12px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                  <button 
-                    onClick={() => toggleTaskStatus(task)} 
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.status === 'Completed' ? 'var(--accent-success)' : 'var(--text-muted)', marginTop: '2px' }}
-                  >
-                    {task.status === 'Completed' ? <CheckCircle2 size={16} /> : <Circle size={16} />}
-                  </button>
-                  <div style={{ flex: 1, fontSize: '13px', color: task.status === 'Completed' ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: task.status === 'Completed' ? 'line-through' : 'none', wordBreak: 'break-word' }}>
-                    <div>{task.description}</div>
-                    {(task.dueDate || task.dueTime || task.location) && (
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {task.dueDate && `Due: ${formatDateDDMMYYYY(task.dueDate)}`}
-                        {task.dueTime && ` at ${task.dueTime}${task.dueEndTime ? ` - ${task.dueEndTime}` : ''}`}
-                        {task.location && ` | Loc: ${task.location}`}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <button 
-                      onClick={() => handleOpenEditTask(task)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', opacity: 0.8, padding: '4px' }}
-                      title="Edit task & calendar schedule"
-                    >
-                      <Edit2 size={13} />
-                    </button>
-                    <button 
-                      onClick={() => handleDeleteTask(task.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5, padding: '4px' }}
-                      title="Delete task"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </CollapsibleSection>
-  );
-
-  // Helper renderer for Policy Portfolio Card
-  const renderPolicyPortfolioCard = () => (
-    <CollapsibleSection
-      id="policy_portfolio"
-      title={`Policy Portfolio (${policies.length})`}
-      icon={<Briefcase size={18} color="var(--accent-secondary)" />}
-      badge={`${formatCurrency(totalAnnualPremium)}/yr`}
-      actions={
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {/* View Toggle */}
-          <div style={{ display: 'flex', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '2px', border: '1px solid var(--border-light)' }}>
-            <button
-              type="button"
-              onClick={() => setPolicyViewMode('cards')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: policyViewMode === 'cards' ? 'var(--accent-primary)' : 'transparent',
-                color: policyViewMode === 'cards' ? '#ffffff' : 'var(--text-secondary)',
-                fontSize: '12px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-              title="Card View"
-            >
-              <LayoutGrid size={13} /> Cards
-            </button>
-            <button
-              type="button"
-              onClick={() => setPolicyViewMode('table')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: policyViewMode === 'table' ? 'var(--accent-primary)' : 'transparent',
-                color: policyViewMode === 'table' ? '#ffffff' : 'var(--text-secondary)',
-                fontSize: '12px',
-                fontWeight: '500',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease'
-              }}
-              title="Horizontal List Table View"
-            >
-              <List size={13} /> Table
-            </button>
-          </div>
-
-          <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12px' }} onClick={openAddPolicy}>
-            <Plus size={14} /> Add Policy
-          </button>
-        </div>
-      }
-    >
-      {loading ? (
-        <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading portfolio...</div>
-      ) : policies.length === 0 ? (
-        <div style={{ padding: '48px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <Shield size={48} color="var(--border-light)" style={{ marginBottom: '16px' }} />
-          <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '8px' }}>No active policies</h3>
-          <p style={{ color: 'var(--text-muted)' }}>Attach an insurance policy to build their portfolio.</p>
-        </div>
-      ) : policyViewMode === 'table' ? (
-        /* Horizontal Table View */
-        <div style={{ overflowX: 'auto', padding: '0', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border-light)', backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Status</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Policy Name & Provider</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Type</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Policy No.</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Premium & Split</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Inception</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Coverages</th>
-                <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {policies.map(policy => {
-                const renewalAlert = isPolicyRenewalUpcoming(policy.inceptionDate);
-                const hasShieldSplit = (policy.medisavePremium || policy.cashPremium) && policy.policyType === 'Shield';
-                
-                return (
-                  <tr 
-                    key={policy.id}
-                    style={{ borderBottom: '1px solid var(--border-light)', cursor: 'pointer', transition: 'background 0.12s' }}
-                    onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'}
-                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                    onClick={() => openEditPolicy(policy)}
-                  >
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ 
-                        padding: '3px 8px', 
-                        borderRadius: '10px', 
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        backgroundColor: policy.status === 'In Force' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.08)',
-                        color: policy.status === 'In Force' ? 'var(--accent-success)' : 'var(--text-muted)'
-                      }}>
-                        {policy.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                        {policy.policyName || 'Unnamed Policy'}
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        {policy.provider}
-                      </div>
-                      {(policy.remarks || policy.notes) && (
-                        <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '4px', fontStyle: 'italic', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={policy.remarks || policy.notes}>
-                          💬 {policy.remarks || policy.notes}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ 
-                        padding: '2px 6px', 
-                        borderRadius: '4px', 
-                        fontSize: '11px', 
-                        backgroundColor: 'rgba(255,255,255,0.05)', 
-                        color: 'var(--text-secondary)',
-                        fontWeight: '500'
-                      }}>
-                        {policy.policyType}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                      {policy.policyNumber || '-'}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                        {formatCurrency(policy.premiumAmount)} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{getFreqLabel(policy.premiumFrequency)}</span>
-                      </div>
-                      {hasShieldSplit && (
-                        <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '2px', display: 'flex', gap: '6px' }}>
-                          <span>CPF: {formatCurrency(policy.medisavePremium)}</span>
-                          <span>•</span>
-                          <span>Cash: {formatCurrency(policy.cashPremium)}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
-                        {policy.inceptionDate ? formatDateDDMMYYYY(policy.inceptionDate) : '-'}
-                      </div>
-                      {renewalAlert && (
-                        <div style={{ fontSize: '10px', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                          <AlertTriangle size={10} /> Renewal Due
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>-</span>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
-                          {Object.entries(policy.coverages).map(([covType, amt]) => {
-                            if (!amt) return null;
-                            return (
-                              <span key={covType} style={{ fontSize: '10.5px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}>
-                                {covType}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(amt)}</strong>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        style={{ padding: '4px 8px', fontSize: '11px' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditPolicy(policy);
-                        }}
-                        title="Edit Policy"
-                      >
-                        <Edit2 size={12} /> Edit
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        /* Cards View */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
-          {policies.map(policy => {
-            const renewalAlert = isPolicyRenewalUpcoming(policy.inceptionDate);
-            const hasShieldSplit = (policy.medisavePremium || policy.cashPremium) && policy.policyType === 'Shield';
-
-            return (
-              <div 
-                key={policy.id} 
-                className="card hover-row" 
-                style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer', position: 'relative' }}
-                onClick={() => openEditPolicy(policy)}
-                title="Click to Edit"
+        }
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '22px' }}>
+          
+          {/* Creator Form */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {/* Event Type Switcher Tabs */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '14px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
+              <button
+                type="button"
+                onClick={() => setEventType('task')}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '7px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: eventType === 'task' ? '600' : '500',
+                  backgroundColor: eventType === 'task' ? 'var(--accent-primary)' : 'transparent',
+                  color: eventType === 'task' ? '#ffffff' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
               >
-                <div style={{ position: 'absolute', right: '20px', top: '20px', opacity: 0.5 }}>
-                  <Edit2 size={14} color="var(--text-muted)" />
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingRight: '20px' }}>
-                  <div>
-                    <span style={{ 
-                      padding: '4px 8px', 
-                      borderRadius: '4px', 
-                      fontSize: '10px', 
-                      backgroundColor: 'rgba(255,255,255,0.05)', 
-                      color: 'var(--text-secondary)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      {policy.provider} • {policy.policyType}
-                    </span>
-                    <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginTop: '8px' }}>
-                      {policy.policyName || 'Unnamed Policy'}
-                    </h3>
-                  </div>
-                  <span style={{ 
-                    padding: '4px 10px', 
-                    borderRadius: '12px', 
-                    fontSize: '11px',
-                    backgroundColor: policy.status === 'In Force' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.1)',
-                    color: policy.status === 'In Force' ? 'var(--accent-success)' : 'var(--text-muted)'
-                  }}>
-                    {policy.status}
+                <CheckSquare size={13} /> Task / To-Do
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventType('meeting')}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '7px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: eventType === 'meeting' ? '600' : '500',
+                  backgroundColor: eventType === 'meeting' ? '#8b5cf6' : 'transparent',
+                  color: eventType === 'meeting' ? '#ffffff' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <CalendarDays size={13} /> Meeting
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventType('followup')}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  padding: '7px 10px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: eventType === 'followup' ? '600' : '500',
+                  backgroundColor: eventType === 'followup' ? '#06b6d4' : 'transparent',
+                  color: eventType === 'followup' ? '#ffffff' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Phone size={13} /> Follow-up
+              </button>
+            </div>
+
+            {/* Dynamic Form */}
+            <form onSubmit={handleAddTask} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              
+              {/* Description & Quick Presets */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11.5px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                    {eventType === 'meeting' ? 'Meeting Agenda / Subject' : (eventType === 'followup' ? 'Follow-up Topic / Context' : 'Action Item Description')}
                   </span>
                 </div>
-
-                {/* Policy Renewal Alert Pill */}
-                {renewalAlert && (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', fontWeight: '500' }}>
-                    <AlertTriangle size={12} />
-                    Anniversary / Renewal Due Soon
-                  </div>
-                )}
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }} 
+                  placeholder={
+                    eventType === 'meeting' 
+                      ? "e.g. Annual Policy Portfolio Review & Needs Analysis..." 
+                      : (eventType === 'followup' 
+                          ? "e.g. Check on post-surgery claim reimbursement & recovery..." 
+                          : "e.g. Prepare Term vs Whole Life comparison illustration...")
+                  }
+                  value={newTaskText}
+                  onChange={(e) => setNewTaskText(e.target.value)}
+                  required
+                />
                 
-                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Policy No: <span style={{ color: 'var(--text-secondary)' }}>{policy.policyNumber || 'Pending'}</span>
-                </div>
-                
-                <div style={{ marginTop: '4px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>Premium</div>
-                      <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '500' }}>
-                        {formatCurrency(policy.premiumAmount)} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{getFreqLabel(policy.premiumFrequency)}</span>
-                      </div>
-                      {hasShieldSplit && (
-                        <div style={{ fontSize: '10.5px', color: 'var(--accent-primary)', marginTop: '3px' }}>
-                          MediSave: {formatCurrency(policy.medisavePremium)} | Cash: {formatCurrency(policy.cashPremium)}
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>Inception Date</div>
-                      <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
-                        {policy.inceptionDate ? formatDateDDMMYYYY(policy.inceptionDate) : '-'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>Coverages</div>
-                    {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
-                      <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>None listed</div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {Object.entries(policy.coverages).map(([covType, amt]) => {
-                          if (!amt) return null;
-                          return (
-                            <div key={covType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                              <span style={{ color: 'var(--text-secondary)' }}>{covType}</span>
-                              <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(amt)}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                {/* Quick Subject Presets */}
+                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {eventType === 'meeting' && [
+                    'Annual Policy Review',
+                    'Initial Fact-Find & FNA',
+                    'Policy Signing & Submission',
+                    'Retirement Blueprint'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewTaskText(preset)}
+                      style={{
+                        fontSize: '10.5px',
+                        padding: '2px 7px',
+                        backgroundColor: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.25)',
+                        color: '#c084fc',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
 
-                  {(policy.remarks || policy.notes) && (
-                    <div style={{ marginTop: '10px', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: '2px solid var(--accent-primary)', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
-                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px', fontWeight: '600' }}>Remarks / Special Notes:</span>
-                      <div style={{ whiteSpace: 'pre-wrap' }}>{policy.remarks || policy.notes}</div>
-                    </div>
-                  )}
+                  {eventType === 'followup' && [
+                    'Post-claims payout check',
+                    'Policy anniversary check-in',
+                    'Premium payment reminder',
+                    'Birthday greeting'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewTaskText(preset)}
+                      style={{
+                        fontSize: '10.5px',
+                        padding: '2px 7px',
+                        backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                        border: '1px solid rgba(6, 182, 212, 0.25)',
+                        color: '#38bdf8',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+
+                  {eventType === 'task' && [
+                    'Compare Term vs Whole Life',
+                    'Prepare CPF nomination form',
+                    'Request hospital medical memo',
+                    'Fund switch request'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewTaskText(preset)}
+                      style={{
+                        fontSize: '10.5px',
+                        padding: '2px 7px',
+                        backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        color: '#93c5fd',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
                 </div>
               </div>
-            );
-          })}
+
+              {/* Specific Fields by Event Type */}
+              {eventType === 'task' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                        <Calendar size={12} color="var(--text-muted)" /> Deadline (Due Date)
+                      </label>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button type="button" onClick={() => handleSetQuickDate(0)} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', border: '1px solid var(--border-light)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>Today</button>
+                        <button type="button" onClick={() => handleSetQuickDate(1)} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', border: '1px solid var(--border-light)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>Tomorrow</button>
+                        <button type="button" onClick={() => handleSetQuickDate(7)} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', border: '1px solid var(--border-light)', background: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>+1 Week</button>
+                      </div>
+                    </div>
+                    <DatePicker 
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
+                      placeholder="Select deadline date..."
+                      value={newTaskDueDate}
+                      onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <Flag size={12} color="var(--text-muted)" /> Priority Level
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {[
+                        { label: 'Normal', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.1)' },
+                        { label: 'High', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
+                        { label: 'Urgent', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' }
+                      ].map(p => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => setNewTaskPriority(p.label)}
+                          style={{
+                            flex: 1,
+                            padding: '5px 8px',
+                            borderRadius: '6px',
+                            fontSize: '11.5px',
+                            fontWeight: newTaskPriority === p.label ? '600' : '500',
+                            border: `1px solid ${newTaskPriority === p.label ? p.color : 'var(--border-light)'}`,
+                            backgroundColor: newTaskPriority === p.label ? p.bg : 'transparent',
+                            color: newTaskPriority === p.label ? p.color : 'var(--text-muted)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: p.color }}></span>
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {eventType === 'meeting' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(139, 92, 246, 0.03)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#c084fc', marginBottom: '5px', fontWeight: '500' }}>
+                      <CalendarDays size={12} /> Meeting Date
+                    </label>
+                    <DatePicker 
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
+                      placeholder="Select meeting date..."
+                      value={newTaskDueDate}
+                      onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
+                        <Clock size={12} color="var(--text-muted)" /> Start Time
+                      </label>
+                      <input 
+                        type="time" 
+                        className="input-field" 
+                        style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                        value={newTaskDueTime}
+                        onChange={(e) => setNewTaskDueTime(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
+                        <Clock size={12} color="var(--text-muted)" /> End Time
+                      </label>
+                      <input 
+                        type="time" 
+                        className="input-field" 
+                        style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                        value={newTaskDueEndTime}
+                        onChange={(e) => setNewTaskDueEndTime(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Duration Buttons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Duration:</span>
+                    {[30, 45, 60, 90].map(mins => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => handleSetMeetingDuration(mins)}
+                        style={{
+                          fontSize: '10.5px',
+                          padding: '2px 7px',
+                          backgroundColor: 'rgba(255,255,255,0.04)',
+                          border: '1px solid var(--border-light)',
+                          borderRadius: '4px',
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        +{mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <MapPin size={12} color="var(--text-muted)" /> Venue / Location
+                    </label>
+                    <AddressAutocomplete 
+                      value={newTaskLocation}
+                      onChange={(e) => setNewTaskLocation(e.target.value)}
+                      placeholder="Search venue, office, or video link"
+                      style={{ padding: '7px 12px 7px 34px', fontSize: '12px' }}
+                    />
+                    {/* Quick Venue Presets */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      {['Office (MBFC)', 'Zoom / Video Call', "Client's Residence", 'Cafe / Coffee'].map(v => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setNewTaskLocation(v)}
+                          style={{
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            backgroundColor: 'rgba(255,255,255,0.03)',
+                            border: '1px solid var(--border-light)',
+                            borderRadius: '4px',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {eventType === 'followup' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(6, 182, 212, 0.03)', borderRadius: '8px', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#38bdf8', marginBottom: '5px', fontWeight: '500' }}>
+                      <Calendar size={12} /> Target Follow-up Date
+                    </label>
+                    <DatePicker 
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
+                      placeholder="Select target check-in date..."
+                      value={newTaskDueDate}
+                      onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <MessageCircle size={12} color="var(--text-muted)" /> Communication Channel
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                      {['WhatsApp', 'Phone Call', 'Email', 'Coffee', 'In-Person'].map(ch => (
+                        <button
+                          key={ch}
+                          type="button"
+                          onClick={() => setNewTaskChannel(ch)}
+                          style={{
+                            padding: '5px 6px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            fontWeight: newTaskChannel === ch ? '600' : '500',
+                            border: `1px solid ${newTaskChannel === ch ? '#06b6d4' : 'var(--border-light)'}`,
+                            backgroundColor: newTaskChannel === ch ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                            color: newTaskChannel === ch ? '#38bdf8' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                            textAlign: 'center'
+                          }}
+                        >
+                          {ch}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    <input 
+                      type="checkbox"
+                      checked={newTaskLogTouchpoint}
+                      onChange={(e) => setNewTaskLogTouchpoint(e.target.checked)}
+                      style={{ accentColor: '#06b6d4' }}
+                    />
+                    <span>Automatically log into Client Touchpoint Timeline when marked complete</span>
+                  </label>
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                className="btn" 
+                style={{ 
+                  padding: '9px 16px', 
+                  fontSize: '13px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  gap: '6px',
+                  backgroundColor: eventType === 'meeting' ? '#8b5cf6' : (eventType === 'followup' ? '#06b6d4' : 'var(--accent-primary)'),
+                  color: '#ffffff',
+                  fontWeight: '600',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <Plus size={15} /> 
+                {eventType === 'meeting' ? 'Schedule Meeting' : (eventType === 'followup' ? 'Add Follow-up' : 'Add Task')}
+              </button>
+            </form>
+          </div>
+
+          {/* Active Schedule & Tasks List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                Active Schedule & Actions ({tasks.length})
+              </span>
+
+              {/* Filter Tabs */}
+              <div style={{ display: 'flex', gap: '3px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                {[
+                  { key: 'all', label: 'All' },
+                  { key: 'task', label: 'Tasks' },
+                  { key: 'meeting', label: 'Meetings' },
+                  { key: 'followup', label: 'Follow-ups' }
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setTaskFilterType(tab.key)}
+                    style={{
+                      padding: '2px 7px',
+                      fontSize: '10.5px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: taskFilterType === tab.key ? 'rgba(255,255,255,0.1)' : 'transparent',
+                      color: taskFilterType === tab.key ? 'var(--text-primary)' : 'var(--text-muted)',
+                      fontWeight: taskFilterType === tab.key ? '600' : '400'
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* List Container */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
+              {filteredTasks.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '36px 0', border: '1px dashed var(--border-light)', borderRadius: '8px' }}>
+                  No {taskFilterType === 'all' ? 'active tasks, meetings, or follow-ups' : taskFilterType} scheduled
+                </div>
+              ) : (
+                filteredTasks.map(task => {
+                  const tType = task.type || 'task';
+                  const isCompleted = task.status === 'Completed';
+                  const borderCol = tType === 'meeting' ? '#8b5cf6' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)')));
+
+                  return (
+                    <div 
+                      key={task.id} 
+                      className="card hover-row" 
+                      style={{ 
+                        padding: '10px 12px', 
+                        display: 'flex', 
+                        alignItems: 'flex-start', 
+                        gap: '10px',
+                        borderLeft: `3px solid ${isCompleted ? 'var(--accent-success)' : borderCol}`,
+                        backgroundColor: isCompleted ? 'rgba(16, 185, 129, 0.02)' : 'rgba(255,255,255,0.02)'
+                      }}
+                    >
+                      <button 
+                        onClick={() => toggleTaskStatus(task)} 
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: isCompleted ? 'var(--accent-success)' : 'var(--text-muted)', marginTop: '2px' }}
+                        title={isCompleted ? "Mark incomplete" : "Mark complete"}
+                      >
+                        {isCompleted ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                      </button>
+
+                      <div style={{ flex: 1, fontSize: '13px', color: isCompleted ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: isCompleted ? 'line-through' : 'none', wordBreak: 'break-word' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '3px' }}>
+                          {/* Type Pill */}
+                          {tType === 'meeting' && (
+                            <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <CalendarDays size={10} /> Meeting
+                            </span>
+                          )}
+                          {tType === 'followup' && (
+                            <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(6, 182, 212, 0.15)', color: '#38bdf8', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Phone size={10} /> Follow-up {task.channel ? `(${task.channel})` : ''}
+                            </span>
+                          )}
+                          {tType === 'task' && (
+                            <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#93c5fd', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <CheckSquare size={10} /> Task
+                            </span>
+                          )}
+
+                          {/* Priority Pill for Tasks */}
+                          {tType === 'task' && task.priority && task.priority !== 'Normal' && (
+                            <span style={{
+                              fontSize: '9.5px',
+                              fontWeight: '600',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              backgroundColor: task.priority === 'Urgent' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                              color: task.priority === 'Urgent' ? '#f87171' : '#fbbf24'
+                            }}>
+                              {task.priority}
+                            </span>
+                          )}
+
+                          <span style={{ fontWeight: '500' }}>{task.description}</span>
+                        </div>
+
+                        {/* Metadata row */}
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          {task.dueDate && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Calendar size={11} /> {tType === 'meeting' ? 'Date:' : (tType === 'task' ? 'Due:' : 'Target:')} {formatDateDDMMYYYY(task.dueDate)}
+                            </span>
+                          )}
+                          {task.dueTime && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Clock size={11} /> {task.dueTime}{task.dueEndTime ? ` – ${task.dueEndTime}` : ''}
+                            </span>
+                          )}
+                          {task.location && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', color: 'var(--text-secondary)' }}>
+                              <MapPin size={11} /> {task.location}
+                            </span>
+                          )}
+                          {task.googleEventId && (
+                            <span style={{ fontSize: '9px', backgroundColor: 'rgba(6,182,212,0.12)', color: 'var(--accent-secondary)', padding: '1px 5px', borderRadius: '3px' }} title="Synced to Google Calendar">
+                              Synced
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        <button 
+                          onClick={() => handleOpenEditTask(task)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', opacity: 0.8, padding: '4px' }}
+                          title="Edit item & schedule"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteTask(task.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5, padding: '4px' }}
+                          title="Delete item"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         </div>
-      )}
-    </CollapsibleSection>
-  );
+      </CollapsibleSection>
+    );
+  };
+
+  // Helper renderer for Policy Portfolio Card
+  const renderPolicyPortfolioCard = () => {
+    const selfPolicies = policies.filter(p => !p.insuredType || p.insuredType === 'Self');
+    const depPolicies = policies.filter(p => p.insuredType === 'Dependent');
+    const filteredPolicies = policies.filter(p => {
+      if (policyInsuredFilter === 'all') return true;
+      if (policyInsuredFilter === 'self') return !p.insuredType || p.insuredType === 'Self';
+      if (policyInsuredFilter === 'dependents') return p.insuredType === 'Dependent';
+      return p.insuredPersonId === policyInsuredFilter || (p.insuredType === 'Dependent' && p.insuredName?.toLowerCase() === (currentClient.dependents || []).find(d => d.id === policyInsuredFilter)?.fullName?.toLowerCase());
+    });
+
+    return (
+      <CollapsibleSection
+        id="policy_portfolio"
+        title={`Policy Portfolio (${policies.length})`}
+        icon={<Briefcase size={18} color="var(--accent-secondary)" />}
+        badge={`${formatCurrency(totalAnnualPremium)}/yr`}
+        actions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {/* View Toggle */}
+            <div style={{ display: 'flex', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '2px', border: '1px solid var(--border-light)' }}>
+              <button
+                type="button"
+                onClick={() => setPolicyViewMode('cards')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: policyViewMode === 'cards' ? 'var(--accent-primary)' : 'transparent',
+                  color: policyViewMode === 'cards' ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Card View"
+              >
+                <LayoutGrid size={13} /> Cards
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolicyViewMode('table')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: policyViewMode === 'table' ? 'var(--accent-primary)' : 'transparent',
+                  color: policyViewMode === 'table' ? '#ffffff' : 'var(--text-secondary)',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Horizontal List Table View"
+              >
+                <List size={13} /> Table
+              </button>
+            </div>
+
+            <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', fontSize: '12px' }} onClick={openAddPolicy}>
+              <Plus size={14} /> Add Policy
+            </button>
+          </div>
+        }
+      >
+        {loading ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading portfolio...</div>
+        ) : policies.length === 0 ? (
+          <div style={{ padding: '48px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Shield size={48} color="var(--border-light)" style={{ marginBottom: '16px' }} />
+            <h3 style={{ fontSize: '18px', color: 'var(--text-secondary)', marginBottom: '8px' }}>No active policies</h3>
+            <p style={{ color: 'var(--text-muted)' }}>Attach an insurance policy to build their portfolio.</p>
+          </div>
+        ) : (
+          <div>
+            {/* Insured Person Filter Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', marginRight: '4px' }}>Filter:</span>
+              <button
+                type="button"
+                onClick={() => setPolicyInsuredFilter('all')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  fontSize: '11px',
+                  border: policyInsuredFilter === 'all' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                  backgroundColor: policyInsuredFilter === 'all' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255,255,255,0.03)',
+                  color: policyInsuredFilter === 'all' ? '#60a5fa' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontWeight: policyInsuredFilter === 'all' ? '600' : 'normal'
+                }}
+              >
+                All Policies ({policies.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolicyInsuredFilter('self')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  fontSize: '11px',
+                  border: policyInsuredFilter === 'self' ? '1px solid #3b82f6' : '1px solid var(--border-light)',
+                  backgroundColor: policyInsuredFilter === 'self' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255,255,255,0.03)',
+                  color: policyInsuredFilter === 'self' ? '#60a5fa' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontWeight: policyInsuredFilter === 'self' ? '600' : 'normal',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <User size={12} /> Self ({selfPolicies.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPolicyInsuredFilter('dependents')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '20px',
+                  fontSize: '11px',
+                  border: policyInsuredFilter === 'dependents' ? '1px solid #c084fc' : '1px solid var(--border-light)',
+                  backgroundColor: policyInsuredFilter === 'dependents' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(255,255,255,0.03)',
+                  color: policyInsuredFilter === 'dependents' ? '#c084fc' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  fontWeight: policyInsuredFilter === 'dependents' ? '600' : 'normal',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <Baby size={12} /> All Dependents ({depPolicies.length})
+              </button>
+              {(currentClient.dependents || []).map(dep => {
+                const count = policies.filter(p => p.insuredPersonId === dep.id || (p.insuredType === 'Dependent' && p.insuredName?.toLowerCase() === dep.fullName?.toLowerCase())).length;
+                return (
+                  <button
+                    key={dep.id}
+                    type="button"
+                    onClick={() => setPolicyInsuredFilter(dep.id)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '20px',
+                      fontSize: '11px',
+                      border: policyInsuredFilter === dep.id ? '1px solid #ec4899' : '1px solid var(--border-light)',
+                      backgroundColor: policyInsuredFilter === dep.id ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255,255,255,0.03)',
+                      color: policyInsuredFilter === dep.id ? '#f472b6' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      fontWeight: policyInsuredFilter === dep.id ? '600' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    👶 {dep.fullName} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {filteredPolicies.length === 0 ? (
+              <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', border: '1px dashed var(--border-light)', borderRadius: '8px' }}>
+                No policies found under this insured filter.
+              </div>
+            ) : policyViewMode === 'table' ? (
+              /* Horizontal Table View */
+              <div style={{ overflowX: 'auto', padding: '0', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-light)', backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Status</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Policy Name & Provider</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Type</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Policy No.</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Premium & Split</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Inception</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600' }}>Coverages</th>
+                      <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: '600', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPolicies.map(policy => {
+                      const renewalAlert = isPolicyRenewalUpcoming(policy.inceptionDate);
+                      const hasShieldSplit = (policy.medisavePremium || policy.cashPremium) && policy.policyType === 'Shield';
+                      
+                      return (
+                        <tr 
+                          key={policy.id}
+                          style={{ borderBottom: '1px solid var(--border-light)', cursor: 'pointer', transition: 'background 0.12s' }}
+                          onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.03)'}
+                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          onClick={() => openEditPolicy(policy)}
+                        >
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{ 
+                              padding: '3px 8px', 
+                              borderRadius: '10px', 
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              backgroundColor: policy.status === 'In Force' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.08)',
+                              color: policy.status === 'In Force' ? 'var(--accent-success)' : 'var(--text-muted)'
+                            }}>
+                              {policy.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                              {policy.policyName || 'Unnamed Policy'}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {policy.provider}
+                            </div>
+                            {policy.insuredType === 'Dependent' ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '4px', padding: '2px 7px', borderRadius: '4px', fontSize: '10.5px', backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', fontWeight: '600' }}>
+                                <Baby size={11} /> Insured: {policy.insuredName || 'Dependent'} ({policy.insuredRelationship || 'Child'})
+                              </div>
+                            ) : (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginTop: '4px', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', backgroundColor: 'rgba(255, 255, 255, 0.04)', color: 'var(--text-muted)' }}>
+                                <User size={10} /> Insured: Self (Owner)
+                              </div>
+                            )}
+                            {(policy.remarks || policy.notes) && (
+                              <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '4px', fontStyle: 'italic', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={policy.remarks || policy.notes}>
+                                💬 {policy.remarks || policy.notes}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{ 
+                              padding: '2px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '11px', 
+                              backgroundColor: 'rgba(255,255,255,0.05)', 
+                              color: 'var(--text-secondary)',
+                              fontWeight: '500'
+                            }}>
+                              {policy.policyType}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                            {policy.policyNumber || '-'}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                              {formatCurrency(policy.premiumAmount)} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{getFreqLabel(policy.premiumFrequency)}</span>
+                            </div>
+                            {hasShieldSplit && (
+                              <div style={{ fontSize: '11px', color: 'var(--accent-primary)', marginTop: '2px', display: 'flex', gap: '6px' }}>
+                                <span>CPF: {formatCurrency(policy.medisavePremium)}</span>
+                                <span>•</span>
+                                <span>Cash: {formatCurrency(policy.cashPremium)}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                              {policy.inceptionDate ? formatDateDDMMYYYY(policy.inceptionDate) : '-'}
+                            </div>
+                            {renewalAlert && (
+                              <div style={{ fontSize: '10px', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                                <AlertTriangle size={10} /> Renewal Due
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>-</span>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
+                                {Object.entries(policy.coverages).map(([covType, amt]) => {
+                                  if (!amt) return null;
+                                  return (
+                                    <span key={covType} style={{ fontSize: '10.5px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)' }}>
+                                      {covType}: <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(amt)}</strong>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '4px 8px', fontSize: '11px' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditPolicy(policy);
+                              }}
+                              title="Edit Policy"
+                            >
+                              <Edit2 size={12} /> Edit
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* Cards View */
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                {filteredPolicies.map(policy => {
+                  const renewalAlert = isPolicyRenewalUpcoming(policy.inceptionDate);
+                  const hasShieldSplit = (policy.medisavePremium || policy.cashPremium) && policy.policyType === 'Shield';
+
+                  return (
+                    <div 
+                      key={policy.id} 
+                      className="card hover-row" 
+                      style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', cursor: 'pointer', position: 'relative' }}
+                      onClick={() => openEditPolicy(policy)}
+                      title="Click to Edit"
+                    >
+                      <div style={{ position: 'absolute', right: '20px', top: '20px', opacity: 0.5 }}>
+                        <Edit2 size={14} color="var(--text-muted)" />
+                      </div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingRight: '20px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{ 
+                              padding: '4px 8px', 
+                              borderRadius: '4px', 
+                              fontSize: '10px', 
+                              backgroundColor: 'rgba(255,255,255,0.05)', 
+                              color: 'var(--text-secondary)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              {policy.provider} • {policy.policyType}
+                            </span>
+                            {policy.insuredType === 'Dependent' ? (
+                              <span style={{ 
+                                padding: '3px 8px', 
+                                borderRadius: '4px', 
+                                fontSize: '10.5px', 
+                                backgroundColor: 'rgba(168, 85, 247, 0.18)', 
+                                color: '#c084fc',
+                                fontWeight: '600',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}>
+                                <Baby size={11} /> Insured: {policy.insuredName || 'Dependent'} ({policy.insuredRelationship || 'Child'})
+                              </span>
+                            ) : (
+                              <span style={{ 
+                                padding: '3px 6px', 
+                                borderRadius: '4px', 
+                                fontSize: '10px', 
+                                backgroundColor: 'rgba(255, 255, 255, 0.04)', 
+                                color: 'var(--text-muted)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}>
+                                <User size={10} /> Insured: Self
+                              </span>
+                            )}
+                          </div>
+                          <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginTop: '8px' }}>
+                            {policy.policyName || 'Unnamed Policy'}
+                          </h3>
+                        </div>
+                        <span style={{ 
+                          padding: '4px 10px', 
+                          borderRadius: '12px', 
+                          fontSize: '11px',
+                          backgroundColor: policy.status === 'In Force' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.1)',
+                          color: policy.status === 'In Force' ? 'var(--accent-success)' : 'var(--text-muted)'
+                        }}>
+                          {policy.status}
+                        </span>
+                      </div>
+
+                      {/* Policy Renewal Alert Pill */}
+                      {renewalAlert && (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', backgroundColor: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', fontWeight: '500' }}>
+                          <AlertTriangle size={12} />
+                          Anniversary / Renewal Due Soon
+                        </div>
+                      )}
+                      
+                      <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                        Policy No: <span style={{ color: 'var(--text-secondary)' }}>{policy.policyNumber || 'Pending'}</span>
+                      </div>
+                      
+                      <div style={{ marginTop: '4px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>Premium</div>
+                            <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '500' }}>
+                              {formatCurrency(policy.premiumAmount)} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{getFreqLabel(policy.premiumFrequency)}</span>
+                            </div>
+                            {hasShieldSplit && (
+                              <div style={{ fontSize: '10.5px', color: 'var(--accent-primary)', marginTop: '3px' }}>
+                                MediSave: {formatCurrency(policy.medisavePremium)} | Cash: {formatCurrency(policy.cashPremium)}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>Inception Date</div>
+                            <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
+                              {policy.inceptionDate ? formatDateDDMMYYYY(policy.inceptionDate) : '-'}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>Coverages</div>
+                          {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
+                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>None listed</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              {Object.entries(policy.coverages).map(([covType, amt]) => {
+                                if (!amt) return null;
+                                return (
+                                  <div key={covType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>{covType}</span>
+                                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(amt)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {(policy.remarks || policy.notes) && (
+                          <div style={{ marginTop: '10px', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: '2px solid var(--accent-primary)', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block', marginBottom: '2px', fontWeight: '600' }}>Remarks / Special Notes:</span>
+                            <div style={{ whiteSpace: 'pre-wrap' }}>{policy.remarks || policy.notes}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </CollapsibleSection>
+    );
+  };
+
+  // Helper renderer for Children & Dependents Card
+  const renderDependentsCard = () => {
+    const deps = currentClient.dependents || [];
+    const depPolicies = policies.filter(p => p.insuredType === 'Dependent');
+
+    return (
+      <CollapsibleSection
+        id="client_dependents"
+        title={`Registered Children & Dependents (${deps.length})`}
+        icon={<Baby size={18} color="#c084fc" />}
+        badge={`${depPolicies.length} Active Dependent Policies`}
+        actions={
+          <button 
+            className="btn" 
+            style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', display: 'inline-flex', alignItems: 'center', gap: '4px', border: '1px solid rgba(168, 85, 247, 0.3)' }}
+            onClick={handleOpenAddDependent}
+          >
+            <Plus size={12} /> Add Dependent
+          </button>
+        }
+      >
+        <div style={{ padding: '12px 14px', backgroundColor: 'rgba(168, 85, 247, 0.05)', borderRadius: '10px', border: '1px solid rgba(168, 85, 247, 0.15)', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px', fontWeight: '600', textTransform: 'uppercase' }}>Life Insured Family Protection</div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              Policies insured under children or dependents are owned and funded by <strong style={{ color: 'var(--text-primary)' }}>{currentClient.preferredName || currentClient.fullName}</strong>. Their coverage is tracked in a dedicated schedule and separated from personal earned-income replacement benchmarks.
+            </div>
+          </div>
+        </div>
+
+        {deps.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '24px 0', border: '1px dashed var(--border-light)', borderRadius: '8px' }}>
+            No dependents registered yet. Click <strong style={{ color: '#c084fc' }}>"+ Add Dependent"</strong> or attach an insurance policy with Life Insured set to <em>"Dependent"</em>.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+            {deps.map(dep => {
+              const age = calculateAge(dep.dob);
+              const childPolicies = policies.filter(p => p.insuredPersonId === dep.id || (p.insuredType === 'Dependent' && p.insuredName?.toLowerCase() === dep.fullName?.toLowerCase()));
+              const childAnnualPrem = childPolicies.reduce((sum, p) => {
+                let amt = Number(p.premiumAmount) || 0;
+                if (p.premiumFrequency === 'Monthly') amt *= 12;
+                if (p.premiumFrequency === 'Quarterly') amt *= 4;
+                if (p.premiumFrequency === 'Semi-Annually') amt *= 2;
+                return sum + amt;
+              }, 0);
+
+              return (
+                <div 
+                  key={dep.id} 
+                  style={{ 
+                    padding: '16px', 
+                    backgroundColor: 'rgba(255,255,255,0.02)', 
+                    borderRadius: '10px', 
+                    border: '1px solid rgba(168, 85, 247, 0.2)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(168, 85, 247, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}>
+                        <Baby size={20} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                          {dep.fullName}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                          <span style={{ color: '#c084fc', fontWeight: '500' }}>{dep.relationship || 'Child'}</span>
+                          {age !== null && <span>• Age {age}</span>}
+                          {dep.dob && <span>(DOB: {formatDateDDMMYYYY(dep.dob)})</span>}
+                          {dep.gender && <span>• {dep.gender}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditDependent(dep)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                        title="Edit Dependent"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteDependent(dep.id)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                        title="Delete Dependent"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {dep.notes && (
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', padding: '6px 10px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontStyle: 'italic' }}>
+                      "{dep.notes}"
+                    </div>
+                  )}
+
+                  {/* Child Policies Overview */}
+                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>
+                        In-Force Policies ({childPolicies.length})
+                      </span>
+                      <span style={{ fontSize: '11.5px', fontWeight: '600', color: '#c084fc' }}>
+                        {formatCurrency(childAnnualPrem)}/yr
+                      </span>
+                    </div>
+
+                    {childPolicies.length === 0 ? (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                        No insurance policies attached yet for {dep.fullName}.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
+                        {childPolicies.map(cp => (
+                          <div 
+                            key={cp.id}
+                            onClick={() => openEditPolicy(cp)}
+                            style={{ 
+                              padding: '6px 10px', 
+                              borderRadius: '6px', 
+                              backgroundColor: 'rgba(255,255,255,0.03)', 
+                              border: '1px solid var(--border-light)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              fontSize: '12px',
+                              cursor: 'pointer'
+                            }}
+                            title="Click to Edit Policy"
+                          >
+                            <div>
+                              <span style={{ fontWeight: '500', color: 'var(--text-primary)' }}>{cp.policyName || cp.policyType}</span>
+                              <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginLeft: '6px' }}>({cp.provider})</span>
+                            </div>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+                              {formatCurrency(cp.premiumAmount)} {getFreqLabel(cp.premiumFrequency)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ 
+                        width: '100%', 
+                        padding: '6px 10px', 
+                        fontSize: '11px', 
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)', 
+                        color: '#c084fc', 
+                        border: '1px dashed rgba(168, 85, 247, 0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}
+                      onClick={() => openAddPolicyForDependent(dep)}
+                    >
+                      <Plus size={12} /> Add Policy for {dep.fullName}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CollapsibleSection>
+    );
+  };
 
   // Helper renderer for Family & Household Grouping Card
   const renderFamilyCard = () => (
@@ -1773,7 +2780,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
       )}
 
       {/* Main Content Body */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', paddingBottom: '80px' }}>
         
         {/* ================= TAB 1: OVERVIEW & ACTIVITY ================= */}
         {(viewLayoutMode === 'tabs' && activeProfileTab === 'overview') && (
@@ -1854,6 +2861,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         {/* ================= TAB 4: FAMILY & DOCUMENTS ================= */}
         {(viewLayoutMode === 'tabs' && activeProfileTab === 'family-docs') && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.2s ease-out' }}>
+            {renderDependentsCard()}
             {renderFamilyCard()}
             {renderDocumentsCard()}
           </div>
@@ -1886,6 +2894,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               setSocialPosts={setSocialPosts}
               setIsSocialModalOpen={setIsSocialModalOpen}
             />
+            {renderDependentsCard()}
             {renderFamilyCard()}
             {renderDocumentsCard()}
           </div>
@@ -2073,6 +3082,186 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Policy Name *</label>
                 <input required type="text" name="policyName" className="input-field" style={{ width: '100%' }} value={policyData.policyName} onChange={handlePolicyInputChange} placeholder="e.g. AIA Guaranteed Protect Plus" />
               </div>
+
+              {/* Life Insured Person Toggle: Self (Client) vs Dependent */}
+              <div style={{ marginBottom: '18px', padding: '14px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-light)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="input-label" style={{ fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>
+                    Life Insured Person *
+                  </label>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Owner & Payor: <strong style={{ color: 'var(--text-secondary)' }}>{currentClient.preferredName || currentClient.fullName}</strong>
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: policyData.insuredType === 'Dependent' ? '12px' : '0' }}>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyData({
+                      ...policyData,
+                      insuredType: 'Self',
+                      insuredPersonId: '',
+                      insuredName: currentClient.fullName,
+                      insuredRelationship: 'Self',
+                      insuredDob: currentClient.dob || '',
+                      insuredGender: ''
+                    })}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: policyData.insuredType === 'Self' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                      backgroundColor: policyData.insuredType === 'Self' ? 'rgba(59, 130, 246, 0.18)' : 'rgba(255,255,255,0.02)',
+                      color: policyData.insuredType === 'Self' ? '#60a5fa' : 'var(--text-secondary)',
+                      fontWeight: policyData.insuredType === 'Self' ? '600' : 'normal',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      fontSize: '12.5px'
+                    }}
+                  >
+                    <User size={14} /> 👤 Self (Owner)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstDep = (currentClient.dependents || [])[0];
+                      setPolicyData({
+                        ...policyData,
+                        insuredType: 'Dependent',
+                        insuredPersonId: firstDep ? firstDep.id : 'NEW',
+                        insuredName: firstDep ? firstDep.fullName : (policyData.insuredType === 'Dependent' ? policyData.insuredName : ''),
+                        insuredRelationship: firstDep ? firstDep.relationship : (policyData.insuredType === 'Dependent' ? policyData.insuredRelationship : 'Child'),
+                        insuredDob: firstDep ? firstDep.dob : (policyData.insuredType === 'Dependent' ? policyData.insuredDob : ''),
+                        insuredGender: firstDep ? firstDep.gender : (policyData.insuredType === 'Dependent' ? policyData.insuredGender : 'Female')
+                      });
+                    }}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      border: policyData.insuredType === 'Dependent' ? '1px solid #c084fc' : '1px solid var(--border-light)',
+                      backgroundColor: policyData.insuredType === 'Dependent' ? 'rgba(168, 85, 247, 0.18)' : 'rgba(255,255,255,0.02)',
+                      color: policyData.insuredType === 'Dependent' ? '#c084fc' : 'var(--text-secondary)',
+                      fontWeight: policyData.insuredType === 'Dependent' ? '600' : 'normal',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      fontSize: '12.5px'
+                    }}
+                  >
+                    <Baby size={14} /> 👶 Dependent / Child
+                  </button>
+                </div>
+
+                {policyData.insuredType === 'Dependent' && (
+                  <div style={{ marginTop: '10px', padding: '12px', borderRadius: '8px', backgroundColor: 'rgba(168, 85, 247, 0.06)', border: '1px solid rgba(168, 85, 247, 0.25)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: (currentClient.dependents || []).length > 0 ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                      {(currentClient.dependents || []).length > 0 && (
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Select Registered Dependent</label>
+                          <select
+                            className="input-field"
+                            style={{ width: '100%' }}
+                            value={policyData.insuredPersonId || 'NEW'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === 'NEW') {
+                                setPolicyData({
+                                  ...policyData,
+                                  insuredPersonId: 'NEW',
+                                  insuredName: '',
+                                  insuredRelationship: 'Child',
+                                  insuredDob: '',
+                                  insuredGender: 'Female'
+                                });
+                              } else {
+                                const selDep = (currentClient.dependents || []).find(d => d.id === val);
+                                if (selDep) {
+                                  setPolicyData({
+                                    ...policyData,
+                                    insuredPersonId: selDep.id,
+                                    insuredName: selDep.fullName,
+                                    insuredRelationship: selDep.relationship || 'Child',
+                                    insuredDob: selDep.dob || '',
+                                    insuredGender: selDep.gender || ''
+                                  });
+                                }
+                              }
+                            }}
+                          >
+                            {(currentClient.dependents || []).map(d => (
+                              <option key={d.id} value={d.id}>👶 {d.fullName} ({d.relationship || 'Child'})</option>
+                            ))}
+                            <option value="NEW">+ Quick Register New Dependent...</option>
+                          </select>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Insured Dependent Name *</label>
+                        <input
+                          required={policyData.insuredType === 'Dependent'}
+                          type="text"
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          placeholder="e.g. Emma Tan"
+                          value={policyData.insuredName || ''}
+                          onChange={(e) => setPolicyData({ ...policyData, insuredName: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Relationship</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={policyData.insuredRelationship || 'Child'}
+                          onChange={(e) => setPolicyData({ ...policyData, insuredRelationship: e.target.value })}
+                        >
+                          <option value="Child">Child</option>
+                          <option value="Daughter">Daughter</option>
+                          <option value="Son">Son</option>
+                          <option value="Spouse">Spouse</option>
+                          <option value="Parent">Parent</option>
+                          <option value="Sibling">Sibling</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date of Birth</label>
+                        <DatePicker
+                          name="insuredDob"
+                          value={policyData.insuredDob || ''}
+                          onChange={(e) => setPolicyData({ ...policyData, insuredDob: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Gender</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={policyData.insuredGender || 'Female'}
+                          onChange={(e) => setPolicyData({ ...policyData, insuredGender: e.target.value })}
+                        >
+                          <option value="Female">Female</option>
+                          <option value="Male">Male</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '11px', color: '#c084fc', fontStyle: 'italic' }}>
+                      💡 {currentClient.preferredName || currentClient.fullName} is the Policy Owner & Payor. Saving this policy will automatically catalog and register this dependent in the client profile.
+                    </div>
+                  </div>
+                )}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Provider *</label>
@@ -2250,6 +3439,102 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         </div>
       )}
 
+      {/* Add / Edit Dependent Modal */}
+      {isDependentModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '480px', padding: '28px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+              <Baby size={22} color="#c084fc" />
+              <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', margin: 0 }}>
+                {editingDependentId ? 'Edit Dependent / Child' : 'Register Child or Dependent'}
+              </h2>
+            </div>
+            <form onSubmit={handleSaveDependent}>
+              <div style={{ marginBottom: '14px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Full Legal Name *</label>
+                <input
+                  required
+                  type="text"
+                  className="input-field"
+                  style={{ width: '100%' }}
+                  placeholder="e.g. Emma Tan"
+                  value={dependentForm.fullName}
+                  onChange={(e) => setDependentForm({ ...dependentForm, fullName: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Relationship</label>
+                  <select
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={dependentForm.relationship}
+                    onChange={(e) => setDependentForm({ ...dependentForm, relationship: e.target.value })}
+                  >
+                    <option value="Child">Child</option>
+                    <option value="Daughter">Daughter</option>
+                    <option value="Son">Son</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Sibling">Sibling</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Gender</label>
+                  <select
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={dependentForm.gender}
+                    onChange={(e) => setDependentForm({ ...dependentForm, gender: e.target.value })}
+                  >
+                    <option value="Female">Female</option>
+                    <option value="Male">Male</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date of Birth</label>
+                <DatePicker
+                  name="dob"
+                  value={dependentForm.dob || ''}
+                  onChange={(e) => setDependentForm({ ...dependentForm, dob: e.target.value })}
+                />
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Remarks / Notes (Optional)</label>
+                <textarea
+                  className="input-field"
+                  rows={2}
+                  style={{ width: '100%', resize: 'vertical' }}
+                  placeholder="e.g. Primary school student, pre-existing asthma clause..."
+                  value={dependentForm.notes}
+                  onChange={(e) => setDependentForm({ ...dependentForm, notes: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}
+                  onClick={() => setIsDependentModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ backgroundColor: '#9333ea', borderColor: '#9333ea' }}>
+                  {editingDependentId ? 'Update Dependent' : 'Register Dependent'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Edit Social Links & Company Profile Modal */}
       {isSocialModalOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.75)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
@@ -2344,34 +3629,135 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
           <div className="glass-panel" style={{ width: '100%', maxWidth: '520px', padding: '28px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '16px' }}>
             <h2 style={{ fontSize: '18px', marginBottom: '6px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Edit2 size={18} color="var(--accent-primary)" />
-              Edit Action Item & Follow-up
+              Edit Action Item, Meeting or Follow-up
             </h2>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '20px' }}>
-              Updates to due date, time, and location will immediately synchronize with your Schedule and Google Calendar.
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              Changes to event type, due date, timeslot, and venue will automatically synchronize with your CRM Schedule and Google Calendar.
             </p>
 
-            <form onSubmit={handleSaveEditTask} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Type Switcher */}
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+              {[
+                { type: 'task', label: 'Task / To-Do', icon: <CheckSquare size={12} />, color: 'var(--accent-primary)' },
+                { type: 'meeting', label: 'Meeting', icon: <CalendarDays size={12} />, color: '#8b5cf6' },
+                { type: 'followup', label: 'Follow-up', icon: <Phone size={12} />, color: '#06b6d4' }
+              ].map(t => (
+                <button
+                  key={t.type}
+                  type="button"
+                  onClick={() => setEditTaskForm({ ...editTaskForm, type: t.type })}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '5px',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '11.5px',
+                    fontWeight: (editTaskForm.type || 'task') === t.type ? '600' : '500',
+                    backgroundColor: (editTaskForm.type || 'task') === t.type ? t.color : 'transparent',
+                    color: (editTaskForm.type || 'task') === t.type ? '#ffffff' : 'var(--text-secondary)'
+                  }}
+                >
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={handleSaveEditTask} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Description / Follow-up Details</label>
+                <label className="input-label" style={{ display: 'block', marginBottom: '5px' }}>
+                  {(editTaskForm.type || 'task') === 'meeting' ? 'Meeting Agenda / Title' : ((editTaskForm.type || 'task') === 'followup' ? 'Follow-up Topic / Notes' : 'Task Description')}
+                </label>
                 <input 
                   type="text" 
                   className="input-field" 
                   style={{ width: '100%', fontSize: '13px' }} 
-                  placeholder="Task description..."
+                  placeholder="Description..."
                   value={editTaskForm.description}
                   onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })}
                   required
                 />
               </div>
 
+              {/* Type-Specific Options */}
+              {(editTaskForm.type || 'task') === 'task' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '4px' }}>Priority Level</label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {['Normal', 'High', 'Urgent'].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setEditTaskForm({ ...editTaskForm, priority: p })}
+                        style={{
+                          flex: 1,
+                          padding: '5px 8px',
+                          borderRadius: '6px',
+                          fontSize: '11.5px',
+                          fontWeight: (editTaskForm.priority || 'Normal') === p ? '600' : '400',
+                          border: `1px solid ${(editTaskForm.priority || 'Normal') === p ? (p === 'Urgent' ? '#ef4444' : (p === 'High' ? '#f59e0b' : 'var(--accent-primary)')) : 'var(--border-light)'}`,
+                          backgroundColor: (editTaskForm.priority || 'Normal') === p ? (p === 'Urgent' ? 'rgba(239, 68, 68, 0.15)' : (p === 'High' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)')) : 'transparent',
+                          color: (editTaskForm.priority || 'Normal') === p ? '#fff' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(editTaskForm.type || 'task') === 'followup' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '4px' }}>Communication Channel</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                    {['WhatsApp', 'Phone Call', 'Email', 'Coffee', 'In-Person'].map(ch => (
+                      <button
+                        key={ch}
+                        type="button"
+                        onClick={() => setEditTaskForm({ ...editTaskForm, channel: ch })}
+                        style={{
+                          padding: '5px 6px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: (editTaskForm.channel || 'WhatsApp') === ch ? '600' : '400',
+                          border: `1px solid ${(editTaskForm.channel || 'WhatsApp') === ch ? '#06b6d4' : 'var(--border-light)'}`,
+                          backgroundColor: (editTaskForm.channel || 'WhatsApp') === ch ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                          color: (editTaskForm.channel || 'WhatsApp') === ch ? '#38bdf8' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    <input 
+                      type="checkbox"
+                      checked={!!editTaskForm.logTouchpointOnComplete}
+                      onChange={(e) => setEditTaskForm({ ...editTaskForm, logTouchpointOnComplete: e.target.checked })}
+                      style={{ accentColor: '#06b6d4' }}
+                    />
+                    <span>Log to Client Touchpoint History when completed</span>
+                  </label>
+                </div>
+              )}
+
+              {/* Date & Time Container */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
                 <div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
-                    <Calendar size={13} color="var(--text-muted)" /> Due Date
+                    <Calendar size={13} color="var(--text-muted)" /> {(editTaskForm.type || 'task') === 'meeting' ? 'Meeting Date' : ((editTaskForm.type || 'task') === 'task' ? 'Deadline (Due Date)' : 'Target Follow-up Date')}
                   </label>
                   <DatePicker 
                     style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
-                    placeholder="Select due date..."
+                    placeholder="Select date..."
                     value={editTaskForm.dueDate}
                     onChange={(e) => setEditTaskForm({ ...editTaskForm, dueDate: e.target.value })}
                   />
@@ -2405,18 +3791,19 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 </div>
               </div>
 
+              {/* Venue */}
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Meeting Venue / Address (Optional)</label>
+                <label className="input-label" style={{ display: 'block', marginBottom: '5px' }}>Venue / Address / Video Link</label>
                 <AddressAutocomplete 
                   value={editTaskForm.location}
                   onChange={(e) => setEditTaskForm({ ...editTaskForm, location: e.target.value })}
-                  placeholder="Search venue or address"
+                  placeholder="Search venue or enter video call URL"
                   style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
                 />
               </div>
 
               <div className="input-group" style={{ marginBottom: 0 }}>
-                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Status</label>
+                <label className="input-label" style={{ display: 'block', marginBottom: '5px' }}>Status</label>
                 <select 
                   className="input-field"
                   style={{ width: '100%', fontSize: '13px' }}

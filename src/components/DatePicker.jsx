@@ -29,10 +29,63 @@ export default function DatePicker({
   className = 'input-field',
   min,
   max,
-  required = false
+  required = false,
+  placement = 'auto'
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropdownPlacement, setDropdownPlacement] = useState({
+    vertical: 'bottom',
+    horizontal: 'left'
+  });
   const containerRef = useRef(null);
+
+  const updatePosition = () => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dropdownHeight = 390;
+    const dropdownWidth = 320;
+    
+    // Check available space above vs below
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let vertical = 'bottom';
+    if (placement === 'top') {
+      vertical = 'top';
+    } else if (placement === 'bottom') {
+      vertical = 'bottom';
+    } else {
+      // Auto: if not enough space below, and more space above, open upwards
+      if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+        vertical = 'top';
+      } else {
+        vertical = 'bottom';
+      }
+    }
+    
+    // Check horizontal space
+    const spaceRight = window.innerWidth - rect.left;
+    let horizontal = 'left';
+    if (spaceRight < dropdownWidth && rect.right >= dropdownWidth) {
+      horizontal = 'right';
+    }
+    
+    setDropdownPlacement({ vertical, horizontal });
+  };
+
+  // Keep dropdown placement updated on open, resize, or scroll
+  useEffect(() => {
+    if (isOpen) {
+      updatePosition();
+      const handleReposition = () => updatePosition();
+      window.addEventListener('resize', handleReposition);
+      window.addEventListener('scroll', handleReposition, true);
+      return () => {
+        window.removeEventListener('resize', handleReposition);
+        window.removeEventListener('scroll', handleReposition, true);
+      };
+    }
+  }, [isOpen, placement]);
 
   // Parse initial date or default to current date
   const parseValueToDate = (val) => {
@@ -299,10 +352,11 @@ export default function DatePicker({
         <div
           style={{
             position: 'absolute',
-            top: 'calc(100% + 6px)',
-            left: 0,
             zIndex: 9999,
             width: '320px',
+            maxWidth: 'calc(100vw - 32px)',
+            maxHeight: 'min(420px, calc(100vh - 32px))',
+            overflowY: 'auto',
             backgroundColor: '#1e293b',
             backgroundImage: 'linear-gradient(180deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%)',
             border: '1px solid rgba(139, 92, 246, 0.3)',
@@ -310,7 +364,13 @@ export default function DatePicker({
             padding: '16px',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5), 0 0 15px rgba(139, 92, 246, 0.15)',
             backdropFilter: 'blur(16px)',
-            animation: 'fadeIn 0.15s ease-out'
+            animation: 'fadeIn 0.15s ease-out',
+            ...(dropdownPlacement.vertical === 'top'
+              ? { bottom: 'calc(100% + 6px)', top: 'auto' }
+              : { top: 'calc(100% + 6px)', bottom: 'auto' }),
+            ...(dropdownPlacement.horizontal === 'right'
+              ? { right: 0, left: 'auto' }
+              : { left: 0, right: 'auto' })
           }}
         >
           {/* Header with Fast Year Navigation & Direct Month/Year Selectors */}

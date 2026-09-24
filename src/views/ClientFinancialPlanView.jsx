@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ArrowLeft, Save, Sparkles, TrendingUp, Shield, DollarSign,
   AlertTriangle, CheckCircle2, RefreshCw, Plus, Trash2, Sliders,
@@ -6,7 +6,7 @@ import {
   GraduationCap, TrendingDown, UserX, Briefcase, Eye, Zap, Info,
   BookOpen, Calculator, Layers, Table, BarChart3, PieChart, Target,
   Compass, Flame, Check, Copy, Award, FileText, CheckSquare, Calendar,
-  Building, Landmark, Activity, Clock, FileCheck
+  Building, Landmark, Activity, Clock, FileCheck, Bookmark, Baby
 } from 'lucide-react';
 import CpfLifePlaybookModal from '../components/CpfLifePlaybookModal';
 import ProjectionGraphBreakdownModal from '../components/ProjectionGraphBreakdownModal';
@@ -122,7 +122,8 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
       'retirement': 'retirement',
       'protection': 'protection',
       'simulator': 'simulator',
-      'ai-advisor': 'blueprint'
+      'ai-advisor': 'blueprint',
+      'report-preview': 'report-preview'
     };
     setAdvisorContext({
       section: 'clients',
@@ -216,6 +217,21 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
   const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState(false);
   const [appSettings, setAppSettings] = useState(null);
 
+  // Scenario Snapshots State
+  const [snapshots, setSnapshots] = useState(existingPlan.snapshots || []);
+  const [activeSnapshotId, setActiveSnapshotId] = useState('base');
+  const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
+  const [newSnapshotName, setNewSnapshotName] = useState('');
+
+  // Auto-Save Engine State
+  const isInitialMount = useRef(true);
+  const autoSaveTimerRef = useRef(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState('saved'); // 'saved' | 'saving' | 'error'
+
+  // Interactive Retirement Income Hover Inspector State
+  const [hoveredIncomeData, setHoveredIncomeData] = useState(null);
+  const [retirementViewMode, setRetirementViewMode] = useState('dual'); // 'dual' | 'single'
+
   // Load Policies & App Settings
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -279,6 +295,8 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
 
     policies.forEach(p => {
       if (p.status !== 'In Force') return;
+      // Dependent-insured policies must not inflate the parent's personal income-replacement protection gap matrix
+      if (p.insuredType === 'Dependent') return;
       if (p.policyType === 'Shield') hasShield = true;
       if (p.coverages) {
         if (p.coverages['Death']) death += Number(p.coverages['Death']) || 0;
@@ -293,6 +311,49 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
 
     return { death, tpd, earlyCi, majorCi, disabilityIncome, hasShield };
   }, [policies]);
+
+  // Aggregated Dependent Coverage Schedules
+  const dependentsPolicies = useMemo(() => {
+    return policies.filter(p => p.insuredType === 'Dependent');
+  }, [policies]);
+
+  const dependentsCoverageList = useMemo(() => {
+    const map = {};
+    dependentsPolicies.forEach(p => {
+      const key = p.insuredPersonId || p.insuredName || 'Dependent';
+      if (!map[key]) {
+        map[key] = {
+          id: p.insuredPersonId || key,
+          name: p.insuredName || 'Dependent',
+          relationship: p.insuredRelationship || 'Dependent',
+          dob: p.insuredDob || '',
+          gender: p.insuredGender || '',
+          policies: [],
+          annualPremium: 0,
+          death: 0,
+          tpd: 0,
+          earlyCi: 0,
+          majorCi: 0,
+          hasShield: false
+        };
+      }
+      map[key].policies.push(p);
+      let prem = Number(p.premiumAmount) || 0;
+      if (p.premiumFrequency === 'Monthly') prem *= 12;
+      else if (p.premiumFrequency === 'Quarterly') prem *= 4;
+      else if (p.premiumFrequency === 'Semi-Annually') prem *= 2;
+      map[key].annualPremium += prem;
+
+      if (p.policyType === 'Shield') map[key].hasShield = true;
+      if (p.coverages) {
+        if (p.coverages['Death']) map[key].death += Number(p.coverages['Death']) || 0;
+        if (p.coverages['TPD']) map[key].tpd += Number(p.coverages['TPD']) || 0;
+        if (p.coverages['Early CI']) map[key].earlyCi += Number(p.coverages['Early CI']) || 0;
+        if (p.coverages['Major CI']) map[key].majorCi += Number(p.coverages['Major CI']) || 0;
+      }
+    });
+    return Object.values(map);
+  }, [dependentsPolicies]);
 
   // Recommended Coverage Benchmarks
   const annualEarnedIncome = (Number(cashflow.monthlyEarnedIncome) || 0) * 12;
@@ -441,10 +502,9 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
   // Active stress events count
   const activeEventsCount = lifeEvents.filter(e => e.active).length;
 
-  // Handlers
-  const handleSavePlan = async () => {
-    setIsSaving(true);
-    const planPayload = {
+  // Plan Payload Builder
+  const buildCurrentPlanPayload = () => {
+    return {
       version: 1,
       profile,
       cashflow,
@@ -469,8 +529,118 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
         recommendedMajorCi,
         recommendedDisability
       },
-      aiSummary
+      aiSummary,
+      snapshots
     };
+  };
+
+  // Debounced Real-Time Auto-Save Engine (1s debounce)
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setAutoSaveStatus('saving');
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (window.electronAPI?.saveClientFinancialPlan && client?.id) {
+        try {
+          const payload = buildCurrentPlanPayload();
+          const res = await window.electronAPI.saveClientFinancialPlan(client.id, payload);
+          if (res?.success) {
+            setAutoSaveStatus('saved');
+            if (onUpdateClient && res.client) {
+              onUpdateClient(res.client);
+            }
+          } else {
+            setAutoSaveStatus('error');
+          }
+        } catch (err) {
+          console.error("Auto-save failed:", err);
+          setAutoSaveStatus('error');
+        }
+      }
+    }, 1000);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [profile, cashflow, balanceSheet, retirementTarget, goals, lifeEvents, focusArea, advisorCustomNotes]);
+
+  // Scenario Snapshot Handlers
+  const handleCreateSnapshot = (name) => {
+    const snapName = (name && name.trim()) ? name.trim() : `Scenario ${snapshots.length + 1}`;
+    const newSnapshot = {
+      id: `snap_${Date.now()}`,
+      name: snapName,
+      createdAt: new Date().toISOString(),
+      data: {
+        profile: { ...profile },
+        cashflow: { ...cashflow },
+        balanceSheet: { ...balanceSheet },
+        retirementTarget: { ...retirementTarget },
+        goals: JSON.parse(JSON.stringify(goals)),
+        lifeEvents: JSON.parse(JSON.stringify(lifeEvents)),
+        focusArea,
+        advisorCustomNotes
+      }
+    };
+    const updated = [...snapshots, newSnapshot];
+    setSnapshots(updated);
+    setActiveSnapshotId(newSnapshot.id);
+    setIsCreatingSnapshot(false);
+    setNewSnapshotName('');
+    if (window.electronAPI?.saveClientFinancialPlan && client?.id) {
+      window.electronAPI.saveClientFinancialPlan(client.id, {
+        ...buildCurrentPlanPayload(),
+        snapshots: updated
+      });
+    }
+  };
+
+  const handleSelectSnapshot = (snapId) => {
+    if (snapId === 'base') {
+      setActiveSnapshotId('base');
+      if (existingPlan.profile) setProfile(existingPlan.profile);
+      if (existingPlan.cashflow) setCashflow(existingPlan.cashflow);
+      if (existingPlan.balanceSheet) setBalanceSheet(existingPlan.balanceSheet);
+      if (existingPlan.retirementTarget) setRetirementTarget(existingPlan.retirementTarget);
+      if (existingPlan.goals) setGoals(existingPlan.goals);
+      if (existingPlan.lifeEvents) setLifeEvents(existingPlan.lifeEvents);
+      return;
+    }
+    const snap = snapshots.find(s => s.id === snapId);
+    if (snap && snap.data) {
+      setActiveSnapshotId(snap.id);
+      if (snap.data.profile) setProfile(snap.data.profile);
+      if (snap.data.cashflow) setCashflow(snap.data.cashflow);
+      if (snap.data.balanceSheet) setBalanceSheet(snap.data.balanceSheet);
+      if (snap.data.retirementTarget) setRetirementTarget(snap.data.retirementTarget);
+      if (snap.data.goals) setGoals(snap.data.goals);
+      if (snap.data.lifeEvents) setLifeEvents(snap.data.lifeEvents);
+      if (snap.data.focusArea) setFocusArea(snap.data.focusArea);
+      if (snap.data.advisorCustomNotes) setAdvisorCustomNotes(snap.data.advisorCustomNotes);
+    }
+  };
+
+  const handleDeleteSnapshot = (snapId, e) => {
+    if (e) e.stopPropagation();
+    const updated = snapshots.filter(s => s.id !== snapId);
+    setSnapshots(updated);
+    if (activeSnapshotId === snapId) {
+      handleSelectSnapshot('base');
+    }
+    if (window.electronAPI?.saveClientFinancialPlan && client?.id) {
+      window.electronAPI.saveClientFinancialPlan(client.id, {
+        ...buildCurrentPlanPayload(),
+        snapshots: updated
+      });
+    }
+  };
+
+  // Handlers
+  const handleSavePlan = async () => {
+    setIsSaving(true);
+    const planPayload = buildCurrentPlanPayload();
 
     if (window.electronAPI?.saveClientFinancialPlan && client?.id) {
       const res = await window.electronAPI.saveClientFinancialPlan(client.id, planPayload);
@@ -826,20 +996,32 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
 
       retireData.push({
         age,
+        calendarYear: new Date().getFullYear() + (age - startAge),
         targetLiving,
         guaranteedCpf,
         passive,
         actualDrawdown,
+        totalIncome,
         shortfall,
+        surplus: Math.max(0, totalIncome - targetLiving),
+        capitalRemaining: capAtAge,
         isDepleted
       });
     }
 
     if (retireData.length === 0) return null;
 
+    // Actuarial KPIs
+    const guaranteedFloorCoveragePct = Math.round(((annuityBase + passiveBase) / Math.max(1, baseDesired)) * 100);
+    const preRetireAnnualEarned = ((Number(cashflow.monthlyEarnedIncome) || 0) * 12);
+    const irrPct = preRetireAnnualEarned > 0 
+      ? Math.round(((baseDesired * (isMonthly ? 12 : 1)) / preRetireAnnualEarned) * 100) 
+      : 0;
+    const inflatedAt85 = Math.round((Number(retirementTarget.desiredMonthlyIncome) || 0) * Math.pow(1 + inflation, Math.max(0, 85 - startAge)));
+
     const width = 860;
-    const height = 280;
-    const padding = { top: 30, right: 30, bottom: 40, left: 75 };
+    const height = 290;
+    const padding = { top: 35, right: 30, bottom: 45, left: 75 };
 
     const maxVal = Math.max(
       ...retireData.map(d => Math.max(d.targetLiving, d.guaranteedCpf + d.passive + d.actualDrawdown + d.shortfall)),
@@ -849,136 +1031,300 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
     const getX = (age) => padding.left + ((age - retireAge) / Math.max(1, maxAge - retireAge)) * (width - padding.left - padding.right);
     const getY = (val) => height - padding.bottom - (val / Math.max(1, maxVal)) * (height - padding.top - padding.bottom);
 
-    const targetPoints = retireData.map(d => `${getX(d.age)},${getY(d.targetLiving)}`).join(' ');
+    const targetPoints = retireData.map(d => `${getX(d.age).toFixed(1)},${getY(d.targetLiving).toFixed(1)}`).join(' ');
+
+    const activeInspectorData = hoveredIncomeData || retireData[0];
 
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', minWidth: '600px' }}>
-        {/* Horizontal Grid */}
-        {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => {
-          const val = maxVal * pct;
-          const y = getY(val);
-          return (
-            <g key={i}>
-              <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
-              <text x={padding.left - 8} y={y + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">
-                {formatCurrency(val)}{isMonthly ? '/mo' : '/yr'}
-              </text>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {/* Actuarial KPI Ribbon */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '10px',
+          padding: '12px 14px',
+          backgroundColor: 'rgba(0, 0, 0, 0.28)',
+          borderRadius: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.05)'
+        }}>
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>
+              Guaranteed Floor Coverage
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: guaranteedFloorCoveragePct >= 70 ? '#34d399' : guaranteedFloorCoveragePct >= 40 ? '#60a5fa' : '#fbbf24' }}>
+              {guaranteedFloorCoveragePct}% <span style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--text-muted)' }}>of living costs</span>
+            </div>
+            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              CPF LIFE + Passive: {formatCurrency(annuityBase + passiveBase)}{isMonthly ? '/mo' : '/yr'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>
+              Income Replacement Ratio (IRR)
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: irrPct >= 65 && irrPct <= 85 ? '#34d399' : '#60a5fa' }}>
+              {irrPct > 0 ? `${irrPct}%` : 'N/A'} <span style={{ fontSize: '11px', fontWeight: 'normal', color: 'var(--text-muted)' }}>target (65-75%)</span>
+            </div>
+            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              Desired vs. Current Earned Income
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>
+              Inflated Living Cost @ Age 85
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: '#fbbf24' }}>
+              {formatCurrency(inflatedAt85)}/mo
+            </div>
+            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              {profile.inflationRate}% p.a. compounding
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: '600' }}>
+              Capital Solvency Horizon
+            </div>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: isRetirementOnTrack ? '#34d399' : '#f87171' }}>
+              {isRetirementOnTrack ? `Solvent to Age ${maxAge}+` : `Depleted @ Age ${baselineDepletion}`}
+            </div>
+            <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+              {isRetirementOnTrack ? 'Zero capital deficit' : `Longevity gap: ${maxAge - baselineDepletion} yrs`}
+            </div>
+          </div>
+        </div>
+
+        {/* Chart SVG with Interactive Inspection */}
+        <div style={{ position: 'relative', width: '100%', overflowX: 'auto' }}>
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            style={{ width: '100%', height: 'auto', minWidth: '600px', cursor: 'crosshair' }}
+            onMouseLeave={() => setHoveredIncomeData(null)}
+          >
+            {/* Horizontal Grid Lines */}
+            {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => {
+              const val = maxVal * pct;
+              const y = getY(val);
+              return (
+                <g key={i}>
+                  <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" />
+                  <text x={padding.left - 8} y={y + 4} fill="var(--text-muted)" fontSize="10" textAnchor="end">
+                    {formatCurrency(val)}{isMonthly ? '/mo' : '/yr'}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Age Grid X-Axis Ticks */}
+            {retireData.filter((_, idx) => idx % 4 === 0 || idx === retireData.length - 1).map((d, i) => {
+              const x = getX(d.age);
+              return (
+                <g key={i}>
+                  <line x1={x} y1={height - padding.bottom} x2={x} y2={height - padding.bottom + 5} stroke="rgba(255,255,255,0.2)" />
+                  <text x={x} y={height - padding.bottom + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">
+                    Age {d.age}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Hovered Column Highlight */}
+            {hoveredIncomeData && (
+              <rect
+                x={getX(hoveredIncomeData.age) - 8}
+                y={padding.top}
+                width={16}
+                height={height - padding.top - padding.bottom}
+                fill="rgba(59, 130, 246, 0.15)"
+                rx="3"
+                pointerEvents="none"
+              />
+            )}
+
+            {/* Stacked Waterfall Bars for each retirement year */}
+            {retireData.map((d, i) => {
+              const x = getX(d.age) - 7;
+              const barW = Math.max(9, (width - padding.left - padding.right) / retireData.length - 4);
+
+              // Layer Heights
+              const hCpf = (d.guaranteedCpf / maxVal) * (height - padding.top - padding.bottom);
+              const hPassive = (d.passive / maxVal) * (height - padding.top - padding.bottom);
+              const hDrawdown = (d.actualDrawdown / maxVal) * (height - padding.top - padding.bottom);
+              const hShortfall = (d.shortfall / maxVal) * (height - padding.top - padding.bottom);
+
+              let currentY = height - padding.bottom;
+
+              return (
+                <g key={i}>
+                  {/* 1. Guaranteed CPF Life Base */}
+                  {hCpf > 0 && (
+                    <rect
+                      x={x}
+                      y={currentY - hCpf}
+                      width={barW}
+                      height={hCpf}
+                      fill="#818cf8"
+                      opacity="0.9"
+                      rx="1"
+                    />
+                  )}
+                  {(() => { currentY -= hCpf; return null; })()}
+
+                  {/* 2. Passive / Rental Income */}
+                  {hPassive > 0 && (
+                    <rect
+                      x={x}
+                      y={currentY - hPassive}
+                      width={barW}
+                      height={hPassive}
+                      fill="#06b6d4"
+                      opacity="0.9"
+                      rx="1"
+                    />
+                  )}
+                  {(() => { currentY -= hPassive; return null; })()}
+
+                  {/* 3. Portfolio Systematic Drawdown */}
+                  {hDrawdown > 0 && (
+                    <rect
+                      x={x}
+                      y={currentY - hDrawdown}
+                      width={barW}
+                      height={hDrawdown}
+                      fill="#10b981"
+                      opacity="0.9"
+                      rx="1"
+                    />
+                  )}
+                  {(() => { currentY -= hDrawdown; return null; })()}
+
+                  {/* 4. Income Shortfall (Deficit) */}
+                  {hShortfall > 0 && (
+                    <rect
+                      x={x}
+                      y={currentY - hShortfall}
+                      width={barW}
+                      height={hShortfall}
+                      fill="#ef4444"
+                      opacity="0.8"
+                      stroke="#f87171"
+                      strokeDasharray="2 2"
+                      rx="1"
+                    />
+                  )}
+
+                  {/* Invisible Hitbox for Mouse Hover Tracking */}
+                  <rect
+                    x={getX(d.age) - 10}
+                    y={padding.top}
+                    width={20}
+                    height={height - padding.top - padding.bottom}
+                    fill="transparent"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredIncomeData(d)}
+                  />
+                </g>
+              );
+            })}
+
+            {/* Target Inflated Living Expense Guideline */}
+            <polyline
+              points={targetPoints}
+              fill="none"
+              stroke="#fbbf24"
+              strokeWidth="2.5"
+              strokeDasharray="4 3"
+            />
+
+            {/* Target Living Point Marker for Hovered Age */}
+            {hoveredIncomeData && (
+              <circle
+                cx={getX(hoveredIncomeData.age)}
+                cy={getY(hoveredIncomeData.targetLiving)}
+                r="4.5"
+                fill="#fbbf24"
+                stroke="#0F172A"
+                strokeWidth="2"
+              />
+            )}
+
+            {/* Legend Overlay at Top Right */}
+            <g transform={`translate(${width - 370}, ${padding.top - 8})`}>
+              <rect x="0" y="0" width="8" height="6" fill="#818cf8" rx="1" />
+              <text x="12" y="6" fill="#818cf8" fontSize="9.5">CPF LIFE Floor</text>
+
+              <rect x="90" y="0" width="8" height="6" fill="#06b6d4" rx="1" />
+              <text x="102" y="6" fill="#06b6d4" fontSize="9.5">Passive / Rental</text>
+
+              <rect x="180" y="0" width="8" height="6" fill="#10b981" rx="1" />
+              <text x="192" y="6" fill="#10b981" fontSize="9.5">Portfolio Drawdown</text>
+
+              <line x1="285" y1="3" x2="297" y2="3" stroke="#fbbf24" strokeWidth="2" strokeDasharray="3 2" />
+              <text x="302" y="6" fill="#fbbf24" fontSize="9.5">Target Need</text>
             </g>
-          );
-        })}
+          </svg>
+        </div>
 
-        {/* Age Grid X-Axis */}
-        {retireData.filter((_, idx) => idx % 4 === 0 || idx === retireData.length - 1).map((d, i) => {
-          const x = getX(d.age);
-          return (
-            <g key={i}>
-              <line x1={x} y1={height - padding.bottom} x2={x} y2={height - padding.bottom + 5} stroke="rgba(255,255,255,0.2)" />
-              <text x={x} y={height - padding.bottom + 18} fill="var(--text-muted)" fontSize="10" textAnchor="middle">
-                Age {d.age}
-              </text>
-            </g>
-          );
-        })}
+        {/* Interactive Cash Flow Inspector Box */}
+        {activeInspectorData && (
+          <div style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(15, 23, 42, 0.7)',
+            borderRadius: '8px',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ padding: '4px 10px', borderRadius: '6px', backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', fontWeight: '700', fontSize: '13px' }}>
+                Age {activeInspectorData.age} ({activeInspectorData.calendarYear})
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {hoveredIncomeData ? 'Inspecting hovered age' : 'Retirement onset snapshot (hover over bars to inspect any age)'}
+              </span>
+            </div>
 
-        {/* Stacked Waterfall Bars for each retirement year */}
-        {retireData.map((d, i) => {
-          const x = getX(d.age) - 6;
-          const barW = Math.max(8, (width - padding.left - padding.right) / retireData.length - 4);
-
-          // Heights
-          const hCpf = (d.guaranteedCpf / maxVal) * (height - padding.top - padding.bottom);
-          const hPassive = (d.passive / maxVal) * (height - padding.top - padding.bottom);
-          const hDrawdown = (d.actualDrawdown / maxVal) * (height - padding.top - padding.bottom);
-          const hShortfall = (d.shortfall / maxVal) * (height - padding.top - padding.bottom);
-
-          let currentY = height - padding.bottom;
-
-          return (
-            <g key={i}>
-              {/* 1. Guaranteed CPF Life Base */}
-              {hCpf > 0 && (
-                <rect
-                  x={x}
-                  y={currentY - hCpf}
-                  width={barW}
-                  height={hCpf}
-                  fill="#818cf8"
-                  opacity="0.85"
-                  rx="1"
-                />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', fontSize: '11px' }}>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Target Need: </span>
+                <strong style={{ color: '#fbbf24' }}>{formatCurrency(activeInspectorData.targetLiving)}{isMonthly ? '/mo' : '/yr'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>CPF LIFE Floor: </span>
+                <strong style={{ color: '#818cf8' }}>{formatCurrency(activeInspectorData.guaranteedCpf)}{isMonthly ? '/mo' : '/yr'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Passive Income: </span>
+                <strong style={{ color: '#06b6d4' }}>{formatCurrency(activeInspectorData.passive)}{isMonthly ? '/mo' : '/yr'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Portfolio Drawdown: </span>
+                <strong style={{ color: '#10b981' }}>{formatCurrency(activeInspectorData.actualDrawdown)}{isMonthly ? '/mo' : '/yr'}</strong>
+              </div>
+              <div>
+                <span style={{ color: 'var(--text-muted)' }}>Total Cash Flow: </span>
+                <strong style={{ color: activeInspectorData.shortfall > 0 ? '#f87171' : '#34d399' }}>
+                  {formatCurrency(activeInspectorData.totalIncome)}{isMonthly ? '/mo' : '/yr'}
+                </strong>
+              </div>
+              {activeInspectorData.shortfall > 0 ? (
+                <span style={{ padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171', fontWeight: '700' }}>
+                  Deficit: -{formatCurrency(activeInspectorData.shortfall)}
+                </span>
+              ) : (
+                <span style={{ padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontWeight: '600' }}>
+                  Fully Funded
+                </span>
               )}
-              {(() => { currentY -= hCpf; return null; })()}
-
-              {/* 2. Passive Income */}
-              {hPassive > 0 && (
-                <rect
-                  x={x}
-                  y={currentY - hPassive}
-                  width={barW}
-                  height={hPassive}
-                  fill="#14b8a6"
-                  opacity="0.85"
-                  rx="1"
-                />
-              )}
-              {(() => { currentY -= hPassive; return null; })()}
-
-              {/* 3. Portfolio Drawdown */}
-              {hDrawdown > 0 && (
-                <rect
-                  x={x}
-                  y={currentY - hDrawdown}
-                  width={barW}
-                  height={hDrawdown}
-                  fill="#10b981"
-                  opacity="0.85"
-                  rx="1"
-                />
-              )}
-              {(() => { currentY -= hDrawdown; return null; })()}
-
-              {/* 4. Income Shortfall (if capital runs out) */}
-              {hShortfall > 0 && (
-                <rect
-                  x={x}
-                  y={currentY - hShortfall}
-                  width={barW}
-                  height={hShortfall}
-                  fill="#ef4444"
-                  opacity="0.75"
-                  stroke="#f87171"
-                  strokeDasharray="2 2"
-                  rx="1"
-                />
-              )}
-            </g>
-          );
-        })}
-
-        {/* Target Inflated Living Expense Line */}
-        <polyline
-          points={targetPoints}
-          fill="none"
-          stroke="#fbbf24"
-          strokeWidth="2.5"
-          strokeDasharray="4 3"
-        />
-
-        {/* Legend Overlay at Top Right */}
-        <g transform={`translate(${width - 240}, ${padding.top})`}>
-          <line x1="0" y1="0" x2="16" y2="0" stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="3 3" />
-          <text x="22" y="3" fill="#fbbf24" fontSize="10">Target Inflated Living</text>
-
-          <rect x="0" y="10" width="12" height="8" fill="#818cf8" rx="1" />
-          <text x="18" y="17" fill="#818cf8" fontSize="10">Guaranteed CPF / Annuity</text>
-
-          <rect x="0" y="24" width="12" height="8" fill="#10b981" rx="1" />
-          <text x="18" y="31" fill="#10b981" fontSize="10">Portfolio Drawdown</text>
-
-          <rect x="0" y="38" width="12" height="8" fill="#ef4444" rx="1" />
-          <text x="18" y="45" fill="#ef4444" fontSize="10">Shortfall / Deficit</text>
-        </g>
-      </svg>
+            </div>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -1075,49 +1421,98 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
     );
   };
 
-  // Master Chart Container with Mode Switcher & Timeframe Toggle
+  // Master Chart Container with Coordinated Dual-View & Single-View Modes
   const renderRetirementChart = () => {
     return (
       <div style={{ position: 'relative', width: '100%', overflowX: 'auto', backgroundColor: 'rgba(15, 23, 42, 0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--border-light)' }}>
         
-        {/* Controls Bar: Chart Selection & Monthly/Annual Toggle */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+        {/* Controls Bar: Layout Selector, Chart Type Tabs & Monthly/Annual Toggle */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
           
-          {/* Chart Type Tabs */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {[
-              { id: 'runway', label: '📈 Capital Runway', icon: TrendingUp },
-              { id: 'income-waterfall', label: '🌊 Retirement Cashflow Waterfall', icon: BarChart3 },
-              { id: 'asset-evolution', label: '🏛️ Net Worth Evolution', icon: PieChart }
-            ].map(c => {
-              const IconComp = c.icon;
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setChartType(c.id)}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: '6px',
-                    fontSize: '11px',
-                    fontWeight: chartType === c.id ? '600' : '500',
-                    backgroundColor: chartType === c.id ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
-                    color: chartType === c.id ? '#60a5fa' : 'var(--text-secondary)',
-                    border: chartType === c.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px'
-                  }}
-                >
-                  <IconComp size={13} />
-                  {c.label}
-                </button>
-              );
-            })}
+          {/* Left: View Mode (Dual vs Single) & Individual Chart Tabs */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Dual / Single Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-light)' }}>
+              <button
+                type="button"
+                onClick={() => setRetirementViewMode('dual')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: retirementViewMode === 'dual' ? '#3b82f6' : 'transparent',
+                  color: retirementViewMode === 'dual' ? '#fff' : 'var(--text-muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="View Capital Runway and Retirement Cash Flow Streams simultaneously"
+              >
+                <Layers size={12} /> Coordinated Dual View
+              </button>
+              <button
+                type="button"
+                onClick={() => setRetirementViewMode('single')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: retirementViewMode === 'single' ? '#3b82f6' : 'transparent',
+                  color: retirementViewMode === 'single' ? '#fff' : 'var(--text-muted)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="View one full-width chart at a time"
+              >
+                Single Chart View
+              </button>
+            </div>
+
+            {/* If Single View, show tabs */}
+            {retirementViewMode === 'single' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                {[
+                  { id: 'runway', label: '📈 Capital Runway', icon: TrendingUp },
+                  { id: 'income-waterfall', label: '🌊 Income Streams', icon: BarChart3 },
+                  { id: 'asset-evolution', label: '🏛️ Net Worth Evolution', icon: PieChart }
+                ].map(c => {
+                  const IconComp = c.icon;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setChartType(c.id)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: chartType === c.id ? '600' : '500',
+                        backgroundColor: chartType === c.id ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.03)',
+                        color: chartType === c.id ? '#60a5fa' : 'var(--text-secondary)',
+                        border: chartType === c.id ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <IconComp size={12} />
+                      {c.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Timeframe Toggle & Action Buttons */}
+          {/* Right: Timeframe Toggle & Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             
             {/* Annual vs Monthly Toggle */}
@@ -1178,11 +1573,35 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
           </div>
         </div>
 
-        {/* Render Selected Chart */}
-        <div style={{ position: 'relative' }}>
-          {chartType === 'runway' && renderRunwayChart()}
-          {chartType === 'income-waterfall' && renderRetirementIncomeWaterfallChart()}
-          {chartType === 'asset-evolution' && renderAssetEvolutionChart()}
+        {/* Render Selected Chart(s) */}
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {retirementViewMode === 'dual' ? (
+            <>
+              {/* Chart 1: Capital Runway */}
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <TrendingUp size={15} color="#10b981" />
+                  <span>1. Capital Accumulation & Decumulation Runway (Wealth Stock)</span>
+                </div>
+                {renderRunwayChart()}
+              </div>
+
+              {/* Chart 2: Income Waterfall & Streams */}
+              <div style={{ borderTop: '1px dashed rgba(255,255,255,0.1)', paddingTop: '20px' }}>
+                <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <BarChart3 size={15} color="#818cf8" />
+                  <span>2. Projected Retirement Income Streams vs. Inflated Living Expenses (Monthly Cash Flow)</span>
+                </div>
+                {renderRetirementIncomeWaterfallChart()}
+              </div>
+            </>
+          ) : (
+            <>
+              {chartType === 'runway' && renderRunwayChart()}
+              {chartType === 'income-waterfall' && renderRetirementIncomeWaterfallChart()}
+              {chartType === 'asset-evolution' && renderAssetEvolutionChart()}
+            </>
+          )}
 
           {/* Blank Slate Overlay */}
           {!hasAnyData && (
@@ -1208,6 +1627,1068 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
             </div>
           )}
         </div>
+      </div>
+    );
+  };
+
+  // TAB 6: LIVE 6-PAGE A4 WYSIWYG REPORT PREVIEW ENGINE
+  const renderLiveReportPreview = () => {
+    const consultantName = appSettings?.consultantName || 'Advisory Consultant';
+    const consultantTitle = appSettings?.consultantTitle || 'Senior Financial Consultant';
+    const consultantCreds = appSettings?.consultantCredentials || 'CFP® • ChFC®/S • AEPP®';
+    const consultantRep = appSettings?.consultantRepCode || 'MAS-REP-102948';
+    const reportBranding = appSettings?.reportHeaderBranding || 'FINANCIAL PLANNING REPORT';
+    const reportSubtitle = appSettings?.reportSubtitle || 'Institutional Wealth Management & Advisory Dossier';
+    const consultantPhone = appSettings?.consultantPhone || '+65 6123 4567';
+    const consultantEmail = appSettings?.consultantEmail || 'advisory@beetsma.com';
+    const reportDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    const scrollToPage = (pageId) => {
+      const el = document.getElementById(pageId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    };
+
+    // Shared Styles for A4 Document Pages
+    const pageStyle = {
+      width: '100%',
+      maxWidth: '820px',
+      backgroundColor: '#FFFFFF',
+      color: '#1E293B',
+      borderRadius: '8px',
+      padding: '36px 42px',
+      boxShadow: '0 12px 36px rgba(0, 0, 0, 0.45)',
+      fontSize: '10.5px',
+      lineHeight: '1.45',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '1120px',
+      boxSizing: 'border-box',
+      position: 'relative',
+      margin: '0 auto 28px auto'
+    };
+
+    const headerStyle = {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      borderBottom: '2px solid #0F172A',
+      paddingBottom: '8px',
+      marginBottom: '18px'
+    };
+
+    const footerStyle = {
+      marginTop: 'auto',
+      paddingTop: '10px',
+      borderTop: '1px solid #E2E8F0',
+      display: 'flex',
+      justifyContent: 'space-between',
+      fontSize: '8px',
+      color: '#94A3B8'
+    };
+
+    // Page 4 Chart 1: Capital Runway SVG
+    const renderPage4RunwaySvg = () => {
+      const startAge = Number(profile.currentAge) || defaultBaseAge;
+      const retireAge = Number(profile.targetRetirementAge) || 65;
+      const maxAge = Number(profile.lifeExpectancy) || 85;
+      const yearly = projectionResults.baseline.yearlyData;
+      if (!yearly || yearly.length === 0) return null;
+
+      const width = 710;
+      const height = 135;
+      const pad = { top: 20, right: 30, bottom: 22, left: 60 };
+      const maxCap = Math.max(...yearly.map(d => d.capital), 200000);
+
+      const getX = (age) => pad.left + ((age - startAge) / Math.max(1, maxAge - startAge)) * (width - pad.left - pad.right);
+      const getY = (cap) => height - pad.bottom - (Math.max(0, cap) / maxCap) * (height - pad.top - pad.bottom);
+      const formatK = (v) => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
+
+      const points = yearly.map(d => `${getX(d.age).toFixed(1)},${getY(d.capital).toFixed(1)}`).join(' ');
+      const xStart = getX(startAge);
+      const xEnd = getX(maxAge);
+      const yZero = height - pad.bottom;
+      const area = `${xStart},${yZero} ${points} ${xEnd},${yZero}`;
+
+      return (
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', background: '#FFFFFF' }}>
+          {[0, 0.5, 1.0].map((pct, idx) => {
+            const v = maxCap * pct;
+            const y = getY(v);
+            return (
+              <g key={idx}>
+                <line x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke="#E2E8F0" strokeDasharray="3 3" />
+                <text x={pad.left - 6} y={y + 3} fill="#64748B" fontSize="8" textAnchor="end">{formatK(v)}</text>
+              </g>
+            );
+          })}
+          {yearly.filter((_, idx) => idx % 5 === 0 || idx === yearly.length - 1).map((d, idx) => (
+            <g key={idx}>
+              <line x1={getX(d.age)} y1={yZero} x2={getX(d.age)} y2={yZero + 3} stroke="#94A3B8" />
+              <text x={getX(d.age)} y={yZero + 12} fill="#64748B" fontSize="8" textAnchor="middle">Age {d.age}</text>
+            </g>
+          ))}
+          <line x1={getX(retireAge)} y1={pad.top} x2={getX(retireAge)} y2={yZero} stroke="#F59E0B" strokeWidth="1.5" strokeDasharray="3 2" />
+          <text x={getX(retireAge)} y={pad.top - 5} fill="#D97706" fontSize="7.5" fontWeight="700" textAnchor="middle">Retire @ {retireAge}</text>
+
+          <polygon points={area} fill="rgba(16, 185, 129, 0.12)" />
+          <polyline points={points} fill="none" stroke="#10B981" strokeWidth="2.5" />
+
+          {retirementNestEggAtRetire > 0 && (
+            <g>
+              <circle cx={getX(retireAge)} cy={getY(retirementNestEggAtRetire)} r="4" fill="#10B981" stroke="#FFFFFF" strokeWidth="1.5" />
+              <text x={getX(retireAge) + 6} y={getY(retirementNestEggAtRetire) - 4} fill="#047857" fontSize="7.5" fontWeight="700">Peak: {formatK(retirementNestEggAtRetire)}</text>
+            </g>
+          )}
+
+          {baselineDepletion && (
+            <g>
+              <circle cx={getX(baselineDepletion)} cy={yZero} r="4" fill="#EF4444" />
+              <text x={getX(baselineDepletion)} y={yZero - 8} fill="#DC2626" fontSize="7.5" fontWeight="700" textAnchor="middle">Depleted @ {baselineDepletion}</text>
+            </g>
+          )}
+        </svg>
+      );
+    };
+
+    // Page 4 Chart 2: Income Waterfall & Streams SVG
+    const renderPage4IncomeWaterfallSvg = () => {
+      const startAge = Number(profile.currentAge) || defaultBaseAge;
+      const retireAge = Number(profile.targetRetirementAge) || 65;
+      const maxAge = Number(profile.lifeExpectancy) || 85;
+      const inflation = (Number(profile.inflationRate) || 3.0) / 100;
+      const desiredMonthly = Number(retirementTarget.desiredMonthlyIncome) || 0;
+      const annuityMonthly = Number(retirementTarget.expectedAnnuityPensions) || 0;
+      const passiveMonthly = Number(cashflow.monthlyPassiveIncome) || 0;
+
+      const numYears = Math.max(1, maxAge - retireAge + 1);
+      const retireData = [];
+
+      for (let age = retireAge; age <= maxAge; age++) {
+        const yearsFromNow = age - startAge;
+        const targetLiving = (desiredMonthly * 12) * Math.pow(1 + inflation, yearsFromNow);
+        const guaranteedCpf = (annuityMonthly * 12) * Math.pow(1 + (inflation * 0.5), yearsFromNow);
+        const passive = passiveMonthly * 12;
+        const neededDrawdown = Math.max(0, targetLiving - guaranteedCpf - passive);
+
+        const isDepleted = baselineDepletion && age >= baselineDepletion;
+        const actualDrawdown = isDepleted ? 0 : neededDrawdown;
+        const shortfall = Math.max(0, targetLiving - (guaranteedCpf + passive + actualDrawdown));
+
+        retireData.push({ age, targetLiving, guaranteedCpf, passive, actualDrawdown, shortfall });
+      }
+
+      const width = 710;
+      const height = 135;
+      const pad = { top: 22, right: 30, bottom: 22, left: 60 };
+      const maxVal = Math.max(...retireData.map(d => Math.max(d.targetLiving, d.guaranteedCpf + d.passive + d.actualDrawdown + d.shortfall)), 50000);
+
+      const getX = (age) => pad.left + ((age - retireAge) / Math.max(1, maxAge - retireAge)) * (width - pad.left - pad.right);
+      const getY = (val) => height - pad.bottom - (Math.max(0, val) / maxVal) * (height - pad.top - pad.bottom);
+      const formatK = (v) => v >= 1000000 ? `$${(v / 1000000).toFixed(1)}M` : (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${Math.round(v)}`);
+
+      const barWidth = Math.max(4, ((width - pad.left - pad.right) / numYears) - 2);
+      const targetPoints = retireData.map(d => `${getX(d.age).toFixed(1)},${getY(d.targetLiving).toFixed(1)}`).join(' ');
+
+      return (
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', background: '#FFFFFF' }}>
+          {[0, 0.5, 1.0].map((pct, idx) => {
+            const v = maxVal * pct;
+            const y = getY(v);
+            return (
+              <g key={idx}>
+                <line x1={pad.left} y1={y} x2={width - pad.right} y2={y} stroke="#E2E8F0" strokeDasharray="3 3" />
+                <text x={pad.left - 6} y={y + 3} fill="#64748B" fontSize="8" textAnchor="end">{formatK(v)}/yr</text>
+              </g>
+            );
+          })}
+
+          {retireData.filter((_, idx) => idx % 4 === 0 || idx === retireData.length - 1).map((d, idx) => (
+            <g key={idx}>
+              <line x1={getX(d.age)} y1={height - pad.bottom} x2={getX(d.age)} y2={height - pad.bottom + 3} stroke="#94A3B8" />
+              <text x={getX(d.age)} y={height - pad.bottom + 12} fill="#64748B" fontSize="8" textAnchor="middle">Age {d.age}</text>
+            </g>
+          ))}
+
+          {/* Stacked Bars */}
+          {retireData.map((d, idx) => {
+            const x = getX(d.age) - (barWidth / 2);
+            let currentY = height - pad.bottom;
+            const hCpf = (d.guaranteedCpf / maxVal) * (height - pad.top - pad.bottom);
+            const hPassive = (d.passive / maxVal) * (height - pad.top - pad.bottom);
+            const hDraw = (d.actualDrawdown / maxVal) * (height - pad.top - pad.bottom);
+            const hShort = (d.shortfall / maxVal) * (height - pad.top - pad.bottom);
+
+            return (
+              <g key={idx}>
+                {hCpf > 0 && (
+                  <rect x={x} y={currentY - hCpf} width={barWidth} height={hCpf} fill="#818CF8" opacity="0.9" rx="0.5" />
+                )}
+                {(() => { currentY -= hCpf; return null; })()}
+                {hPassive > 0 && (
+                  <rect x={x} y={currentY - hPassive} width={barWidth} height={hPassive} fill="#06B6D4" opacity="0.9" rx="0.5" />
+                )}
+                {(() => { currentY -= hPassive; return null; })()}
+                {hDraw > 0 && (
+                  <rect x={x} y={currentY - hDraw} width={barWidth} height={hDraw} fill="#10B981" opacity="0.9" rx="0.5" />
+                )}
+                {(() => { currentY -= hDraw; return null; })()}
+                {hShort > 0 && (
+                  <rect x={x} y={currentY - hShort} width={barWidth} height={hShort} fill="#EF4444" opacity="0.85" rx="0.5" />
+                )}
+              </g>
+            );
+          })}
+
+          <polyline points={targetPoints} fill="none" stroke="#D97706" strokeWidth="2" strokeDasharray="3 2" />
+
+          {/* Legend */}
+          <g transform={`translate(${width - 340}, ${pad.top - 8})`}>
+            <rect x="0" y="0" width="7" height="5" fill="#818CF8" />
+            <text x="10" y="5" fill="#334155" fontSize="7">CPF LIFE Floor</text>
+            <rect x="75" y="0" width="7" height="5" fill="#06B6D4" />
+            <text x="85" y="5" fill="#334155" fontSize="7">Passive / Rent</text>
+            <rect x="155" y="0" width="7" height="5" fill="#10B981" />
+            <text x="165" y="5" fill="#334155" fontSize="7">Drawdown</text>
+            <line x1="225" y1="2.5" x2="235" y2="2.5" stroke="#D97706" strokeWidth="1.5" strokeDasharray="2 1" />
+            <text x="239" y="5" fill="#B45309" fontSize="7">Target Need</text>
+          </g>
+        </svg>
+      );
+    };
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
+        
+        {/* Sticky Quick-Nav & Document Toolbar */}
+        <div className="glass-panel" style={{
+          position: 'sticky',
+          top: '64px',
+          zIndex: 90,
+          width: '100%',
+          maxWidth: '860px',
+          padding: '12px 18px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          {/* Quick Page Jump Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600' }}>Jump to:</span>
+            {[
+              { id: 'report-page-1', label: '1. Cover' },
+              { id: 'report-page-2', label: '2. Summary' },
+              { id: 'report-page-3', label: '3. Balance Sheet' },
+              { id: 'report-page-4', label: '4. Retirement' },
+              { id: 'report-page-5', label: '5. Protection' },
+              { id: 'report-page-6', label: '6. Action Plan' }
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => scrollToPage(p.id)}
+                style={{
+                  padding: '3px 8px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-light)',
+                  cursor: 'pointer'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Action Export Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              fontSize: '10px',
+              fontWeight: '600',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              color: '#34d399',
+              border: '1px solid rgba(16, 185, 129, 0.25)'
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#34d399' }} />
+              Real-Time Synced
+            </div>
+
+            <button
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '6px 14px' }}
+              onClick={handleExportPdf}
+              disabled={pdfExporting}
+            >
+              <Download size={13} /> {pdfExporting ? 'Exporting...' : 'Export PDF (A4)'}
+            </button>
+
+            <button
+              className="btn"
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', padding: '6px 12px', backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid var(--border-light)' }}
+              onClick={() => window.print()}
+            >
+              <Printer size={13} /> Print
+            </button>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 1: COVER PAGE & CLIENT PARTICULARS
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-1" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B', fontWeight: '600', textTransform: 'uppercase' }}>
+                {reportSubtitle}
+              </div>
+            </div>
+            <span style={{ backgroundColor: '#F1F5F9', color: '#334155', border: '1px solid #CBD5E1', fontSize: '8px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px' }}>
+              CONFIDENTIAL FINANCIAL REPORT
+            </span>
+          </div>
+
+          {/* Title Area */}
+          <div style={{ marginTop: '30px', marginBottom: '35px' }}>
+            <div style={{ fontSize: '10px', fontWeight: '700', color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '6px' }}>
+              Institutional Wealth Advisory • Comprehensive Review
+            </div>
+            <h1 style={{ fontSize: '24px', fontWeight: '800', color: '#0F172A', margin: '0 0 10px 0', lineHeight: '1.2' }}>
+              COMPREHENSIVE FINANCIAL PLAN & RETIREMENT PROJECTION
+            </h1>
+            <p style={{ fontSize: '11.5px', color: '#64748B', margin: 0, maxWidth: '640px', lineHeight: '1.5' }}>
+              A holistic multi-discipline review covering wealth accumulation, cash flow solvency, Singapore CPF LIFE decumulation, and insurance risk mitigation.
+            </p>
+          </div>
+
+          {/* Client & Consultant Particulars Schedule */}
+          <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '18px 22px', backgroundColor: '#F8FAFC', marginBottom: '28px' }}>
+            <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase', marginBottom: '14px', borderBottom: '1px solid #E2E8F0', paddingBottom: '6px' }}>
+              Client & Advisory Consultant Particulars
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px', fontSize: '10.5px' }}>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Prepared For:</span>
+                <strong style={{ color: '#0F172A', fontSize: '13px' }}>{client?.fullName || 'Valued Client'}</strong>
+                {client?.preferredName && <span style={{ color: '#64748B', fontSize: '10px' }}> ({client.preferredName})</span>}
+              </div>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Prepared By:</span>
+                <strong style={{ color: '#0F172A', fontSize: '13px' }}>{consultantName}</strong>
+                <div style={{ fontSize: '9.5px', color: '#64748B' }}>{consultantTitle} • {consultantCreds}</div>
+              </div>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Client Age & Target:</span>
+                <strong>Age {profile.currentAge}</strong> (Retiring @ <strong>Age {profile.targetRetirementAge}</strong> • {Math.max(0, Number(profile.targetRetirementAge) - Number(profile.currentAge))} yrs runway)
+              </div>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Representative Code / License:</span>
+                <strong>{consultantRep}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Assessment Date:</span>
+                <strong>{reportDate}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Advisory Contact:</span>
+                <span>{consultantPhone} • {consultantEmail}</span>
+              </div>
+              <div style={{ gridColumn: 'span 2' }}>
+                <span style={{ color: '#64748B', display: 'block', fontSize: '9px', textTransform: 'uppercase' }}>Advisory Focus Area:</span>
+                <strong style={{ color: '#2563EB' }}>
+                  {focusArea === 'fire' ? 'Early Retirement / FIRE Strategy' :
+                   focusArea === 'protection' ? 'Comprehensive Risk Mitigation & Insurance Audit' :
+                   focusArea === 'education' ? 'Tertiary Education Funding & Milestone Planning' :
+                   focusArea === 'wealth_preservation' ? 'Estate Planning & Intergenerational Wealth Transfer' :
+                   focusArea === 'cpf_maximization' ? 'Singapore CPF Accrued Interest & Decumulation Optimization' :
+                   'Holistic Wealth Architecture & Longevity Solvency'}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Table of Contents Schedule */}
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', padding: '16px 20px', backgroundColor: '#FFFFFF' }}>
+            <div style={{ fontSize: '10px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase', marginBottom: '10px' }}>
+              Report Table of Contents
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 20px', fontSize: '10px' }}>
+              <div><strong>Section 1:</strong> Executive Summary & Key Indicators (Page 2)</div>
+              <div><strong>Section 2:</strong> Net Worth Statement & Balance Sheet (Page 3)</div>
+              <div><strong>Section 3:</strong> Cash Flow & Savings Capacity (Page 3)</div>
+              <div><strong>Section 4:</strong> Retirement Planning & CPF LIFE (Page 4)</div>
+              <div><strong>Section 5:</strong> Insurance Policies & Matrix (Page 5)</div>
+              <div><strong>Section 6:</strong> Strategic Recommendations (Page 6)</div>
+            </div>
+          </div>
+
+          {/* Page 1 Footer */}
+          <div style={footerStyle}>
+            <span>Strictly Private & Confidential • Prepared by {consultantName}</span>
+            <span>Page 1 of 6</span>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 2: EXECUTIVE SUMMARY & SCORECARDS
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-2" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B' }}>Section 1: Executive Summary & Performance Scorecards</div>
+            </div>
+            <span style={{ fontSize: '8px', color: '#94A3B8' }}>Prepared for {client?.fullName}</span>
+          </div>
+
+          <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 14px 0' }}>
+            EXECUTIVE SUMMARY & FINANCIAL HEALTH SCORECARDS
+          </h2>
+
+          {/* Scorecards Ribbon */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '18px' }}>
+            <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px', textAlign: 'center', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8.5px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>Overall Financial Health</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#7C3AED', margin: '3px 0' }}>{aiSummary?.financialHealthScore || 82} / 100</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>Liquidity, Debt & Asset Trajectory</div>
+            </div>
+
+            <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px', textAlign: 'center', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8.5px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>Retirement Readiness</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#059669', margin: '3px 0' }}>{aiSummary?.retirementReadinessScore || (isRetirementOnTrack ? 85 : 45)} / 100</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>Longevity Solvency Horizon</div>
+            </div>
+
+            <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', padding: '12px', textAlign: 'center', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8.5px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>Insurance Protection</div>
+              <div style={{ fontSize: '22px', fontWeight: '800', color: '#2563EB', margin: '3px 0' }}>{aiSummary?.protectionHealthScore || protectionScore} / 100</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>Coverage vs. Actuarial Benchmarks</div>
+            </div>
+          </div>
+
+          {/* Executive Summary Narrative */}
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '8px', padding: '14px 18px', backgroundColor: '#FFFFFF', marginBottom: '16px' }}>
+            <div style={{ fontSize: '10px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase', marginBottom: '6px' }}>
+              Advisory Position Narrative
+            </div>
+            <p style={{ margin: 0, color: '#334155', fontSize: '10px', lineHeight: '1.55' }}>
+              {aiSummary?.executiveSummary ||
+                `${client?.fullName || 'The client'} presents a current estimated Net Worth of ${formatCurrency(totalNetWorth)} with annual savings of ${formatCurrency(annualSavings)}/yr (savings rate: ${savingsRate}%). With target retirement at Age ${profile.targetRetirementAge}, the baseline projection indicates ${isRetirementOnTrack ? 'sustainable capital preservation through target life expectancy.' : `potential capital depletion at Age ${baselineDepletion}, requiring systematic decumulation restructuring.`}`}
+            </p>
+          </div>
+
+          {/* Scenario Analysis & Focus Area Card */}
+          <div style={{ border: '1px solid #E0E7FF', backgroundColor: '#F5F7FF', borderRadius: '8px', padding: '14px 18px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <strong style={{ fontSize: '10px', color: '#1E40AF', textTransform: 'uppercase' }}>
+                Scenario Analysis & Client Mandate
+              </strong>
+              <span style={{ fontSize: '8.5px', fontWeight: '700', color: '#2563EB', backgroundColor: '#EEF2FF', padding: '2px 8px', borderRadius: '4px' }}>
+                Active Scenario
+              </span>
+            </div>
+            <p style={{ fontSize: '10px', color: '#334155', margin: '0 0 6px 0', lineHeight: '1.5' }}>
+              {advisorCustomNotes ||
+                `Planning assumptions benchmarked at ${profile.inflationRate}% annual inflation, with ${profile.preRetireReturn}% pre-retirement growth and ${profile.postRetireReturn}% post-retirement conservative drawdown compounding.`}
+            </p>
+            {aiSummary?.scenarioAnalysis && (
+              <div style={{ fontSize: '9.5px', color: '#1E3A8A', borderTop: '1px dashed #CBD5E1', paddingTop: '6px', marginTop: '6px' }}>
+                <strong>Impact Assessment: </strong>{aiSummary.scenarioAnalysis.impactAssessment || aiSummary.scenarioAnalysis}
+              </div>
+            )}
+          </div>
+
+          {/* Financial Strengths vs. Areas for Improvement */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div style={{ border: '1px solid #A7F3D0', backgroundColor: '#ECFDF5', borderRadius: '8px', padding: '12px 14px' }}>
+              <strong style={{ fontSize: '10px', color: '#065F46', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                ✓ Key Financial Strengths
+              </strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', color: '#064E3B' }}>
+                {(aiSummary?.keyStrengths && aiSummary.keyStrengths.length > 0) ? (
+                  aiSummary.keyStrengths.map((s, i) => <div key={i}>• {s}</div>)
+                ) : (
+                  <>
+                    <div>• Positive monthly cashflow surplus of {formatCurrency(monthlySurplus)}/mo</div>
+                    <div>• Liquid emergency reserves funded for {liquidEmergencyMonths} months</div>
+                    <div>• CPF OA/SA/RA balances total {formatCurrency(totalCpf)} for baseline stability</div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid #FED7AA', backgroundColor: '#FFF7ED', borderRadius: '8px', padding: '12px 14px' }}>
+              <strong style={{ fontSize: '10px', color: '#9A3412', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>
+                ⚠️ Strategic Vulnerabilities & Trade-Offs
+              </strong>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', color: '#7C2D12' }}>
+                {(aiSummary?.criticalVulnerabilities && aiSummary.criticalVulnerabilities.length > 0) ? (
+                  aiSummary.criticalVulnerabilities.map((v, i) => <div key={i}>• {v}</div>)
+                ) : (
+                  <>
+                    <div>• Sequence of returns vulnerability during first 5 years of decumulation</div>
+                    <div>• {inForceCoverage.hasShield ? 'Shield active but rider coverage needs review' : 'Integrated Shield Plan not detected in in-force schedule'}</div>
+                    <div>• Inflation erosion requires yield hedged drawdown portfolio</div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Page 2 Footer */}
+          <div style={footerStyle}>
+            <span>Prepared for: {client?.fullName} • Prepared by: {consultantName}</span>
+            <span>Page 2 of 6</span>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 3: NET WORTH STATEMENT & CASH FLOW ANALYSIS
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-3" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B' }}>Section 2 & 3: Net Worth Statement, Balance Sheet & Cash Flow</div>
+            </div>
+            <span style={{ fontSize: '8px', color: '#94A3B8' }}>Prepared for {client?.fullName}</span>
+          </div>
+
+          <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 14px 0' }}>
+            BALANCE SHEET & MONTHLY CASH FLOW DYNAMICS
+          </h2>
+
+          {/* Net Worth Table */}
+          <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', overflow: 'hidden', marginBottom: '18px' }}>
+            <div style={{ backgroundColor: '#0F172A', color: '#FFFFFF', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net Worth Statement Schedule</span>
+              <span style={{ fontSize: '12px', fontWeight: '800', color: totalNetWorth >= 0 ? '#34D399' : '#F87171' }}>Total Net Worth: {formatCurrency(totalNetWorth)}</span>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
+              <tbody>
+                <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px', fontWeight: '700', color: '#0F172A' }}>Asset Category</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700', color: '#0F172A' }}>Valuation</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Actuarial Notes & Liquidity Horizon</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Liquid Cash & Cash Equivalents</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(totalLiquid)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>{liquidEmergencyMonths} months emergency living buffer (Target: 6-12 mos)</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Invested Assets & Portfolios</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(totalInvested)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Equities, fixed income, unit trusts, and alternative assets</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px', paddingLeft: '24px' }}>• CPF Ordinary Account (OA)</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right' }}>{formatCurrency(totalCpfOA)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Base 2.5% p.a. • Housing & CPFIS eligible</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px', paddingLeft: '24px' }}>• CPF Special Account (SA)</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right' }}>{formatCurrency(totalCpfSA)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Base 4.0% p.a. • Pre-55 compounder</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px', paddingLeft: '24px' }}>• CPF Retirement Account (RA)</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right' }}>{formatCurrency(totalCpfRA)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Base 4.0% p.a. • Foundation for CPF LIFE lifelong payouts</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px', paddingLeft: '24px' }}>• CPF MediSave Account (MA)</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right' }}>{formatCurrency(totalCpfMA)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Base 4.0% p.a. • MediShield Life & medical expenses</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px', paddingLeft: '24px' }}>• Supplementary Retirement Scheme (SRS)</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right' }}>{formatCurrency(totalSrs)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Tax-deferred voluntary wealth accumulation</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Total Combined CPF & SRS Reserves</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700', color: '#4338CA' }}>{formatCurrency(totalPension)}</td>
+                  <td style={{ padding: '7px 14px', color: '#4338CA' }}>National pension foundation</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Primary Residence & Real Estate</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(totalProperty)}</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Mortgage Debt: {formatCurrency(totalMortgage)} (Net Equity: {formatCurrency(Math.max(0, totalProperty - totalMortgage))})</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #CBD5E1', backgroundColor: '#FEF2F2' }}>
+                  <td style={{ padding: '7px 14px', color: '#991B1B', fontWeight: '700' }}>Total Liabilities & Debt Obligations</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700', color: '#DC2626' }}>{formatCurrency(totalLiabilities)}</td>
+                  <td style={{ padding: '7px 14px', color: '#991B1B' }}>Outstanding mortgage and other liabilities</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Cash Flow Schedule Table */}
+          <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ backgroundColor: '#1E293B', color: '#FFFFFF', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly Cash Flow & Savings Capacity</span>
+              <span style={{ fontSize: '11px', fontWeight: '700', color: '#60A5FA' }}>Net Savings: {formatCurrency(monthlySurplus)}/mo ({savingsRate}%)</span>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Monthly Gross Earned Income</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(cashflow.monthlyEarnedIncome)}/mo</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Primary salaried or business earned income</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '7px 14px' }}>Monthly Passive / Rental Income</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(cashflow.monthlyPassiveIncome)}/mo</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Rental yield, dividend distributions, or business royalties</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px' }}>Monthly Living & Lifestyle Expenses</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', color: '#DC2626' }}>({formatCurrency(cashflow.monthlyLivingExpenses)}/mo)</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Household, discretionary, medical & personal upkeep</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
+                  <td style={{ padding: '7px 14px' }}>Monthly Debt Servicing & Commitments</td>
+                  <td style={{ padding: '7px 14px', textAlign: 'right', color: '#DC2626' }}>({formatCurrency(cashflow.monthlyCommitments)}/mo)</td>
+                  <td style={{ padding: '7px 14px', color: '#64748B' }}>Mortgage installments, loans, and policy premiums</td>
+                </tr>
+                <tr style={{ backgroundColor: '#ECFDF5' }}>
+                  <td style={{ padding: '8px 14px', fontWeight: '800', color: '#065F46' }}>Annualized Savings Capacity</td>
+                  <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: '800', color: '#059669', fontSize: '11px' }}>{formatCurrency(annualSavings)}/yr</td>
+                  <td style={{ padding: '8px 14px', color: '#065F46' }}>Capital deployed into wealth accumulation</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Page 3 Footer */}
+          <div style={footerStyle}>
+            <span>Prepared for: {client?.fullName} • Prepared by: {consultantName}</span>
+            <span>Page 3 of 6</span>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 4: RETIREMENT PLANNING & CPF LIFE
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-4" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B' }}>Section 4: Retirement Planning, Projection Charts & Singapore CPF LIFE</div>
+            </div>
+            <span style={{ fontSize: '8px', color: '#94A3B8' }}>Prepared for {client?.fullName}</span>
+          </div>
+
+          <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 10px 0' }}>
+            RETIREMENT RUNWAY & LIFELONG DECUMULATION ARCHITECTURE
+          </h2>
+
+          {/* Target Metrics Strip */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '12px' }}>
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '8px 12px', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>Desired Monthly Living</div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A' }}>{formatCurrency(retirementTarget.desiredMonthlyIncome)}/mo</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>In today's purchasing power</div>
+            </div>
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '8px 12px', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>Peak Projected Nest Egg</div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#10B981' }}>{formatCurrency(retirementNestEggAtRetire)}</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>At Target Age {profile.targetRetirementAge}</div>
+            </div>
+            <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '8px 12px', backgroundColor: '#F8FAFC' }}>
+              <div style={{ fontSize: '8px', color: '#64748B', textTransform: 'uppercase', fontWeight: '700' }}>CPF LIFE Guaranteed Floor</div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#6366F1' }}>{formatCurrency(retirementTarget.expectedAnnuityPensions)}/mo</div>
+              <div style={{ fontSize: '8px', color: '#64748B' }}>Lifelong monthly payout floor</div>
+            </div>
+          </div>
+
+          {/* Chart 1 Container */}
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '6px 10px', backgroundColor: '#FFFFFF', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+              <strong style={{ fontSize: '9px', color: '#0F172A', textTransform: 'uppercase' }}>
+                Chart 1: Capital Accumulation & Decumulation Runway (Age {profile.currentAge} → {profile.lifeExpectancy})
+              </strong>
+              <span style={{ fontSize: '8px', color: isRetirementOnTrack ? '#059669' : '#DC2626', fontWeight: '700' }}>
+                {isRetirementOnTrack ? '✓ Sustained Through Age ' + profile.lifeExpectancy : '⚠️ Depleted at Age ' + baselineDepletion}
+              </span>
+            </div>
+            {renderPage4RunwaySvg()}
+          </div>
+
+          {/* Chart 2 Container */}
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '6px 10px', backgroundColor: '#FFFFFF', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+              <strong style={{ fontSize: '9px', color: '#0F172A', textTransform: 'uppercase' }}>
+                Chart 2: Projected Retirement Income vs. Inflated Living Expenses
+              </strong>
+              <span style={{ fontSize: '8px', color: '#64748B' }}>
+                Guaranteed Floor: {formatCurrency(Number(retirementTarget.expectedAnnuityPensions || 0) + Number(cashflow.monthlyPassiveIncome || 0))}/mo
+              </span>
+            </div>
+            {renderPage4IncomeWaterfallSvg()}
+          </div>
+
+          {/* Singapore CPF LIFE Strategy Card */}
+          <div style={{ borderLeft: '3.5px solid #7C3AED', padding: '10px 14px', backgroundColor: '#FAF5FF', borderRadius: '6px' }}>
+            <strong style={{ fontSize: '9.5px', color: '#6D28D9', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+              Singapore CPF LIFE & Guaranteed Decumulation Strategy
+            </strong>
+            <p style={{ fontSize: '9.5px', color: '#334155', margin: 0, lineHeight: '1.45' }}>
+              {aiSummary?.cpfAndAnnuityOptimization ||
+                `CPF LIFE forms the unshakeable bedrock of retirement planning in Singapore. Maximizing the Retirement Account (RA) towards the Full Retirement Sum (FRS) or Enhanced Retirement Sum (ERS) at Age 55 locks in a lifelong guaranteed floor of ${formatCurrency(retirementTarget.expectedAnnuityPensions)}/mo. The Escalating Plan is recommended to defend purchasing power against compounding inflation.`}
+            </p>
+          </div>
+
+          {/* Page 4 Footer */}
+          <div style={footerStyle}>
+            <span>Prepared for: {client?.fullName} • Prepared by: {consultantName}</span>
+            <span>Page 4 of 6</span>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 5: INSURANCE POLICIES & COVERAGE ANALYSIS
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-5" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B' }}>Section 5: Insurance Policies & Coverage Gap Matrix</div>
+            </div>
+            <span style={{ fontSize: '8px', color: '#94A3B8' }}>Prepared for {client?.fullName}</span>
+          </div>
+
+          <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 14px 0' }}>
+            IN-FORCE POLICY AUDIT & PROTECTION GAP ANALYSIS
+          </h2>
+
+          {/* In-Force Policies Table */}
+          <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', overflow: 'hidden', marginBottom: '18px' }}>
+            <div style={{ backgroundColor: '#0F172A', color: '#FFFFFF', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>Active In-Force Insurance Policies ({policies.length})</span>
+              <span style={{ fontSize: '10px', color: '#94A3B8' }}>Aggregated across all insurers</span>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9.5px' }}>
+              <tbody>
+                <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Plan / Policy Name</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Insurer & Number</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Annual Premium</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Status</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Key Coverages</td>
+                </tr>
+                {policies.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: '16px', textAlign: 'center', color: '#64748B', fontStyle: 'italic' }}>
+                      No in-force policies recorded. Use the Policy Management section to input client insurance policies.
+                    </td>
+                  </tr>
+                ) : (
+                  policies.map((p, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #E2E8F0' }}>
+                      <td style={{ padding: '6px 12px', fontWeight: '600' }}>
+                        {p.planName || p.policyName || p.policyType}
+                        {p.insuredType === 'Dependent' && (
+                          <div style={{ fontSize: '8px', color: '#7C3AED', fontWeight: '700', marginTop: '2px' }}>
+                            👶 Insured: {p.insuredName || 'Dependent'} ({p.insuredRelationship || 'Family'})
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '6px 12px', color: '#64748B' }}>{p.company || p.provider} • {p.policyNumber}</td>
+                      <td style={{ padding: '6px 12px', fontWeight: '600' }}>{formatCurrency(p.premiumAmount)}/{p.premiumFrequency || 'yr'}</td>
+                      <td style={{ padding: '6px 12px' }}>
+                        <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: p.status === 'In Force' ? '#ECFDF5' : '#FEF2F2', color: p.status === 'In Force' ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '6px 12px', color: '#334155' }}>
+                        {p.coverages ? Object.entries(p.coverages).filter(([_, v]) => Number(v) > 0).map(([k, v]) => `${k}: ${formatCurrency(v)}`).join(' | ') : 'N/A'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Insurance Gap Matrix */}
+          <div style={{ border: '1px solid #CBD5E1', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ backgroundColor: '#1E293B', color: '#FFFFFF', padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>Insurance Coverage vs. Recommended Benchmarks</span>
+              <span style={{ fontSize: '10px', fontWeight: '700', color: protectionScore >= 75 ? '#34D399' : '#FBBF24' }}>Protection Score: {protectionScore} / 100</span>
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9.5px' }}>
+              <tbody>
+                <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Risk Category</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>In-Force Coverage</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Benchmark Target</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Net Gap / Surplus</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700' }}>Status</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Life / Death Protection</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(inForceCoverage.death)}</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(recommendedDeath)} (10x income + debt)</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700', color: inForceCoverage.death >= recommendedDeath ? '#059669' : '#DC2626' }}>
+                    {formatCurrency(inForceCoverage.death - recommendedDeath)}
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.death >= recommendedDeath ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.death >= recommendedDeath ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.death >= recommendedDeath ? 'Adequate' : 'Underinsured'}
+                    </span>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Total & Permanent Disability (TPD)</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(inForceCoverage.tpd)}</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(recommendedTpd)} (10x income)</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700', color: inForceCoverage.tpd >= recommendedTpd ? '#059669' : '#DC2626' }}>
+                    {formatCurrency(inForceCoverage.tpd - recommendedTpd)}
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.tpd >= recommendedTpd ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.tpd >= recommendedTpd ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.tpd >= recommendedTpd ? 'Adequate' : 'Gap Exists'}
+                    </span>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Early Stage Critical Illness</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(inForceCoverage.earlyCi)}</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(recommendedEarlyCi)} (2x annual income)</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700', color: inForceCoverage.earlyCi >= recommendedEarlyCi ? '#059669' : '#DC2626' }}>
+                    {formatCurrency(inForceCoverage.earlyCi - recommendedEarlyCi)}
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.earlyCi >= recommendedEarlyCi ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.earlyCi >= recommendedEarlyCi ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.earlyCi >= recommendedEarlyCi ? 'Covered' : 'Gap Exists'}
+                    </span>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Major / Late Stage CI</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(inForceCoverage.majorCi)}</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(recommendedMajorCi)} (4x annual income)</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700', color: inForceCoverage.majorCi >= recommendedMajorCi ? '#059669' : '#DC2626' }}>
+                    {formatCurrency(inForceCoverage.majorCi - recommendedMajorCi)}
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.majorCi >= recommendedMajorCi ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.majorCi >= recommendedMajorCi ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.majorCi >= recommendedMajorCi ? 'Adequate' : 'Priority Gap'}
+                    </span>
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Disability Income Replacement</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(inForceCoverage.disabilityIncome)}/mo</td>
+                  <td style={{ padding: '6px 12px' }}>{formatCurrency(recommendedDisability)}/mo (75% monthly)</td>
+                  <td style={{ padding: '6px 12px', fontWeight: '700', color: inForceCoverage.disabilityIncome >= recommendedDisability ? '#059669' : '#DC2626' }}>
+                    {formatCurrency(inForceCoverage.disabilityIncome - recommendedDisability)}/mo
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.disabilityIncome >= recommendedDisability ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.disabilityIncome >= recommendedDisability ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.disabilityIncome >= recommendedDisability ? 'Covered' : 'Gap Exists'}
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '6px 12px', fontWeight: '600' }}>Hospitalization & Shield</td>
+                  <td style={{ padding: '6px 12px' }}>{inForceCoverage.hasShield ? 'Integrated Shield Active' : 'None Detected'}</td>
+                  <td style={{ padding: '6px 12px' }}>MediShield Life + Private Rider</td>
+                  <td style={{ padding: '6px 12px', color: '#64748B' }}>Inpatient ward & co-pay protection</td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <span style={{ fontSize: '8px', padding: '2px 6px', borderRadius: '4px', backgroundColor: inForceCoverage.hasShield ? '#ECFDF5' : '#FEF2F2', color: inForceCoverage.hasShield ? '#065F46' : '#991B1B', fontWeight: '700' }}>
+                      {inForceCoverage.hasShield ? 'Active' : 'Urgent Review'}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Page 5 Children & Dependents Schedule */}
+          {dependentsPolicies.length > 0 && (
+            <div style={{ marginTop: '14px', border: '1px solid #E9D5FF', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#FAF5FF' }}>
+              <div style={{ backgroundColor: '#6D28D9', color: '#FFFFFF', padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '9px', fontWeight: '800', textTransform: 'uppercase' }}>
+                  👶 Children & Dependents In-Force Protection Schedule ({dependentsPolicies.length} Policies)
+                </span>
+                <span style={{ fontSize: '9px', color: '#E9D5FF' }}>Client is Policy Owner & Payor</span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#F3E8FF', borderBottom: '1px solid #E9D5FF' }}>
+                    <th style={{ padding: '5px 10px', textAlign: 'left', fontWeight: '700', color: '#5B21B6', width: '25%' }}>Insured Dependent</th>
+                    <th style={{ padding: '5px 10px', textAlign: 'left', fontWeight: '700', color: '#5B21B6', width: '32%' }}>Plan & Insurer</th>
+                    <th style={{ padding: '5px 10px', textAlign: 'left', fontWeight: '700', color: '#5B21B6', width: '18%' }}>Annual Premium</th>
+                    <th style={{ padding: '5px 10px', textAlign: 'left', fontWeight: '700', color: '#5B21B6', width: '25%' }}>Benefits & Coverages</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dependentsPolicies.map((dp, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #E9D5FF' }}>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top' }}>
+                        <strong style={{ color: '#0F172A' }}>{dp.insuredName || 'Dependent'}</strong>
+                        <div style={{ fontSize: '8px', color: '#7C3AED' }}>{dp.insuredRelationship || 'Family'}</div>
+                      </td>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top' }}>
+                        <div style={{ fontWeight: '600', color: '#0F172A' }}>{dp.policyName || dp.planName || dp.policyType}</div>
+                        <div style={{ fontSize: '8px', color: '#64748B' }}>{dp.provider || dp.company || ''} • {dp.policyType || ''}</div>
+                      </td>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top', fontWeight: '600' }}>
+                        {formatCurrency(dp.premiumAmount)}/{dp.premiumFrequency || 'yr'}
+                      </td>
+                      <td style={{ padding: '5px 10px', verticalAlign: 'top' }}>
+                        {dp.coverages && Object.keys(dp.coverages).length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                            {Object.entries(dp.coverages).filter(([_, v]) => Number(v) > 0).map(([k, v]) => (
+                              <span key={k} style={{ fontSize: '8px', backgroundColor: '#EDE9FE', color: '#5B21B6', padding: '1px 4px', borderRadius: '3px', fontWeight: '600' }}>
+                                {k}: {formatCurrency(v)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '8px', color: '#7C3AED' }}>In Force</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Page 5 Footer */}
+          <div style={footerStyle}>
+            <span>Prepared for: {client?.fullName} • Prepared by: {consultantName}</span>
+            <span>Page 5 of 6</span>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════════════
+            PAGE 6: ACTION PLAN & ADVISORY NOTICE
+            ════════════════════════════════════════════════════════════════════════ */}
+        <div id="report-page-6" style={pageStyle}>
+          {/* Header Banner */}
+          <div style={headerStyle}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F172A', textTransform: 'uppercase' }}>
+                {reportBranding}
+              </div>
+              <div style={{ fontSize: '8.5px', color: '#64748B' }}>Section 6: Prioritized Action Plan, Stress Testing & Advisory Notice</div>
+            </div>
+            <span style={{ fontSize: '8px', color: '#94A3B8' }}>Prepared for {client?.fullName}</span>
+          </div>
+
+          <h2 style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', margin: '0 0 14px 0' }}>
+            PRIORITIZED STRATEGIC ACTION ROADMAP
+          </h2>
+
+          {/* Action Recommendations Matrix */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+            {((aiSummary?.strategicRecommendations && aiSummary.strategicRecommendations.length > 0)
+              ? aiSummary.strategicRecommendations
+              : [
+                  { priority: 'High', category: 'Protection', action: 'Bridge Major Critical Illness Insurance Gap', rationale: 'Current critical illness buffer is below 4x annual income benchmark. An unexpected shock could deplete investment assets during accumulation.', timeline: 'Immediate' },
+                  { priority: 'High', category: 'Retirement', action: 'Structure CPF SA to RA Compounder towards ERS', rationale: 'Maximizing the Retirement Account foundation up to Enhanced Retirement Sum locks in maximum inflation-hedged guaranteed lifelong CPF LIFE payouts.', timeline: 'Next 3-6 Months' },
+                  { priority: 'Medium', category: 'Wealth Accumulation', action: 'Automate Monthly Surplus Investment', rationale: `Deploy surplus savings capacity of ${formatCurrency(monthlySurplus)}/mo into diversified low-cost systematic accumulation portfolio.`, timeline: 'Within 30 Days' }
+                ]
+            ).slice(0, 4).map((rec, idx) => (
+              <div key={idx} style={{ borderLeft: `3.5px solid ${rec.priority === 'High' ? '#DC2626' : rec.priority === 'Medium' ? '#F59E0B' : '#2563EB'}`, padding: '8px 12px', backgroundColor: '#F8FAFC', borderRadius: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                  <strong style={{ fontSize: '10.5px', color: '#0F172A' }}>{idx + 1}. {rec.action}</strong>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <span style={{ fontSize: '8px', fontWeight: '700', padding: '1px 6px', borderRadius: '4px', backgroundColor: rec.priority === 'High' ? '#FEF2F2' : '#FFFBEB', color: rec.priority === 'High' ? '#DC2626' : '#D97706' }}>
+                      {rec.priority} Priority
+                    </span>
+                    {rec.category && (
+                      <span style={{ fontSize: '8px', padding: '1px 6px', borderRadius: '4px', backgroundColor: '#EFF6FF', color: '#2563EB' }}>
+                        {rec.category}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p style={{ fontSize: '9.5px', color: '#475569', margin: 0, lineHeight: '1.45' }}>{rec.rationale}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Stress-Testing Simulation Insights */}
+          <div style={{ border: '1px solid #E2E8F0', borderRadius: '6px', padding: '10px 14px', backgroundColor: '#FFFFFF', marginBottom: '14px' }}>
+            <strong style={{ fontSize: '10px', color: '#0F172A', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+              Stress-Testing & Life Event Simulation Insights
+            </strong>
+            <p style={{ fontSize: '9.5px', color: '#475569', margin: 0, lineHeight: '1.45' }}>
+              {activeEventsCount > 0 ? (
+                `Simulated ${activeEventsCount} active stress-test event(s). Under these shocks, capital runway sustains until Age ${stressDepletion || 'Life Expectancy'}. Insurance payouts and emergency liquidity act as first-line shock absorbers.`
+              ) : (
+                `Baseline longevity testing confirms solvency under ${profile.inflationRate}% annual inflation and ${profile.postRetireReturn}% post-retirement portfolio return. No immediate capital shortfall detected in baseline scenario.`
+              )}
+            </p>
+          </div>
+
+          {/* Consultative Discussion Points */}
+          <div style={{ border: '1px solid #E0E7FF', backgroundColor: '#F5F7FF', borderRadius: '6px', padding: '10px 14px', marginBottom: '14px' }}>
+            <strong style={{ fontSize: '10px', color: '#1E40AF', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+              Consultative Discussion Points for Review
+            </strong>
+            <div style={{ fontSize: '9px', color: '#1E3A8A', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {(aiSummary?.discussionPoints && aiSummary.discussionPoints.length > 0) ? (
+                aiSummary.discussionPoints.slice(0, 3).map((d, i) => <div key={i}>• {d}</div>)
+              ) : (
+                <>
+                  <div>• Confirm preferred CPF LIFE plan type (Standard vs Escalating Plan for inflation defense).</div>
+                  <div>• Review adequacy of Critical Illness waiting periods and definitions in current policies.</div>
+                  <div>• Evaluate tax-sheltered contributions to Supplementary Retirement Scheme (SRS).</div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Regulatory Notice */}
+          <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '8px', fontSize: '8px', color: '#94A3B8', lineHeight: '1.4' }}>
+            <strong>Important Regulatory & Advisory Notice:</strong> This comprehensive financial plan is prepared for illustration and advisory review purposes based on information provided. Projections are mathematical simulations and not guarantees of future performance. Insurance recommendations are subject to underwriting approval and policy terms. Benchmark metrics conform to standard Singapore financial planning guidelines and CPF Board actuarial tables.
+          </div>
+
+          {/* Page 6 Footer */}
+          <div style={footerStyle}>
+            <span>Prepared for: {client?.fullName} • Prepared by: {consultantName}</span>
+            <span>Page 6 of 6</span>
+          </div>
+        </div>
+
       </div>
     );
   };
@@ -1255,6 +2736,31 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
 
         {/* Header Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {/* Live Auto-Save Status Badge */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            fontSize: '11px',
+            fontWeight: '600',
+            backgroundColor: autoSaveStatus === 'saving' ? 'rgba(234, 179, 8, 0.15)' : autoSaveStatus === 'error' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.12)',
+            color: autoSaveStatus === 'saving' ? '#fbbf24' : autoSaveStatus === 'error' ? '#f87171' : '#34d399',
+            border: `1px solid ${autoSaveStatus === 'saving' ? 'rgba(234, 179, 8, 0.3)' : autoSaveStatus === 'error' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.25)'}`
+          }}
+          title="Auto-saves modifications in real-time to persistent storage"
+          >
+            <span style={{
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              backgroundColor: autoSaveStatus === 'saving' ? '#fbbf24' : autoSaveStatus === 'error' ? '#f87171' : '#34d399',
+              display: 'inline-block'
+            }} />
+            {autoSaveStatus === 'saving' ? 'Auto-saving...' : autoSaveStatus === 'error' ? 'Save Error' : 'Live Synced'}
+          </div>
+
           <button
             className="btn"
             style={{ 
@@ -1293,6 +2799,146 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
             {saveSuccess ? <CheckCircle2 size={14} /> : <Save size={14} />}
             {saveSuccess ? 'Plan Saved!' : isSaving ? 'Saving...' : 'Save Plan'}
           </button>
+        </div>
+
+        {/* Scenario Snapshots & Versioning Bar */}
+        <div style={{
+          width: '100%',
+          padding: '10px 14px',
+          backgroundColor: 'rgba(0,0,0,0.25)',
+          borderRadius: '8px',
+          border: '1px solid rgba(255,255,255,0.06)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap',
+          marginTop: '6px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              <Bookmark size={13} color="#60a5fa" />
+              <span>Scenarios:</span>
+            </div>
+            
+            {/* Base Scenario Button */}
+            <button
+              type="button"
+              onClick={() => handleSelectSnapshot('base')}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: activeSnapshotId === 'base' ? '700' : '500',
+                backgroundColor: activeSnapshotId === 'base' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(255,255,255,0.04)',
+                color: activeSnapshotId === 'base' ? '#60a5fa' : 'var(--text-secondary)',
+                border: activeSnapshotId === 'base' ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid rgba(255,255,255,0.08)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              📌 Base Plan
+            </button>
+
+            {/* Custom Snapshots */}
+            {snapshots.map(snap => (
+              <div
+                key={snap.id}
+                onClick={() => handleSelectSnapshot(snap.id)}
+                style={{
+                  padding: '4px 8px 4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: activeSnapshotId === snap.id ? '700' : '500',
+                  backgroundColor: activeSnapshotId === snap.id ? 'rgba(168, 85, 247, 0.25)' : 'rgba(255,255,255,0.04)',
+                  color: activeSnapshotId === snap.id ? '#c084fc' : 'var(--text-secondary)',
+                  border: activeSnapshotId === snap.id ? '1px solid rgba(168, 85, 247, 0.5)' : '1px solid rgba(255,255,255,0.08)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                title={`Created: ${new Date(snap.createdAt).toLocaleString()}`}
+              >
+                <span>📑 {snap.name}</span>
+                <button
+                  type="button"
+                  onClick={(e) => handleDeleteSnapshot(snap.id, e)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    padding: '0 2px'
+                  }}
+                  title="Delete scenario snapshot"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {/* Create Snapshot Inline */}
+            {isCreatingSnapshot ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="text"
+                  placeholder="Scenario Name (e.g. Retire @ 58)"
+                  value={newSnapshotName}
+                  onChange={(e) => setNewSnapshotName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateSnapshot(newSnapshotName);
+                    if (e.key === 'Escape') setIsCreatingSnapshot(false);
+                  }}
+                  autoFocus
+                  className="input-field"
+                  style={{ padding: '3px 8px', fontSize: '11px', width: '180px' }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => handleCreateSnapshot(newSnapshotName)}
+                  style={{ padding: '3px 8px', fontSize: '11px' }}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingSnapshot(false)}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '11px' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsCreatingSnapshot(true)}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  color: '#60a5fa',
+                  border: '1px dashed rgba(59, 130, 246, 0.35)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <Plus size={12} /> Snapshot Current State
+              </button>
+            )}
+          </div>
+
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            {snapshots.length > 0 ? `${snapshots.length} saved snapshot(s)` : 'Save alternative assumptions for side-by-side client reviews'}
+          </div>
         </div>
       </header>
 
@@ -1360,7 +3006,8 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
           { id: 'retirement', label: '🏖️ Retirement Runway & Wealth Goals' },
           { id: 'protection', label: '🛡️ Insurance Gap Matrix' },
           { id: 'simulator', label: `⚡ 'What-If' Stress Testing ${activeEventsCount > 0 ? `(${activeEventsCount} Active)` : ''}` },
-          { id: 'ai-advisor', label: '🤖 AI Advisory Action Plan' }
+          { id: 'ai-advisor', label: '🤖 AI Advisory Action Plan' },
+          { id: 'report-preview', label: '📑 Live Report Preview (6-Page A4)' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -2127,6 +3774,127 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
               </div>
 
             </div>
+          </div>
+
+          {/* Children & Dependents Protection Schedule */}
+          <div className="glass-panel" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <Baby size={18} color="#c084fc" />
+                  Children & Dependents In-Force Protection Schedule
+                </h2>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                  Audited separately from personal income-replacement benchmarks. Client ({client?.fullName}) is Policy Owner & Payor.
+                </p>
+              </div>
+              <span style={{ fontSize: '11px', padding: '4px 10px', borderRadius: '12px', backgroundColor: dependentsPolicies.length > 0 ? 'rgba(168, 85, 247, 0.15)' : 'rgba(255,255,255,0.06)', color: dependentsPolicies.length > 0 ? '#c084fc' : 'var(--text-muted)', fontWeight: '600' }}>
+                {dependentsPolicies.length} Active Dependent {dependentsPolicies.length === 1 ? 'Policy' : 'Policies'}
+              </span>
+            </div>
+
+            {dependentsCoverageList.length === 0 ? (
+              <div style={{ padding: '28px', textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px dashed var(--border-light)' }}>
+                <Baby size={32} color="var(--border-light)" style={{ marginBottom: '10px' }} />
+                <div style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  No dependent policies attached
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', maxWidth: '520px', margin: '0 auto' }}>
+                  When insurance policies are created with Life Insured set to <em>"Dependent"</em> in the Client Profile, their independent coverage schedule and policy details will be cataloged here without distorting your personal income replacement benchmarks.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '16px' }}>
+                {dependentsCoverageList.map(dep => {
+                  const age = calculateAge(dep.dob);
+                  return (
+                    <div
+                      key={dep.id || dep.name}
+                      style={{
+                        padding: '18px',
+                        backgroundColor: 'rgba(255,255,255,0.02)',
+                        borderRadius: '12px',
+                        border: '1px solid rgba(168, 85, 247, 0.25)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'rgba(168, 85, 247, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}>
+                            <Baby size={18} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                              {dep.name}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              <span style={{ color: '#c084fc', fontWeight: '500' }}>{dep.relationship}</span>
+                              {age !== null && <span> • Age {age}</span>}
+                              {dep.gender && <span> • {dep.gender}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', display: 'block' }}>Total Outlay</span>
+                          <span style={{ fontSize: '13px', fontWeight: '700', color: '#c084fc' }}>
+                            {formatCurrency(dep.annualPremium)}/yr
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Coverages Breakdown */}
+                      <div style={{ padding: '10px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', textTransform: 'uppercase' }}>Active In-Force Benefits</div>
+                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Hospitalization / Shield:</span>
+                          <strong style={{ color: dep.hasShield ? '#34d399' : 'var(--text-muted)' }}>
+                            {dep.hasShield ? '✓ In-Force Shield Active' : 'No Shield'}
+                          </strong>
+                        </div>
+                        
+                        {dep.death > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Life / Death Benefit:</span>
+                            <strong style={{ color: '#60a5fa' }}>{formatCurrency(dep.death)}</strong>
+                          </div>
+                        )}
+
+                        {(dep.earlyCi > 0 || dep.majorCi > 0) && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Critical Illness Cover:</span>
+                            <strong style={{ color: '#ec4899' }}>
+                              {dep.majorCi > 0 ? formatCurrency(dep.majorCi) : formatCurrency(dep.earlyCi)}
+                              {dep.earlyCi > 0 && dep.majorCi > 0 ? ` (Early: ${formatCurrency(dep.earlyCi)})` : ''}
+                            </strong>
+                          </div>
+                        )}
+
+                        {dep.tpd > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Disability / TPD:</span>
+                            <strong style={{ color: '#a78bfa' }}>{formatCurrency(dep.tpd)}</strong>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Policy Badges */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: '600' }}>Linked Policies ({dep.policies.length}):</div>
+                        {dep.policies.map(p => (
+                          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', padding: '4px 8px', borderRadius: '4px', backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                            <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{p.policyName || p.policyType} ({p.provider})</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>{formatCurrency(p.premiumAmount)}/{p.premiumFrequency || 'yr'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Step Navigation Footer */}
@@ -3178,6 +4946,9 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
 
         </div>
       )}
+
+      {/* TAB 6: LIVE 6-PAGE A4 WYSIWYG REPORT PREVIEW */}
+      {activeTab === 'report-preview' && renderLiveReportPreview()}
 
       {/* CPF LIFE Advisor Playbook Modal */}
       <CpfLifePlaybookModal

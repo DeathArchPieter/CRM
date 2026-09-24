@@ -631,6 +631,253 @@ Prior to this release, opening a client in `ClientProfileView.jsx` loaded 9 dens
 
 ---
 
+## Feature Release: Smart Auto-Flipping DatePicker & Task-Aware AI Advisor Intelligence (September 2026)
+
+### Summary of Completed Improvements
+
+1. **Smart Auto-Flipping DatePicker (`DatePicker.jsx`, `CollapsibleSection.jsx`, `ClientProfileView.jsx`)**:
+   - **Dynamic Viewport Boundary Auto-Flip**: Upgraded `DatePicker.jsx` with real-time viewport collision detection (`getBoundingClientRect()`). If the trigger is near the bottom of the screen (`spaceBelow < 390px`) and more space exists above, the calendar popup automatically flips upward (`bottom: 'calc(100% + 6px)'`).
+   - **Horizontal Overflow Shield**: Dynamically shifts calendar alignment to `right: 0` if near the right edge of the screen, and enforces responsive bounds (`maxWidth: calc(100vw - 32px)`, `maxHeight: min(420px, calc(100vh - 32px))`).
+   - **Scroll & Resize Listeners**: Recalculates positioning on window resize and scroll events to guarantee the popup never detaches or overflows.
+   - **CollapsibleSection Visible Overflow**: Updated `CollapsibleSection.jsx` to use `overflow: isOpen ? 'visible' : 'hidden'`, preventing cards from clipping child popups, datepickers, or dropdowns.
+   - **Bottom Breathing Room**: Added `paddingBottom: 80px` to the main scroll container in `ClientProfileView.jsx` so bottom-most cards can be scrolled into clear view.
+
+2. **Temporal & Task-Aware Gemini AI Advisor Intelligence (`electron-main.cjs`, `ClientProfileView.jsx`)**:
+   - **Temporal Anchor**: Injected current local Singapore date (`todayFormatted` and `todayStr`) into `get-client-ai-insights` so the model possesses temporal baseline context.
+   - **Chronological & Urgency Task Structuring**: Formatted pending tasks into structured items with due dates, start/end times, venues, and urgency flags (`[⚠️ OVERDUE by X days - URGENT]`, `[⚡ DUE TODAY - HIGH PRIORITY]`, `[TOMORROW]`, `[Upcoming in X days]`).
+   - **Recent Activity Context**: Included recently completed touchpoints from the last 30 days to inform follow-up recommendations.
+   - **Targeted Advisory System Prompt**: Mandated that Gemini explicitly address upcoming meetings and follow-ups with concrete preparation guidance, agenda questions, and policy comparison talk tracks.
+   - **Automatic Cache Invalidation & Instant Refresh**: Configured `add-task`, `update-task`, and `delete-task` to immediately invalidate cached AI insights (`client.aiInsights = null`), and wired `ClientProfileView.jsx` to refresh insights on task save/toggle/delete.
+
+3. **Desktop Dist Rebuild**:
+   - Rebuilt Windows desktop installer package with `npm run electron:build`.
+
+---
+
+## Feature Release: AI & Drag-and-Drop Claims Bill Auto-Tagging Engine (September 2026)
+
+### Summary of Completed Improvements
+
+1. **Drag-and-Drop Auto-Tagging Ledger (`ClaimModal.jsx`, `electron-main.cjs`, `electron-preload.cjs`)**:
+   - **Multi-File Drag-and-Drop Drop Zone**: Built a dedicated glassmorphic drop zone in Step 2 (**Tagged Bills Ledger**) that highlights with a glowing purple boundary whenever bills are dragged over. Advisors can drag a single receipt or a batch of medical bills (PDF, PNG, JPG, JPEG, WEBP) directly onto the workspace, or click to browse files.
+   - **Automatic Client Vault Ingestion**: Every dropped document is automatically copied/written to the client's local claim document vault (`userData/claims_documents/{clientId}/{claimId}/`) with sanitized filenames and timestamps. The "📄 View" button immediately opens the saved local receipt via Electron's `shell.openPath`.
+   - **Gemini Multimodal Invoice Extraction**: Uses `gemini-2.5-flash` with structured multimodal `inlineData` to read the document and extract:
+     - Date of consultation / service (`billDate` in `YYYY-MM-DD`)
+     - Healthcare provider / specialist center (`provider`, e.g., Mount Elizabeth, Gleneagles, Raffles Medical Group, Singapore General Hospital, Thomson Medical)
+     - Procedure or consultation description (`description`, e.g., 'Pre-op MRI Knee Scan', 'Emergency Appendectomy & 3-Day Inpatient Ward', 'Orthopaedic Specialist Consultation & Medication')
+     - Invoice or receipt number (`billNumber`)
+     - Incurred / payable amount with 2-decimal precision (`incurredAmount`)
+     - Claimed amount (`claimedAmount`)
+     - Itemized charge notes (`notes`)
+   - **Resilient Regex & Filename Heuristics Fallback**: If Gemini encounters a network error, missing API key, or unsupported format, the backend automatically runs intelligent regex patterns to parse dates (`2026-05-12`), currency values (`$1,450.50`), and Singapore clinic names from the file, ensuring the advisor is never blocked.
+   - **Live Batch Progress Tracker & Streaming Ledger**: Displays real-time progress (`⚡ Archie AI Auto-Tagging in Progress... (2 of 4 completed)`) with percentage and animated progress bar. Each extracted bill streams directly into the ledger table in real time as it completes.
+   - **`✨ AI Tagged` Badge & Instant Audit Balance**: Highlights newly auto-tagged bills with a distinct AI badge, and immediately recalculates the *Total Incurred Bills ($)* and *Total Submitted Amount ($)* KPI cards.
+   - **Inline Bill Editing**: Added an inline edit button (`<Edit2 />`) to each row in the Tagged Bills table, allowing advisors to tweak any field, provider, or amount immediately before submitting or reconciling.
+
+2. **Preload & IPC Safety (`electron-preload.cjs`, `electron-main.cjs`)**:
+   - Exposed `getPathForFile(file)` leveraging Electron 42 `webUtils.getPathForFile(file)` with fallback to `file.path`.
+   - Exposed `autoTagClaimBill(payload)` mapped to `auto-tag-claim-bill` IPC handler.
+   - Preserved 100% of all existing preload method signatures.
+
+3. **Desktop Dist Rebuild**:
+   - Rebuilt Windows desktop installer package with `npm run electron:build`.
+
+---
+
+## Feature Release: Permanent Google Calendar Sync & Robust Token Lifecycle (September 2026)
+
+### Summary of Completed Improvements
+
+1. **Root Cause Resolution for 7-Day OAuth Expiration**:
+   - **Identified Google Policy**: Google Cloud projects configured with user type *External* and publishing status *Testing* enforce a hard 7-day expiration policy on OAuth 2.0 refresh tokens. After 7 days, Google returns `invalid_grant: Token has been expired or revoked`, causing weekly disconnects.
+   - **Permanent Sync Strategy (In Production)**: Setting publishing status to *In production* in Google Cloud Console makes refresh tokens indefinite/permanent without 7-day expiration. Verification is **not** required for personal/internal team use (supports up to 100 users).
+   - **Interactive Step-by-Step Guide (`ScheduleView.jsx`)**: Added an interactive "Permanent Sync Guide" modal with direct links to Google Cloud Console, 3 clear action steps, and instructions to click "Advanced → Go to app (unsafe)" during authorization.
+
+2. **Backend Token Lifecycle & Rate Churn Fixes (`electron-main.cjs`)**:
+   - **Eliminated 3-Minute Refresh Churn**: Previously, `runBackgroundCalendarSync` ran `refreshAccessToken` every 3 minutes (480 times/day) regardless of access token expiry. Now checks `expiry_date` and only refreshes when the token is within 5 minutes of expiring or already expired.
+   - **Refresh Token Rotation Support**: Captured `data.refresh_token` during token refresh and persisted it to `db.googleCalendarSettings.tokens.refresh_token` if Google rotates the token, preventing invalidated refresh tokens.
+   - **Accurate Expiry Tracking**: Saved `expiry_date` timestamp upon initial OAuth authorization (`exchangeCodeForTokens`) and subsequent token refreshes.
+   - **URL Navigation Support**: Enhanced `open-path` handler to detect `http://` and `https://` URLs and route them to `shell.openExternal(url)`.
+
+3. **1-Click Seamless Reconnect UX (`ScheduleView.jsx`)**:
+   - **Intelligent Auth Error Detection**: Automatically detects `invalid_grant`, `expired`, `401`, or `unauthorized` errors in calendar sync.
+   - **1-Click Reconnect Action**: Added a direct "1-Click Reconnect" button on error banners and in the guide modal that immediately triggers `startGoogleOauth` using existing stored credentials without requiring manual disconnection or re-entering secrets.
+   - **Header Integration**: Added a quick "Permanent Sync Guide" button in the Schedule view header next to the sync status indicators.
+
+---
+
+## Feature Release: Differentiated Client Event Architecture — Tasks, Meetings & Follow-ups (September 2026)
+
+### Summary of Completed Improvements
+
+1. **First-Class Event Types (`ClientProfileView.jsx`, `electron-main.cjs`)**:
+   - **Segmented Creation Mode**: Advisors can toggle between `[ 📋 Task / To-Do ]`, `[ 📅 Meeting ]`, and `[ 📞 Follow-up ]` right from the client profile.
+   - **Task Mode**: Action items driven by deadlines, priority (`Normal`, `High`, `Urgent`), and completion status. Includes quick deadline shortcuts (`Today`, `Tomorrow`, `+1 Week`) and preset chips.
+   - **Meeting Mode**: Time-blocked appointments with dedicated meeting date, start & end times, quick duration chips (`+30m`, `+45m`, `+1h`, `+1.5h`), and venue autocomplete with presets (`Office MBFC`, `Zoom`, `Client Residence`, `Cafe`).
+   - **Follow-up Mode**: Client relationship check-ins linked to specific communication channels (`WhatsApp`, `Phone Call`, `Email`, `Coffee`, `In-Person`) with automatic client touchpoint logging on completion.
+   - **Filterable Schedule List**: Allows filtering by `All`, `Tasks`, `Meetings`, and `Follow-ups` with color-coded badges, timeslot chips, priority tags, and location markers.
+
+2. **Automatic Touchpoint Synchronization**:
+   - Marking a completed `meeting`, `followup`, or item with `logTouchpointOnComplete === true` automatically records a touchpoint in `client.touchpoints` and updates `client.lastContactedAt`.
+
+3. **Color-Coded & Typed Google Calendar Sync (`electron-main.cjs`)**:
+   - Events are synced to Google Calendar with clear prefixes:
+     - `📅 Meeting: [Title] ([Client])` (Purple / Grape)
+     - `📞 Follow-up [[Channel]]: [Title] ([Client])` (Cyan / Peacock)
+     - `📋 Task [[Priority]]: [Title] ([Client])` (Red / Flamingo for Urgent, Yellow / Banana for High, Blue/Green for Normal)
+
+---
+
+## Feature Release: Full Suite Task, Meeting & Follow-up Reminder System (September 2026)
+
+### Summary of Completed Architecture & Capabilities
+
+1. **Global TitleBar Notification Bell & Reminders Drawer (`TitleBar.jsx`, `RemindersDrawer.jsx`)**:
+   - **Persistent Header Access**: Mounted directly in the non-draggable section of `TitleBar.jsx`, accessible across all 10 modules in the CRM.
+   - **Intelligent Badge Counter**: Displays live counts of due today and overdue items, glowing red when overdue items require immediate consultant attention.
+   - **Categorized Drawer Tabs**: Segregates action items into `All`, `🔴 Overdue`, `🟡 Today`, and `🟢 Next 48h`.
+   - **1-Click Quick Actions**:
+     - **Complete**: Check off task, update status, and automatically log touchpoint in `client.touchpoints`.
+     - **Smart Snooze Dropdown**: Postpone by `+30m`, `+2h`, `Tomorrow 9:00 AM`, or `Next Monday 9:00 AM`.
+     - **Direct Outreach**: 1-click WhatsApp (`wa.me`) and phone call (`tel:`) buttons.
+     - **Deep Linking**: Clickable client names jump directly into the full client profile.
+
+2. **Executive Dashboard Action Center Banner (`DashboardView.jsx`)**:
+   - High-visibility priority banner mounted directly between the top KPI cards and the AI Daily Briefing.
+   - Summarizes overdue items and today's schedule at a glance (`⚠️ X Overdue | 📅 Y Due Today`).
+   - Enables advisors to complete, snooze, or WhatsApp clients right from the dashboard without navigating away.
+   - Includes full collapse/expand toggle for customized screen space management.
+
+3. **Windows OS Native Desktop Toast Notifications (`electron-main.cjs`, `electron-preload.cjs`)**:
+   - **Electron Native Integration**: Utilizes `electron.Notification` configured with Windows `app.setAppUserModelId('com.beetsma.crm')`.
+   - **Background Reminder Tick**: Continuously monitors pending tasks every 60 seconds.
+   - **Timely Alerts**:
+     - 15-minute advance toast alerts for scheduled client meetings and timed follow-ups.
+     - Exact start-time deadline notifications.
+     - Morning (9:00 AM) digest toast for all-day action items.
+   - **Interactive Toast Focus**: Clicking the Windows OS notification restores and focuses the minimized CRM window and automatically deep-links to the client profile.
+   - **Test Toast Utility**: 1-click test button exposed in the Reminders Drawer for immediate verification.
+
+4. **IPC & Synchronized Persistence**:
+   - Added `snooze-task` IPC handler: updates `dueDate` and `dueTime`, recalculates Google Calendar event offsets, and re-syncs seamlessly.
+   - Added `test-notification` and `onNavigateToClient` IPC channels with zero breaking changes to existing preload contracts.
+
+---
+
+## Feature Release: Financial Blueprint Multi-Stream Retirement Visualizations & Live 6-Page A4 Report Snapshots (September 2026)
+
+### Summary of Completed Architecture & Capabilities
+
+1. **Multi-Layer Retirement Income Stream Waterfall & Cash Flow Analytics (`ClientFinancialPlanView.jsx`)**:
+   - **4-Tier Stacked Decumulation Bar Chart**:
+     - Layer 1: **Guaranteed CPF LIFE / Annuity Floor** (`#818CF8`).
+     - Layer 2: **Passive / Rental Income** (`#06B6D4`).
+     - Layer 3: **Portfolio Systematic Drawdown** (`#10B981`).
+     - Layer 4: **Income Shortfall / Deficit** (`#EF4444` with dashed highlight).
+   - **Target Inflated Living Guideline**: Dashed golden trajectory line showing year-by-year compounding living expenses benchmarked to inflation.
+   - **Actuarial KPI Summary Ribbon**:
+     - *Guaranteed Floor Coverage %*: Proportion of retirement living need guaranteed for life via CPF LIFE and passive streams.
+     - *Income Replacement Ratio (IRR %)*: Target retirement cash flow benchmarked against pre-retirement gross earned income (aligned with MAS 65%–75% standards).
+     - *Inflated Living Cost at Age 85*: Compounded lifestyle cost in future nominal dollars.
+     - *Capital Solvency Horizon*: Exact year and age of capital preservation or longevity shortfall.
+   - **Interactive Mouse Hover Inspector**:
+     - Real-time cursor tracking over any retirement age (Age 65 to Life Expectancy).
+     - Floating & docked inspection card showing calendar year, target need, CPF LIFE payout, passive income, systematic drawdown, total cash flow, and net surplus/deficit.
+   - **Coordinated Dual-View Mode**:
+     - Allows consultants to switch between a stacked dual-view (simultaneously presenting **Wealth Stock** via Capital Runway and **Monthly Paycheck Flow** via Income Waterfall) and a single full-width view.
+
+2. **Real-Time Live 6-Page A4 Publication Preview (`activeTab === 'report-preview'`)**:
+   - **Full WYSIWYG A4 Publishing Standard**: Implemented directly in React, faithfully rendering the exact 6-page institutional taxonomy defined in `FINANCIAL_REPORT_SPECIFICATION.md`:
+     - **Page 1**: Cover Page, Client & Consultant Particulars Schedule, Assessment Date, Focus Area, Table of Contents.
+     - **Page 2**: Executive Summary Narrative, 3 Scorecards (Financial Health, Retirement Readiness, Insurance Coverage), Scenario Analysis, and Strengths vs. Vulnerabilities.
+     - **Page 3**: Net Worth Statement, Comprehensive Balance Sheet Schedule (Liquid with emergency months, Invested Assets, CPF OA/SA/RA/MA, SRS, Real Estate, Debt), and Cash Flow Schedule (Earned vs Passive, Savings Rate %, Annual Savings).
+     - **Page 4**: Retirement Planning Runway, Vector SVG Chart 1 (Capital Accumulation & Drawdown), Vector SVG Chart 2 (Projected Retirement Income vs Living Expenses), and Singapore CPF LIFE Strategy Card.
+     - **Page 5**: In-Force Policy Audit Schedule and Insurance Coverage vs. Recommended Guidelines Matrix Table (Death, TPD, Early CI, Major CI, Disability, Hospitalization).
+     - **Page 6**: Prioritized Strategic Action Plan Roadmap (High/Medium/Low badges, action steps), Stress-Testing Simulation Insights, Consultative Discussion Points, and Important MAS Regulatory Notice.
+   - **Real-Time Synchronization**: Any slider adjustment or number change in the Financial Snapshot, Retirement, or What-If tabs immediately propagates to the live 6-page preview without requiring manual export.
+   - **Document Quick-Jump Toolbar**: Sticky top navigation bar enabling 1-click scrolling to Pages 1 through 6, instant 1-click PDF export, and print dialog integration.
+
+3. **Persistent Auto-Save Engine & Scenario Snapshot Versioning**:
+   - **Debounced 1,000ms Auto-Save**: Seamlessly pushes blueprint updates to persistent storage (`crm_data.json`) via `saveClientFinancialPlan` without freezing UI sliders.
+   - **Live Status Badge**: Visual indicator in the header (`🟢 Live Synced` / `🟡 Auto-saving...` / `🔴 Save Error`).
+   - **Scenario Snapshot Manager**:
+     - Allows advisors to create named snapshots (e.g., *"Retire at 58 Scenario"*, *"Higher Inflation Stress"*) alongside the baseline plan.
+     - 1-click switching restores all assumptions and projections for real-time comparison during client consultations.
+
+4. **Synchronized PDF Generator Updates (`electron-main.cjs`)**:
+   - Upgraded Chart 2 in `generateFinancialPlanReportHtml` to integrate the **Passive / Rental Income** layer (`#06B6D4`), updated 4-element legend, and guaranteed floor coverage actuarial metrics.
+
+---
+
+## Feature Release: 1-Click Google Calendar OAuth Fix & Atomic Consent Architecture (September 2026)
+
+### Root Cause Analysis: Incomplete Auth on First Try
+- **Google Granular Consent Policy**: When an application requests multiple scopes combining Sign-In scopes (`https://www.googleapis.com/auth/userinfo.email`) with sensitive API scopes (`https://www.googleapis.com/auth/calendar`), Google's authorization server unbundles the permissions into granular checkboxes. Crucially, the calendar permission checkbox is rendered **unchecked by default**.
+- **First-Try Failure Mode**: On the first authentication attempt, advisors naturally clicked the primary "Continue" button without noticing the unchecked calendar checkbox. Google returned an authorization code with only `scope=email openid userinfo.email`. The local callback server rejected the exchange with `Authentication incomplete: Google Calendar permissions were not granted`, requiring the advisor to repeat the process on a second attempt.
+
+### Architectural Solution Implemented
+1. **Single-Scope Authorization (`electron-main.cjs`)**:
+   - Switched `scopes` in `start-google-oauth` to strictly request `https://www.googleapis.com/auth/calendar` with `&include_granted_scopes=true`.
+   - As per Google Developer specifications, **single-scope applications are exempt from granular consent unbundling**. Google presents a single, unified "Allow Beetsma Consultancy CRM to access Google Calendar" prompt without any checkboxes to miss. Access is granted atomically on the **first try**.
+2. **Primary Calendar Email Discovery (`fetchCalendarEmail`)**:
+   - Eliminated the dependency on `userinfo.email`.
+   - Leveraged Google Calendar API v3 (`GET https://www.googleapis.com/calendar/v3/calendars/primary`), where the primary calendar's `id` field is guaranteed to match the account owner's email address.
+   - Retained `fetchUserInfo` as a fallback, ensuring `db.googleCalendarSettings.email` is always reliably populated.
+3. **Branded Dark-Mode Callback Experience (`renderAuthCallbackHtml`)**:
+   - Replaced plain browser error text with a modern glassmorphic callback page matching the CRM's design system.
+   - Displays clear status cards with green checkmarks, connected email badges, automatic 3.5s tab auto-close on success, and a direct "Try Again" action button on cancelled or failed authorizations.
+4. **Enhanced UI Feedback & Error Recovery (`ScheduleView.jsx`)**:
+   - Integrated `useToast` notifications for immediate visual confirmation of connection success or descriptive error reporting.
+   - Clears stale `googleSyncError` states upon successful reconnect.
+   - Updated the Permanent Sync Guide copy to reflect the seamless 1-click flow.
+
+---
+
+## Feature Release: Client Dependents & Segregated In-Force Protection Architecture (September 2026)
+
+### Business Context & Actuarial Rationale
+In wealth management and financial advisory practice, clients frequently purchase and fund insurance policies (e.g. juvenile Integrated Shield plans, child critical illness policies, whole life endowments) where **the client is the policy owner and payor, but the life insured is a dependent (child, spouse, or parent)**.
+
+Previously, policies were implicitly linked solely to the client without distinguishing the life insured:
+1. **Actuarial Benchmark Distortion**: Counting a child's $200k critical illness or hospital shield policy towards the parent's personal income-replacement protection gap matrix falsely inflated the parent's coverage and masked shortfalls in the parent's 5x/10x earned-income protection needs.
+2. **Advisory Clarity**: Financial advisors need to clearly see which policies protect which family members and see total household premium commitments without requiring separate CRM client records for minor children.
+
+### Architectural Implementation
+
+1. **Client Dependents Schema (`crm_data.json` & `electron-main.cjs`)**:
+   - Dependents are stored directly under the client record:
+     `client.dependents = [{ id, fullName, relationship, dob, gender, notes }]`.
+   - Migration logic in `initDatabase` guarantees backward compatibility with existing databases (`dependents: []`).
+   - `add-client` and `update-client` IPC handlers preserve and synchronize the dependents collection.
+
+2. **Policy Life Insured Schema (`electron-main.cjs`)**:
+   - Policies now store:
+     - `insuredType`: `'Self'` (default) | `'Dependent'`
+     - `insuredPersonId`: Unique ID referencing `client.dependents`
+     - `insuredName`: Full name of the insured person
+     - `insuredRelationship`: `'Self'` | `'Child'` | `'Daughter'` | `'Son'` | `'Spouse'` | `'Parent'` | `'Other'`
+     - `insuredDob`: Birthdate for age calculation
+     - `insuredGender`: Gender designation
+
+3. **Life Insured Toggle & Auto-Registration (`ClientProfileView.jsx`)**:
+   - **Segmented Toggle in Add/Edit Policy Modal**: `[ 👤 Self (Owner) ]` vs `[ 👶 Dependent / Child ]`.
+   - **Dependent Selector & Inline Quick-Add**: Advisors can pick from existing registered dependents or select `"+ Quick Register New Dependent..."`.
+   - **Zero-Double-Entry Auto-Registration**: If an advisor enters a new dependent name during policy entry, `handleSavePolicy` automatically persists the dependent to `currentClient.dependents`, ensuring no duplicated input is needed.
+   - **Policy Filter Bar**: Filter portfolio by `[ All ]`, `[ 👤 Self ]`, `[ 👶 All Dependents ]`, or specific child pills.
+   - **Insured Badges**: Clearly render `👶 Insured: [Name] ([Rel])` on policy cards and horizontal table rows.
+   - **Dedicated Children & Dependents Register (Tab 4)**: Card displaying children/dependents, calculated ages, in-force policies, combined premium outlays, and a 1-click `+ Add Policy for [Name]` shortcut.
+
+4. **Actuarial Segregation & Blueprint Analysis (`ClientFinancialPlanView.jsx`)**:
+   - **Income-Replacement Integrity**: `inForceCoverage` excludes policies where `insuredType === 'Dependent'`. The client's personal 10x death/TPD, 2x early CI, 4x major CI, and 75% disability income benchmarks accurately reflect only the client's own coverage.
+   - **Children & Dependents Protection Schedule (Tab 3)**: A dedicated card aggregates and audits all dependent-insured policies, detailing hospitalization shield status, death cover, critical illness protection, and client premium outlay.
+   - **Live 6-Page Report Preview & PDF Generation**: Page 5 displays the Insured badge on the policy audit schedule and renders a dedicated `👶 Children & Dependents In-Force Protection Schedule` table below the client's benchmark matrix.
+
+5. **Claims Integration (`ClaimModal.jsx` & `ClientClaimsSection.jsx`)**:
+   - Policy dropdown in claim submission displays `[👶 Insured: Name (Rel)]` for dependent policies.
+   - Claim cards in the profile display a prominent `👶 Patient: [Name] ([Rel])` badge for rapid claim tracking.
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.
