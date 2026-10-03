@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, Users, GitBranch, TrendingUp, DollarSign, 
   FlaskConical, Calendar, FolderKanban, FileText, Settings, 
-  Trash2, Check, Search, Command
+  Trash2, Check, Search, Command, Smartphone, RefreshCw
 } from 'lucide-react';
 
 export default function Sidebar({ activeTab, setActiveTab, onOpenCommandPalette }) {
   const [clearingLogs, setClearingLogs] = useState(false);
   const [logsCleared, setLogsCleared] = useState(false);
+  const [syncingMobile, setSyncingMobile] = useState(false);
+  const [mobileSyncResult, setMobileSyncResult] = useState(null);
   const [monthlyProgress, setMonthlyProgress] = useState({
     issuedFyc: 0,
     targetFyc: 9167, // Default MDRT monthly run-rate (110k/12)
@@ -64,6 +66,29 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenCommandPalette 
       console.error("Failed to clear logs:", err);
     } finally {
       setClearingLogs(false);
+    }
+  };
+
+  const handleSyncMobile = async () => {
+    if (!window.electronAPI?.syncMobileCompanion) return;
+    setSyncingMobile(true);
+    try {
+      const res = await window.electronAPI.syncMobileCompanion();
+      if (res?.success) {
+        const parts = [];
+        if (res.pulledAppts > 0) parts.push(`+${res.pulledAppts} appt`);
+        if (res.pulledDebriefs > 0) parts.push(`+${res.pulledDebriefs} debrief`);
+        setMobileSyncResult(parts.length > 0 ? parts.join(', ') : 'Synced');
+        setTimeout(() => setMobileSyncResult(null), 3500);
+      } else {
+        setMobileSyncResult('Sync Error');
+        setTimeout(() => setMobileSyncResult(null), 3000);
+      }
+    } catch (err) {
+      setMobileSyncResult('Failed');
+      setTimeout(() => setMobileSyncResult(null), 3000);
+    } finally {
+      setSyncingMobile(false);
     }
   };
 
@@ -197,6 +222,34 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenCommandPalette 
             ${monthlyProgress.issuedFyc.toLocaleString()} / ${monthlyProgress.targetFyc.toLocaleString()} FYC
           </div>
         </div>
+
+        {/* Mobile Companion Sync Button */}
+        <button
+          onClick={handleSyncMobile}
+          disabled={syncingMobile}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '7px 10px',
+            borderRadius: '6px',
+            border: mobileSyncResult ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(59, 130, 246, 0.3)',
+            background: mobileSyncResult ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.08)',
+            color: mobileSyncResult ? '#34d399' : '#60a5fa',
+            cursor: syncingMobile ? 'wait' : 'pointer',
+            fontSize: '11px',
+            fontWeight: '600',
+            transition: 'all var(--transition-fast)',
+            marginBottom: '8px'
+          }}
+          className="sidebar-btn"
+          title="Sync with Mobile Companion Android App via Firebase"
+        >
+          {syncingMobile ? <RefreshCw size={12} className="animate-spin" /> : <Smartphone size={12} />}
+          {syncingMobile ? 'Syncing...' : (mobileSyncResult ? `✓ ${mobileSyncResult}` : 'Sync Mobile App')}
+        </button>
 
         {/* System Logs Controls */}
         <div style={{ display: 'flex', gap: '6px' }}>

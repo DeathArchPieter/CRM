@@ -448,6 +448,9 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
       try {
         await window.electronAPI.addTask({
           clientId: meetingTarget.portedClientId || null,
+          prospectId: meetingTarget.id,
+          prospectName: meetingTarget.fullName,
+          type: 'meeting',
           description: meetingForm.description,
           dueDate: meetingForm.dueDate,
           dueTime: meetingForm.dueTime,

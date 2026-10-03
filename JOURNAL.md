@@ -878,6 +878,219 @@ Previously, policies were implicitly linked solely to the client without disting
 
 ---
 
+## Feature Release: Investment-Linked Policy (ILP) Dual Classification Architecture (September 2026)
+
+### Business Context & Actuarial Rationale
+In Singapore and regional wealth management, **Investment-Linked Policies (ILPs)** exist in two fundamentally distinct operational structures:
+1. **ILP with Coverage (Protection + Wealth Accumulation)**: Hybrid policy combining fund accumulation with explicit mortality/morbidity riders (Sum Assured for Death, TPD, Early Critical Illness, Major Critical Illness). Cost of insurance (COI) is deducted monthly from unit values.
+2. **Pure ILP (Investment-Only / 100% Wealth Accumulation)**: Investment vehicle wrapped in an insurer custody chassis with 100% premium allocation into underlying unit trusts/funds. Crucially, pure ILPs carry only a **nominal death benefit (typically 101% of Net Asset Value / NAV)** and zero CI/TPD riders, with no mortality COI drag.
+
+**The Actuarial Problem Solved:**
+Previously, inputting an ILP without sub-typing risked serious advisory distortion:
+- If an advisor entered the $500,000 fund value of a Pure ILP into the "Death" coverage field, the system treated it as $500,000 of fixed life insurance. This gave clients a false sense of security, showing "Adequate Protection" on their income-replacement matrix (10x earned income) when their mortality cover was entirely dependent on volatile market valuations and provided no leverage against unhedged mortality risks.
+- Conversely, omitting Pure ILPs from the CRM obscured significant invested wealth from the client's balance sheet and retirement capital projections.
+
+### Architectural Implementation
+
+1. **Policy Schema Extensions (`crm_data.json` & `electron-main.cjs`)**:
+   - `ilpSubtype`: `'coverage'` (default) | `'pure_investment'`
+   - `currentFundValue`: In-force Net Asset Value (NAV) of underlying fund units
+   - `cashValue`: Accumulated cash / fund surrender value for hybrid coverage ILPs
+   - `investmentHorizonYears`: Time horizon for the investment accumulation phase
+   - `fundStrategy`: Underlying portfolio asset allocation strategy (`Balanced Growth`, `Aggressive Equity`, `Fixed Income`, etc.)
+   - `projectedReturnRate`: Expected annual net return rate (% p.a.)
+
+2. **Intuitive Modal Workflow (`ClientProfileView.jsx`)**:
+   - Selecting `Policy Type: ILP` dynamically renders a prominent segmented selector:
+     - `🛡️ + 📈 ILP with Coverage`: Displays standard sum assured inputs (Death, TPD, CI) plus an optional Accumulated Cash/Fund Value field.
+     - `📈 Pure ILP (Investment Only)`: Replaces mortality coverage inputs with pure investment parameters:
+       - Current Investment Fund Value (NAV)
+       - Monthly Investment Outlay (MIP) / Contribution Outlay
+       - Investment Horizon (Years)
+       - Portfolio Allocation Strategy
+       - Expected Net Projected Return (% p.a.)
+       - Educational callout displaying the nominal 101% NAV death benefit and explaining the deliberate exclusion from protection gap matrices.
+   - Frequency options enhanced with `"Single Premium (Lump Sum)"`.
+   - Data sanitization in `handleSavePolicy` guarantees that toggling to Pure ILP cleanly zeroes out spurious rider sums.
+
+3. **Portfolio Views & Segmentation (`ClientProfileView.jsx`)**:
+   - Filter bar includes an instant `[ 📈 Pure ILPs ]` filter pill.
+   - Table and card views render a distinctive emerald badge `📈 Pure ILP`, displaying current portfolio NAV, monthly investment outlay, investment strategy, and nominal 101% NAV death benefit notice.
+
+4. **Actuarial Segregation & Balance Sheet Integration (`ClientFinancialPlanView.jsx`)**:
+   - **Protection Matrix Segregation**: `inForceCoverage` and `dependentsCoverageList` explicitly exclude policies where `policyType === 'ILP' && ilpSubtype === 'pure_investment'`. Personal income-replacement benchmarks (10x Death, 10x TPD, 2x Early CI, 4x Major CI) remain 100% rigorous and uncompromised by market assets.
+   - **Balance Sheet Asset Synergy**: In Tab 1 (Balance Sheet), the app computes `totalPureIlpFundValue` across all in-force Pure ILPs, displaying an active indicator and a 1-click `[+ Add Pure ILP NAV]` shortcut to seamlessly synchronize fund holdings into `investedAssets`.
+   - **Protection Schedule (Tab 3) & In-App Report Preview (Section 5)**: Renders `📈 Pure ILP` tags with fund NAV, strategy, and nominal 101% death benefit breakdown.
+
+5. **A4 Client PDF Report & AI Executive Summary (`electron-main.cjs`)**:
+   - `generateFinancialPlanReportHtml`: Formats Pure ILP entries in Page 5 with dedicated styling (`[📈 Pure Investment ILP (Fund: $X)]`), keeping nominal benefits transparent.
+   - `generate-financial-plan-ai-summary`: Enriches Gemini AI prompts with distinct Pure ILP fund asset valuations and strategies for holistic portfolio advice.
+
+---
+
+## Feature Release: Dashboard Weekly Activity Pacemaker (September 2026)
+
+### Business Context & Advisory Rationale
+A foundational driver of consistent financial advisory production is the **weekly client engagement rhythm**. Top advisory firms benchmark target activity at arranging meetings with **15 people per week**—spanning existing client annual reviews, prospect fact-finding sessions, social catch-ups (coffee, lunch, dinner), and professional networking events.
+
+Prior to this feature, the Dashboard only surfaced today's immediate schedule items and pending tasks, leaving advisors without a forward-looking pace indicator for the upcoming week.
+
+### Architectural Implementation
+
+1. **Multi-Source Activity Aggregation & Deduplication (`DashboardView.jsx`)**:
+   - Aggregates meetings across **Google Calendar Events** (extended to fetch 21 days forward) and **CRM Calendar Tasks** (`calendarTasks`).
+   - Automatically de-duplicates items using `googleEventId` to prevent double-counting synced appointments.
+   - Detects external attendee counts on multi-person meetings so group lunches or partner discussions properly credit the total people met.
+
+2. **Categorization & Client Identification**:
+   - Detects whether an engagement is with an **Active Client**, **Prospect**, **Social Catch-up** (coffee, lunch, drinks), **Networking Session** (BNI, mixer, chamber), or **Work Meeting**.
+   - Integrates 1-click **WhatsApp touchpoint** shortcuts and direct links to client profiles for immediate action.
+
+3. **Timeframe Selection**:
+   - **Following Week (Mon–Sun)**: Default forward-looking view so advisors can pace and book out the week ahead.
+   - **Next 7 Days (Rolling)**: Rolling 7-day lookahead starting tomorrow.
+   - **This Week (Mon–Sun)**: Current week performance and activity recap.
+
+4. **Interactive Dashboard Pacemaker Hero & Top KPI Integration**:
+   - **Top KPI Row Card**: Added 5th stat card displaying live pace e.g. `8 / 15` (53% pace achieved), color-coded with green/amber/violet status alerts.
+   - **Hero Progress Meter**: Displays large count, multi-stop glowing progress bar, and motivational feedback (`🎉 Target Hit!`, `⚡ Strong Momentum`, `🏃 Behind Pace`).
+   - **Category Distribution Chips**: Breakdowns for Clients, Prospects, Social Catch-ups, Networking, and Work Sessions.
+   - **7-Day Distribution Strip**: Interactive Mon–Sun strip displaying meeting counts per day with click-to-filter capability.
+   - **Configurable Target**: Default target of 15 people/week is editable directly from the card and stored in `localStorage` (`crm_weekly_meeting_pace_target`).
+   - **Quick Arrange Meeting Modal**: Allows advisors to quickly schedule an engagement (title, category, client link, date, time, venue, channel) directly from the dashboard, saving to CRM tasks and synchronizing with Google Calendar.
+   - **Layout Stabilization & Compact Responsive Mode**: Resolved flexbox container height squishing by updating DashboardView with height: auto, minHeight: 100%, and flexShrink: 0 across top-level grids. Refactored the Pacemaker hero widget into a sleek, compact command bar (~80px) displaying the 15-target meter, progress bar, category pills, and quick actions, with an expandable 7-day distribution strip and meeting roster to preserve flawless executive dashboard ergonomics.
+
+5. **Smart Algorithmic + Gemini AI Hybrid Reconciliation Engine**:
+   - **Cross-Source Fuzzy Deduplication**: Eliminates duplicate entries between Google Calendar events and CRM Schedule tasks. Even when entries lack a direct `googleEventId` link, the engine evaluates same-day timestamps (within 45 minutes) and cross-references client names and lexical tokens (e.g., matching "Breakfast with Jacelyn Lee" with "Project 100 Consultation: Jacelyn Lee").
+   - **Strict Internal Agency & Personal Exclusion**: Agency huddles, district meetings, branch assemblies, sales sprint kickoffs (e.g. `ACACIA Huddle`, `GRAVITAS DISTRICT MEETING`, `AIA Final Sprint`), and personal events (gym, flights, doctor) are categorized with `peopleCount: 0` and excluded from the 15-person client pace calculation. External meetings (clients, prospects, social catch-ups, networking) are properly counted.
+   - **Gemini AI Reconciliation IPC (`reconcile-weekly-pacemaker-ai`)**: Runs in the background using Gemini AI with structured JSON schema (`responseMimeType: 'application/json'`) to audit edge cases, classify ambiguous titles, and synthesize an Archie Copilot coaching insight.
+   - **Advisor Transparency UI**:
+     - Top Archie Copilot coaching insight banner displaying dynamic status (`✨ Archie AI Verified` / `⚡ Smart Reconciled`) and an on-demand `↻ Re-analyze with AI` button.
+     - Category breakdown pills for `🏢 Agency / Internal: X (Excluded)` and `🔗 Merged Duplicates: Y`.
+     - Individual meeting cards tagged with `🔗 Cal + Task Synced` and `Excluded from Pace`.
+   - **In-Place Item Enrichment & Candidate-Fingerprinted Cache**: Resolved duplicate card rendering by replacing list-concatenation with in-place enrichment of canonical schedule items. Integrated candidate-list hash keys into `aiReconciliation` cache to trigger automatic Gemini re-analysis upon any task/meeting creation or schedule modification, and mathematically synchronized the Archie insight banner with live pace counts.
+
+---
+
+## Feature Release: Dedicated Social Catch-Up Scheduling & CRM Touchpoint Integration (September 2026)
+
+### Business Context & Advisory Rationale
+Relationship-building in private wealth and financial advisory frequently takes place outside formal boardroom settings—over casual coffees, breakfasts, lunches, dinners, festive gift deliveries (e.g. Mid-Autumn mooncakes), and casual check-ins. Previously, appointments scheduled within client profiles were limited to `Task`, `Meeting`, or `Follow-up`, forcing advisors to shoehorn casual engagements into formal meeting agendas or follow-up phone calls.
+
+### Architectural Implementation
+
+1. **First-Class `social` Event Type (`ClientProfileView.jsx`)**:
+   - Added a 4th event category: **☕ Social Catch-Up** alongside Tasks, Meetings, and Follow-ups.
+   - Distinctive warm amber/orange design aesthetic (`#fb923c` with glowing subtle backdrops).
+   - **Quick Agenda Presets**: `+ Coffee Catch-Up`, `+ Catch-up over Lunch`, `+ Catch-up over Dinner`, `+ Festive Gift / Mooncake Delivery`, `+ Casual Check-in & Chat`, `+ Walk & Talk`.
+   - **Social Venue Presets with Autocomplete**: `Cafe / Coffee Shop`, `Restaurant / Dining`, `Client's Residence`, `Client's Workplace`, `Outdoor / Park`.
+   - **Duration Buttons**: Fast 30m, 45m, 60m, 90m, 2h duration chips.
+   - **Automatic Touchpoint Logging**: Defaults to automatically logging a `Coffee / Social` touchpoint in the Client's Touchpoint History upon marking complete.
+
+2. **Schedule & Task Management Integration**:
+   - **Active Schedule & Actions Filter Tabs**: Added `[ Social ]` filter button and live counter pill in the section header (`X Social`).
+   - **Visual Card Distinctions**: Social catch-ups feature a left border in `#fb923c` and a `☕ Social Catch-Up` pill badge.
+   - **Edit Task Modal**: Full editing support for social catch-ups, including type switcher, date/time modification, location update, and touchpoint logging toggle.
+
+3. **Google Calendar 2-Way Sync & Native Desktop Reminders (`electron-main.cjs`)**:
+   - **Google Calendar Color & Summary**: Synced with `${prefix}☕ Social Catch-Up: ${task.description} (${clientName})` and Google Calendar Tangerine color (`colorId: '6'`).
+   - **Desktop Notifications**: Proactive 15-minute and starting-now alerts announce `☕ Social Catch-Up in Xm: [Client]` and `☕ Social Catch-Up Starting Now: [Client]`.
+   - **Touchpoint Automation in Backend**: Completing a `social` task automatically logs a touchpoint as `'Coffee / Social'` in the client record.
+
+4. **Schedule Hub & Dashboard Pacemaker Synergy (`ScheduleView.jsx`, `DashboardView.jsx`)**:
+   - **ScheduleView Quick Add**: Added instant event subtype buttons (`Task`, `Meeting`, `☕ Social`, `Follow-up`) allowing advisors to schedule social catch-ups directly from the calendar day view.
+   - **Dashboard Weekly Activity Pacemaker**: Preserved `task.type` through multi-source candidate merging; classified social catch-ups as `category: 'social'`, tagged with the `#fb923c` amber pill, and credited toward the advisor's **15-person weekly pace target**.
+
+---
+
+## Feature Release: Beetsma CRM Companion Mobile Android App & Firebase Synchronization Hub (October 2026)
+
+### Business Context & Mobility Friction Rationale
+Advisors frequently arrange meetings and social catch-ups while on the move (via WhatsApp, phone calls, or casual in-person discussions). Previously, this required double entry: keying the appointment into the phone's native calendar, and subsequently remembering to re-enter it into the desktop CRM upon returning to the desk. Additionally, there was no dedicated post-meeting workflow to capture discussion notes and next steps immediately after stepping out of a consultation.
+
+### Architectural Implementation
+
+1. **Standalone Native Android Companion App (`mobile/`)**:
+   - Built with **Capacitor 7**, **React**, and **Vite**, packaged as a true native installable Android APK (`com.beetsma.crm.companion`, `Beetsma-CRM-Companion.apk`).
+   - Sits on the Android home screen and app drawer with custom app icon and full-screen experience (zero browser address bars, zero webpage feeling).
+   - Compiled with **Gradle 8.11** and OpenJDK 21 into `dist/Beetsma-CRM-Companion.apk` (~4.1 MB).
+   - Reusable npm script added to root `package.json`: `npm run mobile:build`.
+
+2. **Core Mobile Features**:
+   - **🏃 Weekly Pacemaker Hero Card**: Real-time progress meter tracking the **15 people/week** consultation pace on mobile.
+   - **⚡ 3-Tap Quick Appointment Booker**: 5-second booking form with client alias autocomplete, meeting type selector (**☕ Social Catch-Up**, **Meeting / Review**, **Follow-up**), smart date/time selectors, and venue presets (*Cafe*, *Client Office*, *Virtual / Zoom*, *Restaurant*).
+   - **📝 30-Second Post-Meeting Debrief**: One-tap trigger from any scheduled meeting card. Records outcome tag (`🟢 Great Progress`, `🟡 Follow-up Needed`, `⚪ Social Catch-Up`), key discussion points (supporting Android native keyboard speech-to-text dictation), and optional next follow-up action date/task.
+   - **👥 Pseudonymized Alias Directory**: Searchable list of client aliases with direct 1-tap WhatsApp chat links (`wa.me`).
+
+3. **Strict Zero-Trust Confidentiality (MAS & PDPA Compliance)**:
+   - Only pseudonymized client aliases (e.g. `Jacelyn L.`), appointment times/venues, and post-meeting debrief notes touch Firebase Firestore.
+   - Client NRICs, full legal names, financial balance sheets, in-force policy contracts, CPF records, and medical vault documents **never leave the local desktop database (`crm_data.json`)**.
+
+4. **Desktop Background Synchronization Bridge (`src/services/mobileSyncService.cjs`, `electron-main.cjs`)**:
+   - Uses Firestore REST API with Node.js native `fetch` (zero additional npm bundle weight for Electron).
+   - **Push Direction**: Automatically generates and pushes client aliases from `db.clients` to Firestore.
+   - **Pull Direction**: Ingests new appointments from the mobile app into `db.tasks` and automatically triggers Google Calendar two-way synchronization.
+   - **Debrief Ingestion**: Automatically appends post-meeting debrief notes to the client's `touchpoints` timeline and generates follow-up tasks if scheduled.
+   - **Background Cadence**: Automatically runs on desktop startup (after 8 seconds) and repeats every 3 minutes.
+   - **Manual Sync Action**: Added "Sync Mobile App" button in [Sidebar.jsx](file:///c:/dev/CRM/src/components/Sidebar.jsx) with live feedback pills.
+
+5. **Samsung Galaxy Fold Auto-Detection & Dual-Pane Command Layout (`mobile/src/App.jsx`, `mobile/src/index.css`)**:
+   - **Dynamic Hardware State Sensing**: Automatically tracks window dimensions on resize (`innerWidth >= 600px`).
+   - **Cover Screen Mode (< 600px)**: Compact, one-handed phone UI with bottom navigation bar.
+   - **Inner Screen Foldable Mode (>= 600px)**: Transforms dynamically into a **Dual-Pane Tablet Command Center**:
+     - **Left Pane (40%)**: Weekly Pacemaker hero meter, interactive 7-day calendar strip (Mon–Sun with meeting counts), filterable appointment roster, and alias directory.
+     - **Right Pane (60%)**: Active Action Panel allowing consultants to see their schedule on the left while booking on the right, or tapping an appointment on the left to immediately open the 30-second post-meeting debrief editor on the right with speech-to-text dictation.
+
+6. **Client Availability, Pre-Bundled Aliases & Multi-Mode Client Picker (`mobile/src/App.jsx`, `mobile/src/data/initialClients.json`, `mobile/src/firebase.js`)**:
+   - **Instant Zero-Latency Bundling**: Bundled all 34 client aliases directly into `initialClients.json` and initial `useState` hook, ensuring all 34 clients are instantly available on the very first frame even before network or Firebase responses arrive.
+   - **4-Way Client Selection System**:
+     1. **Searchable Picker Modal**: "Choose from 34 Clients ▼" button opens a dedicated modal with live search by alias, tag, or phone.
+     2. **Native Dropdown Selector (`<select>`)**: 1-tap select menu listing all 34 client aliases with tag and phone metadata.
+     3. **Keyboard Autocomplete (`<datalist>`)**: Auto-suggests matching clients directly on the Android keyboard as the user types into the alias field.
+     4. **Visual Chip Cloud**: Scrollable alias chips for fast 1-tap selection.
+   - **Universal Booking & Debrief Client Selection**: Enabled client selection in both Quick Booker and Post-Meeting Debrief (standard mobile bottom sheet and Foldable right-hand workspace).
+   - **Directory Quick Actions**: Added 1-tap "Debrief" button alongside "Book" and WhatsApp on every card in the Alias Directory.
+   - **WebView Firestore Reliability**: Replaced problematic multi-tab IndexedDB cache configuration with standard `getFirestore(app)` and direct REST fallback fetch on mount.
+   - **Rebuilt Android Package**: Rebuilt production APK to `dist/Beetsma-CRM-Companion.apk`.
+
+---
+
+## Feature Release: Project 100 Prospect Task Recognition & 1-Click Conversion Suite (October 2026)
+
+### Problem & Advisor Workflow Friction
+When tasks or appointments originated from **Project 100** consultations or **Special Outreach Campaigns** for prospects who were not yet converted into the core CRM client list (`db.clients`), the following UX blockers occurred:
+1. **Unassigned / Unknown Client Display**: Tasks on the Calendar, Schedule, Dashboard, and Reminders Drawer displayed as `Client: Unknown Client` with non-working profile links and disabled WhatsApp/Call shortcuts.
+2. **Form Edit Validation Blocker**: Opening the Task Edit modal defaulted the Client dropdown to `— Select Client —` with an HTML `required` constraint, preventing advisors from saving any edits to the task without forcibly selecting an unrelated registered client.
+3. **Google Calendar Sync Inaccuracy**: Synced Google Calendar events bore the generic suffix `(Unknown Client)` instead of the prospect's real name.
+
+### Architecture & Capabilities Implemented
+1. **Backend Dual-Entity Attribution & Prospect Resolution (`electron-main.cjs`)**:
+   - Upgraded `get-calendar-tasks` and `get-all-tasks` IPC handlers: when `task.clientId` is not found in `db.clients`, the system automatically resolves matching contacts in `db.project100Contacts` via `task.prospectId`, `task.prospectName`, or description string analysis.
+   - Sets `isProspect: true`, `clientName: prospect.fullName`, `clientPhone: prospect.phone`, `clientEmail: prospect.email`, and `prospectCategory`.
+   - Preserves `prospectId` and `prospectName` in `add-task` and `update-task`.
+   - **Auto-Task Re-linking on Prospect Porting**: When a Project 100 prospect is converted to a client (`updateProject100Contact` with `portedClientId`), the system automatically re-links all past tasks associated with that prospect directly to the newly created client ID.
+   - **Google Calendar Event Attribution**: Synchronized event titles and descriptions now accurately feature `[Prospect: Full Name]` and notes citing `Project 100 Prospect: Full Name (Category)` rather than `(Unknown Client)`.
+
+2. **Unified Client & Prospect Task Selector (`ScheduleView.jsx`)**:
+   - In both the **Fast Quick Add** form and the **Task Edit Modal**, the Client dropdown now displays `<optgroup label="Core Clients">` and `<optgroup label="Project 100 Prospects">`.
+   - Removed restrictive `required` validation, allowing general/unassigned tasks as well as direct assignment to Project 100 prospects (`prospect:ID`).
+
+3. **1-Click "Convert to Client" Engine (`ScheduleView.jsx`)**:
+   - When editing a task belonging to an unported prospect, a prominent purple notification banner is displayed:
+     `🎯 Project 100 Prospect: [Name] — Not in Core Clients database yet.`
+   - Provides a direct **"⚡ Convert to Client"** action button that:
+     1. Automatically registers a new client record in `db.clients` via `addClient`.
+     2. Updates the Project 100 record to `Ported / Converted` with `portedClientId`.
+     3. Automatically binds the active task and updates modal state to the new client ID.
+     4. Refreshes data and provides instant toast feedback.
+
+4. **Visual Prospect Badges & Active Communication Across Modules**:
+   - **Schedule View Cards (`ScheduleView.jsx`)**: Renders `[🎯 Prospect] <Name> (Project 100)` badge with purple styling on both the daily schedule and unscheduled task roster.
+   - **Reminders Drawer (`RemindersDrawer.jsx`)**: Displays `🎯 Prospect` badge next to the name; clicking the prospect navigates directly to `Special Projects`; WhatsApp and Phone Call buttons are now active because prospect phone numbers are resolved.
+   - **Dashboard Action Items (`DashboardView.jsx`)**: Displays `🎯 Prospect` pill; clicking the name routes directly to Project 100.
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.

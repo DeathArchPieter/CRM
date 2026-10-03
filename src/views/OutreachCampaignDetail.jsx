@@ -652,6 +652,9 @@ export default function OutreachCampaignDetail({ campaign: campaignProp, onBack,
       try {
         await window.electronAPI.addTask({
           clientId: meetingTarget.portedClientId || null,
+          prospectId: meetingTarget.id || null,
+          prospectName: meetingTarget.fullName || null,
+          type: 'meeting',
           description: meetingForm.description,
           dueDate: meetingForm.dueDate,
           dueTime: meetingForm.dueTime,

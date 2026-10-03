@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, RefreshCw, 
   Settings, CheckCircle2, Circle, AlertCircle, Plus, Info, 
-  Trash2, ExternalLink, ShieldCheck, Link2Off, Edit 
+  Trash2, ExternalLink, ShieldCheck, Link2Off, Edit, Coffee, UserPlus 
 } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import { useAdvisorContext } from '../context/AdvisorContext';
@@ -26,7 +26,9 @@ export default function ScheduleView() {
   const [crmTasks, setCrmTasks] = useState([]);
   const [googleEvents, setGoogleEvents] = useState([]);
   const [clients, setClients] = useState([]);
+  const [project100Contacts, setProject100Contacts] = useState([]);
   const [pipelineCases, setPipelineCases] = useState([]);
+  const [convertingProspect, setConvertingProspect] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Sync settings states
@@ -90,6 +92,7 @@ export default function ScheduleView() {
 
   // Quick add toggles
   const [quickAddType, setQuickAddType] = useState('task');
+  const [quickAddTaskSubtype, setQuickAddTaskSubtype] = useState('task');
   const [googleQuickStartTime, setGoogleQuickStartTime] = useState('09:00');
   const [googleQuickEndTime, setGoogleQuickEndTime] = useState('10:00');
   const [quickAddTaskTime, setQuickAddTaskTime] = useState('');
@@ -103,6 +106,7 @@ export default function ScheduleView() {
       const promises = {
         tasks: window.electronAPI?.getCalendarTasks ? window.electronAPI.getCalendarTasks() : Promise.resolve({ success: false }),
         clients: window.electronAPI?.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: false }),
+        project100: window.electronAPI?.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: false }),
         settings: window.electronAPI?.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
         pipeline: window.electronAPI?.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false })
       };
@@ -116,6 +120,7 @@ export default function ScheduleView() {
 
       if (results.tasks?.success) setCrmTasks(results.tasks.data);
       if (results.clients?.success) setClients(results.clients.data);
+      if (results.project100?.success) setProject100Contacts(results.project100.data || []);
       if (results.settings?.success) {
         setGoogleSettings(results.settings.data);
         setFormClientId(results.settings.data.clientId || '');
@@ -572,19 +577,34 @@ export default function ScheduleView() {
         status: 'Pending'
       });
     } else {
+      const prospect = !item.clientId ? project100Contacts.find(p => 
+        (item.prospectId && p.id === item.prospectId) ||
+        (item.clientName && (p.fullName || '').toLowerCase().trim() === (item.clientName || '').toLowerCase().trim()) ||
+        (p.fullName && item.description && item.description.toLowerCase().includes(p.fullName.toLowerCase()))
+      ) : null;
+
+      const isProspect = !!(item.isProspect || prospect || item.prospectId);
+      const prospectId = item.prospectId || (prospect ? prospect.id : '');
+      const prospectName = item.prospectName || (prospect ? prospect.fullName : (item.isProspect ? item.clientName : ''));
+
       setEditForm({
         id: item.id,
+        type: item.type || 'task',
         summary: '',
         description: item.description || '',
         date: '',
         startTime: '09:00',
         endTime: '10:00',
         clientId: item.clientId || '',
+        prospectId,
+        prospectName,
+        isProspect,
         dueDate: item.dueDate || '',
         dueTime: item.dueTime || '',
         dueEndTime: item.dueEndTime || '',
         location: item.location || '',
-        status: item.status || 'Pending'
+        status: item.status || 'Pending',
+        originalItem: item
       });
     }
     setEditingEvent({ type, data: item });
@@ -630,8 +650,11 @@ export default function ScheduleView() {
 
         const res = await window.electronAPI.updateTask({
           id: editForm.id,
+          type: editForm.type || 'task',
           description: editForm.description.trim(),
-          clientId: editForm.clientId,
+          clientId: editForm.clientId || null,
+          prospectId: editForm.prospectId || null,
+          prospectName: editForm.prospectName || null,
           dueDate: editForm.dueDate || null,
           dueTime: editForm.dueTime || null,
           dueEndTime: editForm.dueEndTime || null,
@@ -653,6 +676,78 @@ export default function ScheduleView() {
       setEditFormError(err.message || 'An error occurred while saving.');
     } finally {
       setEditFormLoading(false);
+    }
+  };
+
+  const handleConvertProspectToClient = async () => {
+    const prospect = project100Contacts.find(p => 
+      (editForm.prospectId && p.id === editForm.prospectId) || 
+      (p.fullName && editForm.prospectName && p.fullName.toLowerCase() === editForm.prospectName.toLowerCase()) ||
+      (p.fullName && editForm.originalItem?.clientName && p.fullName.toLowerCase() === editForm.originalItem.clientName.toLowerCase()) ||
+      (p.fullName && editForm.description && editForm.description.toLowerCase().includes(p.fullName.toLowerCase()))
+    );
+
+    const prospectName = prospect ? prospect.fullName : (editForm.prospectName || editForm.originalItem?.clientName || 'this prospect');
+
+    if (!window.confirm(`Convert "${prospectName}" to a Client? This will create a new Client record and automatically link all their tasks.`)) {
+      return;
+    }
+
+    setConvertingProspect(true);
+    try {
+      if (window.electronAPI?.addClient) {
+        const clientRes = await window.electronAPI.addClient({
+          fullName: prospect ? prospect.fullName : prospectName,
+          preferredName: (prospect ? prospect.fullName : prospectName).split(' ')[0],
+          phone: prospect?.phone || editForm.originalItem?.clientPhone || '',
+          email: prospect?.email || editForm.originalItem?.clientEmail || '',
+          companyName: prospect?.company || '',
+          jobTitle: prospect?.jobTitle || '',
+          clientStatus: 'Prospect',
+          notes: `[Ported from Project 100 via Schedule on ${new Date().toLocaleDateString()}] ${prospect?.category ? `Category: ${prospect.category}. ` : ''}${prospect?.notes || ''}`
+        });
+
+        if (clientRes.success && clientRes.id) {
+          const newClientId = clientRes.id;
+          
+          // Update Project 100 contact if found
+          if (prospect && window.electronAPI?.updateProject100Contact) {
+            await window.electronAPI.updateProject100Contact({
+              id: prospect.id,
+              stage: 'Ported / Converted',
+              portedClientId: newClientId
+            });
+          }
+
+          // Update current task
+          if (window.electronAPI?.updateTask) {
+            await window.electronAPI.updateTask({
+              id: editForm.id,
+              clientId: newClientId,
+              prospectId: null,
+              prospectName: null
+            });
+          }
+
+          setEditForm(prev => ({
+            ...prev,
+            clientId: newClientId,
+            prospectId: '',
+            prospectName: '',
+            isProspect: false
+          }));
+
+          await loadData();
+          addToast(`Converted "${prospectName}" to Client! Task is now linked to their client record.`, 'success');
+        } else {
+          addToast('Failed to create client: ' + (clientRes?.error || 'Unknown error'), 'error');
+        }
+      }
+    } catch (err) {
+      console.error('Error converting prospect to client:', err);
+      addToast('Error converting prospect to client: ' + err.message, 'error');
+    } finally {
+      setConvertingProspect(false);
     }
   };
 
@@ -685,16 +780,32 @@ export default function ScheduleView() {
 
     try {
       if (quickAddType === 'task') {
-        if (!newClientId) return;
+        let targetClientId = null;
+        let targetProspectId = null;
+        let targetProspectName = null;
+
+        if (newClientId.startsWith('prospect:')) {
+          targetProspectId = newClientId.replace('prospect:', '');
+          const p = project100Contacts.find(x => x.id === targetProspectId);
+          if (p) targetProspectName = p.fullName;
+        } else if (newClientId) {
+          targetClientId = newClientId;
+        }
+
         if (window.electronAPI?.addTask) {
           const dueDateString = selectedDate.toISOString().split('T')[0];
           const res = await window.electronAPI.addTask({
-            clientId: newClientId,
+            clientId: targetClientId,
+            prospectId: targetProspectId,
+            prospectName: targetProspectName,
+            type: quickAddTaskSubtype,
             description: newDesc.trim(),
             dueDate: dueDateString,
             dueTime: quickAddTaskTime || null,
             dueEndTime: quickAddTaskEndTime || null,
-            location: quickAddTaskLocation.trim() || ''
+            location: quickAddTaskLocation.trim() || '',
+            channel: quickAddTaskSubtype === 'social' ? 'Coffee / Social' : (quickAddTaskSubtype === 'followup' ? 'Phone Call' : null),
+            logTouchpointOnComplete: quickAddTaskSubtype === 'social' || quickAddTaskSubtype === 'followup'
           });
           if (res.success) {
             setNewDesc('');
@@ -1091,8 +1202,8 @@ export default function ScheduleView() {
                     {selectedDayData.tasks.map(task => {
                       const isCompleted = task.status === 'Completed';
                       const tType = task.type || 'task';
-                      const borderCol = isCompleted ? 'var(--accent-success)' : (tType === 'meeting' ? '#8b5cf6' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)'))));
-                      const bgCol = isCompleted ? 'rgba(16,185,129,0.04)' : (tType === 'meeting' ? 'rgba(139,92,246,0.04)' : (tType === 'followup' ? 'rgba(6,182,212,0.04)' : 'rgba(59,130,246,0.04)'));
+                      const borderCol = isCompleted ? 'var(--accent-success)' : (tType === 'meeting' ? '#8b5cf6' : (tType === 'social' ? '#fb923c' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)')))));
+                      const bgCol = isCompleted ? 'rgba(16,185,129,0.04)' : (tType === 'meeting' ? 'rgba(139,92,246,0.04)' : (tType === 'social' ? 'rgba(251,146,60,0.04)' : (tType === 'followup' ? 'rgba(6,182,212,0.04)' : 'rgba(59,130,246,0.04)')));
                       return (
                         <div 
                           key={task.id} 
@@ -1114,6 +1225,11 @@ export default function ScheduleView() {
                           </button>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                              {tType === 'social' && (
+                                <span style={{ fontSize: '9.5px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(251,146,60,0.15)', color: '#fb923c' }}>
+                                  ☕ Social Catch-Up
+                                </span>
+                              )}
                               {tType === 'meeting' && (
                                 <span style={{ fontSize: '9.5px', fontWeight: '600', padding: '1px 5px', borderRadius: '3px', backgroundColor: 'rgba(139,92,246,0.15)', color: '#c084fc' }}>
                                   📅 Meeting
@@ -1152,7 +1268,25 @@ export default function ScheduleView() {
                               </span>
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                              <span>Client: <strong style={{ color: 'var(--text-primary)' }}>{task.clientName}</strong></span>
+                              {task.isProspect ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span style={{ 
+                                    fontSize: '9.5px', 
+                                    fontWeight: '700', 
+                                    padding: '1px 5px', 
+                                    borderRadius: '3px', 
+                                    backgroundColor: 'rgba(192, 132, 252, 0.2)', 
+                                    color: '#c084fc',
+                                    border: '1px solid rgba(192, 132, 252, 0.3)' 
+                                  }}>
+                                    🎯 Prospect
+                                  </span>
+                                  <strong style={{ color: '#c084fc' }}>{task.clientName}</strong>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>(Project 100)</span>
+                                </span>
+                              ) : (
+                                <span>Client: <strong style={{ color: 'var(--text-primary)' }}>{task.clientName}</strong></span>
+                              )}
                               {task.dueTime && <span>• {task.dueTime}{task.dueEndTime ? ` – ${task.dueEndTime}` : ''}</span>}
                               {task.location && <span>• 📍 {task.location}</span>}
                               {task.googleEventId && (
@@ -1239,26 +1373,66 @@ export default function ScheduleView() {
 
               {quickAddType === 'task' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {/* Event Subtype Selector */}
+                  <div style={{ display: 'flex', gap: '3px', backgroundColor: 'rgba(255,255,255,0.03)', padding: '3px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                    {[
+                      { key: 'task', label: 'Task', color: 'var(--accent-primary)' },
+                      { key: 'meeting', label: 'Meeting', color: '#8b5cf6' },
+                      { key: 'social', label: '☕ Social', color: '#fb923c' },
+                      { key: 'followup', label: 'Follow-up', color: '#06b6d4' }
+                    ].map(st => (
+                      <button
+                        key={st.key}
+                        type="button"
+                        onClick={() => setQuickAddTaskSubtype(st.key)}
+                        style={{
+                          flex: 1,
+                          fontSize: '10.5px',
+                          padding: '3px 6px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontWeight: quickAddTaskSubtype === st.key ? '600' : '400',
+                          backgroundColor: quickAddTaskSubtype === st.key ? st.color : 'transparent',
+                          color: quickAddTaskSubtype === st.key ? '#ffffff' : 'var(--text-muted)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {st.label}
+                      </button>
+                    ))}
+                  </div>
+
                   <input 
                     required 
                     type="text" 
                     className="input-field" 
-                    placeholder="What needs to be done?" 
+                    placeholder={quickAddTaskSubtype === 'social' ? "Catch-up subject (e.g. Catch-up over coffee, lunch...)" : (quickAddTaskSubtype === 'meeting' ? "Meeting agenda / subject..." : (quickAddTaskSubtype === 'followup' ? "Follow-up topic..." : "What needs to be done?"))} 
                     style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }}
                     value={newDesc}
                     onChange={e => setNewDesc(e.target.value)}
                   />
                   <select 
-                    required 
                     className="input-field" 
                     style={{ width: '100%', padding: '8px 10px', fontSize: '13px' }}
                     value={newClientId}
                     onChange={e => setNewClientId(e.target.value)}
                   >
-                    <option value="">— Select Client —</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.fullName}</option>
-                    ))}
+                    <option value="">— Select Client / Prospect (Optional) —</option>
+                    <optgroup label="Core Clients">
+                      {clients.map(c => (
+                        <option key={c.id} value={c.id}>{c.fullName}</option>
+                      ))}
+                    </optgroup>
+                    {project100Contacts.length > 0 && (
+                      <optgroup label="Project 100 Prospects">
+                        {project100Contacts.map(p => (
+                          <option key={p.id} value={`prospect:${p.id}`}>
+                            {p.fullName} {p.category ? `(${p.category})` : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -1288,17 +1462,23 @@ export default function ScheduleView() {
                       <AddressAutocomplete 
                         value={quickAddTaskLocation} 
                         onChange={e => setQuickAddTaskLocation(e.target.value)} 
-                        placeholder="Search venue or address (e.g. 048581, MBFC...)"
+                        placeholder={quickAddTaskSubtype === 'social' ? "Cafe, restaurant, client residence..." : "Search venue or address (e.g. 048581, MBFC...)"}
                         style={{ padding: '8px 12px 8px 36px', fontSize: '13px' }}
                       />
                     </div>
                     <button 
                       type="submit" 
                       className="btn btn-primary" 
-                      style={{ padding: '8px 14px', fontSize: '13px', height: '38px' }}
+                      style={{ 
+                        padding: '8px 14px', 
+                        fontSize: '13px', 
+                        height: '38px',
+                        backgroundColor: quickAddTaskSubtype === 'social' ? '#fb923c' : (quickAddTaskSubtype === 'meeting' ? '#8b5cf6' : (quickAddTaskSubtype === 'followup' ? '#06b6d4' : undefined)),
+                        backgroundImage: 'none'
+                      }}
                       disabled={addingTask || !newClientId || !newDesc.trim()}
                     >
-                      Add
+                      {quickAddTaskSubtype === 'social' ? 'Add Social' : (quickAddTaskSubtype === 'meeting' ? 'Add Meeting' : (quickAddTaskSubtype === 'followup' ? 'Add Follow-up' : 'Add'))}
                     </button>
                   </div>
                 </div>
@@ -1374,9 +1554,16 @@ export default function ScheduleView() {
                     {task.description}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11px', color: 'var(--accent-primary)' }}>
-                      Client: {task.clientName}
-                    </span>
+                    {task.isProspect ? (
+                      <span style={{ fontSize: '11px', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '9px', fontWeight: '700', padding: '1px 4px', borderRadius: '3px', backgroundColor: 'rgba(192, 132, 252, 0.2)' }}>Prospect</span>
+                        {task.clientName}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--accent-primary)' }}>
+                        Client: {task.clientName}
+                      </span>
+                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <button 
                         onClick={() => handleOpenEdit('task', task)}
@@ -1735,19 +1922,98 @@ export default function ScheduleView() {
                   </div>
 
                   <div className="input-group" style={{ marginBottom: 0 }}>
-                    <label className="input-label">Client</label>
+                    <label className="input-label">Client / Prospect (Optional)</label>
                     <select 
-                      required 
                       className="input-field" 
-                      value={editForm.clientId}
-                      onChange={e => setEditForm({ ...editForm, clientId: e.target.value })}
+                      value={editForm.clientId || (editForm.prospectId ? `prospect:${editForm.prospectId}` : '')}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val.startsWith('prospect:')) {
+                          const pId = val.replace('prospect:', '');
+                          const p = project100Contacts.find(x => x.id === pId);
+                          setEditForm(prev => ({
+                            ...prev,
+                            clientId: '',
+                            prospectId: pId,
+                            prospectName: p ? p.fullName : '',
+                            isProspect: true
+                          }));
+                        } else {
+                          setEditForm(prev => ({
+                            ...prev,
+                            clientId: val,
+                            prospectId: '',
+                            prospectName: '',
+                            isProspect: false
+                          }));
+                        }
+                      }}
                     >
-                      <option value="">— Select Client —</option>
-                      {clients.map(c => (
-                        <option key={c.id} value={c.id}>{c.fullName}</option>
-                      ))}
+                      <option value="">— Unassigned / General Task —</option>
+                      <optgroup label="Core Clients">
+                        {clients.map(c => (
+                          <option key={c.id} value={c.id}>{c.fullName}</option>
+                        ))}
+                      </optgroup>
+                      {project100Contacts.length > 0 && (
+                        <optgroup label="Project 100 Prospects">
+                          {project100Contacts.map(p => (
+                            <option key={p.id} value={`prospect:${p.id}`}>
+                              {p.fullName} {p.category ? `(${p.category})` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
+
+                  {editForm.isProspect && (
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(192, 132, 252, 0.08)',
+                      border: '1px solid rgba(192, 132, 252, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>🎯</span>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: '600', color: '#c084fc' }}>
+                            Project 100 Prospect: {editForm.prospectName || editForm.originalItem?.clientName}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            Not in Core Clients database yet.
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={handleConvertProspectToClient}
+                        disabled={convertingProspect}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '11.5px',
+                          fontWeight: '600',
+                          backgroundColor: '#8b5cf6',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                      >
+                        <UserPlus size={13} /> {convertingProspect ? 'Converting...' : 'Convert to Client'}
+                      </button>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
                     <div className="input-group" style={{ flex: 1, marginBottom: 0 }}>

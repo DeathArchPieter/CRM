@@ -99,7 +99,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [allClients, setAllClients] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [eventType, setEventType] = useState('task'); // 'task' | 'meeting' | 'followup'
+  const [eventType, setEventType] = useState('task'); // 'task' | 'meeting' | 'social' | 'followup'
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskDueTime, setNewTaskDueTime] = useState('');
@@ -108,7 +108,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [newTaskPriority, setNewTaskPriority] = useState('Normal'); // 'Normal' | 'High' | 'Urgent'
   const [newTaskChannel, setNewTaskChannel] = useState('WhatsApp'); // 'WhatsApp' | 'Phone Call' | 'Email' | 'Coffee' | 'Office' | 'In-Person'
   const [newTaskLogTouchpoint, setNewTaskLogTouchpoint] = useState(true);
-  const [taskFilterType, setTaskFilterType] = useState('all'); // 'all' | 'task' | 'meeting' | 'followup'
+  const [taskFilterType, setTaskFilterType] = useState('all'); // 'all' | 'task' | 'meeting' | 'social' | 'followup'
   const [remarksText, setRemarksText] = useState(client.notes || '');
   const [isSavingRemarks, setIsSavingRemarks] = useState(false);
   const [aiInsights, setAiInsights] = useState('');
@@ -218,6 +218,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     policyNumber: '',
     provider: 'AIA',
     policyType: 'Life',
+    ilpSubtype: 'coverage', // 'coverage' | 'pure_investment'
+    currentFundValue: '',
+    cashValue: '',
+    investmentHorizonYears: '',
+    fundStrategy: '',
+    projectedReturnRate: '6.0',
     status: 'In Force',
     insuredType: 'Self', // 'Self' | 'Dependent'
     insuredPersonId: '',
@@ -395,11 +401,11 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         description: newTaskText.trim(),
         dueDate: newTaskDueDate || null,
         dueTime: newTaskDueTime || null,
-        dueEndTime: eventType === 'meeting' ? (newTaskDueEndTime || null) : null,
+        dueEndTime: (eventType === 'meeting' || eventType === 'social') ? (newTaskDueEndTime || null) : null,
         location: newTaskLocation.trim() || '',
         priority: eventType === 'task' ? newTaskPriority : 'Normal',
-        channel: eventType === 'followup' ? newTaskChannel : null,
-        logTouchpointOnComplete: eventType === 'followup' ? newTaskLogTouchpoint : false
+        channel: eventType === 'social' ? 'Coffee / Social' : (eventType === 'followup' ? newTaskChannel : null),
+        logTouchpointOnComplete: (eventType === 'followup' || eventType === 'social' || eventType === 'meeting') ? newTaskLogTouchpoint : false
       });
       if (res.success) {
         setNewTaskText('');
@@ -551,6 +557,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
       insuredRelationship: policy.insuredRelationship || (policy.insuredType === 'Dependent' ? 'Child' : 'Self'),
       insuredDob: policy.insuredDob || '',
       insuredGender: policy.insuredGender || '',
+      ilpSubtype: policy.ilpSubtype || 'coverage',
+      currentFundValue: policy.currentFundValue !== undefined ? policy.currentFundValue : '',
+      cashValue: policy.cashValue !== undefined ? policy.cashValue : '',
+      investmentHorizonYears: policy.investmentHorizonYears !== undefined ? policy.investmentHorizonYears : '',
+      fundStrategy: policy.fundStrategy !== undefined ? policy.fundStrategy : '',
+      projectedReturnRate: policy.projectedReturnRate !== undefined ? policy.projectedReturnRate : '6.0',
       remarks: policy.remarks !== undefined ? policy.remarks : (policy.notes || ''),
       notes: policy.remarks !== undefined ? policy.remarks : (policy.notes || ''),
       medisavePremium: policy.medisavePremium !== undefined ? policy.medisavePremium : '',
@@ -600,6 +612,19 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         updatedPolicyData.insuredPersonId = matchDep.id;
         if (!updatedPolicyData.insuredDob && matchDep.dob) updatedPolicyData.insuredDob = matchDep.dob;
         if (!updatedPolicyData.insuredGender && matchDep.gender) updatedPolicyData.insuredGender = matchDep.gender;
+      }
+    }
+
+    // Clean up ILP-specific data
+    if (updatedPolicyData.policyType === 'ILP') {
+      if (updatedPolicyData.ilpSubtype === 'pure_investment') {
+        updatedPolicyData.coverages = {}; // Clear coverage numbers for pure investments
+        updatedPolicyData.currentFundValue = updatedPolicyData.currentFundValue !== '' ? Number(updatedPolicyData.currentFundValue) : 0;
+        updatedPolicyData.projectedReturnRate = updatedPolicyData.projectedReturnRate !== '' ? Number(updatedPolicyData.projectedReturnRate) : 6.0;
+      } else {
+        if (updatedPolicyData.cashValue !== undefined && updatedPolicyData.cashValue !== '') {
+          updatedPolicyData.cashValue = Number(updatedPolicyData.cashValue);
+        }
       }
     }
 
@@ -1191,8 +1216,10 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   // Helper renderer for Tasks Card
   // Helper renderer for Tasks, Meetings & Follow-ups Card
   const renderTasksCard = () => {
-    const tasksCount = tasks.filter(t => (t.type || 'task') === 'task').length;
+    const tasksCount = tasks.filter(t => !t.type || t.type === 'task').length;
+    const pendingTasksCount = tasks.filter(t => (!t.type || t.type === 'task') && t.status !== 'Completed').length;
     const meetingsCount = tasks.filter(t => t.type === 'meeting').length;
+    const socialCount = tasks.filter(t => t.type === 'social').length;
     const followupsCount = tasks.filter(t => t.type === 'followup').length;
 
     const filteredTasks = tasks.filter(t => {
@@ -1216,6 +1243,16 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               color: '#c084fc'
             }}>
               {meetingsCount} Meetings
+            </span>
+            <span style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              padding: '2px 8px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(251, 146, 60, 0.15)',
+              color: '#fb923c'
+            }}>
+              {socialCount} Social
             </span>
             <span style={{
               fontSize: '11px',
@@ -1254,12 +1291,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '6px',
-                  padding: '7px 10px',
+                  gap: '5px',
+                  padding: '7px 8px',
                   borderRadius: '7px',
                   border: 'none',
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '11.5px',
                   fontWeight: eventType === 'task' ? '600' : '500',
                   backgroundColor: eventType === 'task' ? 'var(--accent-primary)' : 'transparent',
                   color: eventType === 'task' ? '#ffffff' : 'var(--text-secondary)',
@@ -1276,19 +1313,41 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '6px',
-                  padding: '7px 10px',
+                  gap: '5px',
+                  padding: '7px 8px',
                   borderRadius: '7px',
                   border: 'none',
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '11.5px',
                   fontWeight: eventType === 'meeting' ? '600' : '500',
                   backgroundColor: eventType === 'meeting' ? '#8b5cf6' : 'transparent',
                   color: eventType === 'meeting' ? '#ffffff' : 'var(--text-secondary)',
                   transition: 'all 0.15s ease'
                 }}
               >
-                <CalendarDays size={13} /> Meeting
+                <CalendarDays size={13} /> Formal Meeting
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventType('social')}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '5px',
+                  padding: '7px 8px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '11.5px',
+                  fontWeight: eventType === 'social' ? '600' : '500',
+                  backgroundColor: eventType === 'social' ? '#fb923c' : 'transparent',
+                  color: eventType === 'social' ? '#ffffff' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Coffee size={13} /> Social Catch-Up
               </button>
               <button
                 type="button"
@@ -1298,12 +1357,12 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '6px',
-                  padding: '7px 10px',
+                  gap: '5px',
+                  padding: '7px 8px',
                   borderRadius: '7px',
                   border: 'none',
                   cursor: 'pointer',
-                  fontSize: '12px',
+                  fontSize: '11.5px',
                   fontWeight: eventType === 'followup' ? '600' : '500',
                   backgroundColor: eventType === 'followup' ? '#06b6d4' : 'transparent',
                   color: eventType === 'followup' ? '#ffffff' : 'var(--text-secondary)',
@@ -1321,7 +1380,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '11.5px', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                    {eventType === 'meeting' ? 'Meeting Agenda / Subject' : (eventType === 'followup' ? 'Follow-up Topic / Context' : 'Action Item Description')}
+                    {eventType === 'social' ? 'Catch-Up Description' : (eventType === 'meeting' ? 'Meeting Agenda / Subject' : (eventType === 'followup' ? 'Follow-up Topic / Context' : 'Action Item Description'))}
                   </span>
                 </div>
                 <input 
@@ -1329,11 +1388,13 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   className="input-field" 
                   style={{ width: '100%', padding: '8px 12px', fontSize: '13px' }} 
                   placeholder={
-                    eventType === 'meeting' 
-                      ? "e.g. Annual Policy Portfolio Review & Needs Analysis..." 
-                      : (eventType === 'followup' 
-                          ? "e.g. Check on post-surgery claim reimbursement & recovery..." 
-                          : "e.g. Prepare Term vs Whole Life comparison illustration...")
+                    eventType === 'social'
+                      ? "e.g. Catch-up over coffee, lunch, or festive visit..."
+                      : (eventType === 'meeting' 
+                          ? "e.g. Annual Policy Portfolio Review & Needs Analysis..." 
+                          : (eventType === 'followup' 
+                              ? "e.g. Check on post-surgery claim reimbursement & recovery..." 
+                              : "e.g. Prepare Term vs Whole Life comparison illustration..."))
                   }
                   value={newTaskText}
                   onChange={(e) => setNewTaskText(e.target.value)}
@@ -1342,6 +1403,32 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 
                 {/* Quick Subject Presets */}
                 <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  {eventType === 'social' && [
+                    'Coffee Catch-Up',
+                    'Catch-up over Lunch',
+                    'Catch-up over Dinner',
+                    'Festive Gift / Mooncake Delivery',
+                    'Casual Check-in & Chat',
+                    'Walk & Talk'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNewTaskText(preset)}
+                      style={{
+                        fontSize: '10.5px',
+                        padding: '2px 7px',
+                        backgroundColor: 'rgba(251, 146, 60, 0.08)',
+                        border: '1px solid rgba(251, 146, 60, 0.25)',
+                        color: '#fb923c',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+
                   {eventType === 'meeting' && [
                     'Annual Policy Review',
                     'Initial Fact-Find & FNA',
@@ -1576,6 +1663,115 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 </div>
               )}
 
+              {eventType === 'social' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(251, 146, 60, 0.04)', borderRadius: '8px', border: '1px solid rgba(251, 146, 60, 0.25)' }}>
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#fb923c', marginBottom: '5px', fontWeight: '500' }}>
+                      <Coffee size={12} /> Catch-Up Date
+                    </label>
+                    <DatePicker 
+                      style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}
+                      placeholder="Select catch-up date..."
+                      value={newTaskDueDate}
+                      onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
+                        <Clock size={12} color="var(--text-muted)" /> Start Time
+                      </label>
+                      <input 
+                        type="time" 
+                        className="input-field" 
+                        style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                        value={newTaskDueTime}
+                        onChange={(e) => setNewTaskDueTime(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '500' }}>
+                        <Clock size={12} color="var(--text-muted)" /> End Time
+                      </label>
+                      <input 
+                        type="time" 
+                        className="input-field" 
+                        style={{ width: '100%', padding: '6px 8px', fontSize: '12px', color: 'var(--text-primary)' }}
+                        value={newTaskDueEndTime}
+                        onChange={(e) => setNewTaskDueEndTime(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Duration Buttons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Duration:</span>
+                    {[30, 45, 60, 90, 120].map(mins => (
+                      <button
+                        key={mins}
+                        type="button"
+                        onClick={() => handleSetMeetingDuration(mins)}
+                        style={{
+                          fontSize: '10.5px',
+                          padding: '2px 7px',
+                          backgroundColor: 'rgba(251, 146, 60, 0.08)',
+                          border: '1px solid rgba(251, 146, 60, 0.25)',
+                          borderRadius: '4px',
+                          color: '#fb923c',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        +{mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
+                      <MapPin size={12} color="var(--text-muted)" /> Catch-Up Venue / Location
+                    </label>
+                    <AddressAutocomplete 
+                      value={newTaskLocation}
+                      onChange={(e) => setNewTaskLocation(e.target.value)}
+                      placeholder="Search cafe, restaurant, client residence, or park..."
+                      style={{ padding: '7px 12px 7px 34px', fontSize: '12px' }}
+                    />
+                    {/* Quick Social Venue Presets */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      {['Cafe / Coffee Shop', 'Restaurant / Dining', "Client's Residence", "Client's Workplace", 'Outdoor / Park'].map(v => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setNewTaskLocation(v)}
+                          style={{
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            backgroundColor: 'rgba(251, 146, 60, 0.06)',
+                            border: '1px solid rgba(251, 146, 60, 0.2)',
+                            borderRadius: '4px',
+                            color: '#fb923c',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                    <input 
+                      type="checkbox"
+                      checked={newTaskLogTouchpoint}
+                      onChange={(e) => setNewTaskLogTouchpoint(e.target.checked)}
+                      style={{ accentColor: '#fb923c' }}
+                    />
+                    <span>Automatically log into Client Touchpoint Timeline when marked complete</span>
+                  </label>
+                </div>
+              )}
+
               {eventType === 'followup' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(6, 182, 212, 0.03)', borderRadius: '8px', border: '1px solid rgba(6, 182, 212, 0.2)' }}>
                   <div>
@@ -1640,7 +1836,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   alignItems: 'center', 
                   justifyContent: 'center', 
                   gap: '6px',
-                  backgroundColor: eventType === 'meeting' ? '#8b5cf6' : (eventType === 'followup' ? '#06b6d4' : 'var(--accent-primary)'),
+                  backgroundColor: eventType === 'social' ? '#fb923c' : (eventType === 'meeting' ? '#8b5cf6' : (eventType === 'followup' ? '#06b6d4' : 'var(--accent-primary)')),
                   color: '#ffffff',
                   fontWeight: '600',
                   borderRadius: '8px',
@@ -1648,8 +1844,8 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   cursor: 'pointer'
                 }}
               >
-                <Plus size={15} /> 
-                {eventType === 'meeting' ? 'Schedule Meeting' : (eventType === 'followup' ? 'Add Follow-up' : 'Add Task')}
+                {eventType === 'social' ? <Coffee size={15} /> : <Plus size={15} />} 
+                {eventType === 'social' ? 'Schedule Social Catch-Up' : (eventType === 'meeting' ? 'Schedule Meeting' : (eventType === 'followup' ? 'Add Follow-up' : 'Add Task'))}
               </button>
             </form>
           </div>
@@ -1667,6 +1863,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   { key: 'all', label: 'All' },
                   { key: 'task', label: 'Tasks' },
                   { key: 'meeting', label: 'Meetings' },
+                  { key: 'social', label: 'Social' },
                   { key: 'followup', label: 'Follow-ups' }
                 ].map(tab => (
                   <button
@@ -1694,13 +1891,13 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto', paddingRight: '4px' }}>
               {filteredTasks.length === 0 ? (
                 <div style={{ color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center', padding: '36px 0', border: '1px dashed var(--border-light)', borderRadius: '8px' }}>
-                  No {taskFilterType === 'all' ? 'active tasks, meetings, or follow-ups' : taskFilterType} scheduled
+                  No {taskFilterType === 'all' ? 'active tasks, meetings, or catch-ups' : taskFilterType} scheduled
                 </div>
               ) : (
                 filteredTasks.map(task => {
                   const tType = task.type || 'task';
                   const isCompleted = task.status === 'Completed';
-                  const borderCol = tType === 'meeting' ? '#8b5cf6' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)')));
+                  const borderCol = tType === 'social' ? '#fb923c' : (tType === 'meeting' ? '#8b5cf6' : (tType === 'followup' ? '#06b6d4' : (task.priority === 'Urgent' ? '#ef4444' : (task.priority === 'High' ? '#f59e0b' : 'var(--accent-primary)'))));
 
                   return (
                     <div 
@@ -1726,6 +1923,11 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                       <div style={{ flex: 1, fontSize: '13px', color: isCompleted ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: isCompleted ? 'line-through' : 'none', wordBreak: 'break-word' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '3px' }}>
                           {/* Type Pill */}
+                          {tType === 'social' && (
+                            <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(251, 146, 60, 0.15)', color: '#fb923c', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <Coffee size={10} /> Social Catch-Up
+                            </span>
+                          )}
                           {tType === 'meeting' && (
                             <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                               <CalendarDays size={10} /> Meeting
@@ -1811,14 +2013,15 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     );
   };
 
-  // Helper renderer for Policy Portfolio Card
   const renderPolicyPortfolioCard = () => {
     const selfPolicies = policies.filter(p => !p.insuredType || p.insuredType === 'Self');
     const depPolicies = policies.filter(p => p.insuredType === 'Dependent');
+    const pureIlpPolicies = policies.filter(p => p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment');
     const filteredPolicies = policies.filter(p => {
       if (policyInsuredFilter === 'all') return true;
       if (policyInsuredFilter === 'self') return !p.insuredType || p.insuredType === 'Self';
       if (policyInsuredFilter === 'dependents') return p.insuredType === 'Dependent';
+      if (policyInsuredFilter === 'pure_ilp') return p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment';
       return p.insuredPersonId === policyInsuredFilter || (p.insuredType === 'Dependent' && p.insuredName?.toLowerCase() === (currentClient.dependents || []).find(d => d.id === policyInsuredFilter)?.fullName?.toLowerCase());
     });
 
@@ -1949,6 +2152,27 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               >
                 <Baby size={12} /> All Dependents ({depPolicies.length})
               </button>
+              {pureIlpPolicies.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPolicyInsuredFilter('pure_ilp')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '20px',
+                    fontSize: '11px',
+                    border: policyInsuredFilter === 'pure_ilp' ? '1px solid #10b981' : '1px solid var(--border-light)',
+                    backgroundColor: policyInsuredFilter === 'pure_ilp' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.03)',
+                    color: policyInsuredFilter === 'pure_ilp' ? '#34d399' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    fontWeight: policyInsuredFilter === 'pure_ilp' ? '600' : 'normal',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <TrendingUp size={12} /> Pure ILPs ({pureIlpPolicies.length})
+                </button>
+              )}
               {(currentClient.dependents || []).map(dep => {
                 const count = policies.filter(p => p.insuredPersonId === dep.id || (p.insuredType === 'Dependent' && p.insuredName?.toLowerCase() === dep.fullName?.toLowerCase())).length;
                 return (
@@ -2052,7 +2276,13 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                               color: 'var(--text-secondary)',
                               fontWeight: '500'
                             }}>
-                              {policy.policyType}
+                              {policy.policyType === 'ILP' ? (
+                                policy.ilpSubtype === 'pure_investment' ? (
+                                  <span style={{ color: '#34d399', fontWeight: '600' }}>📈 Pure ILP</span>
+                                ) : (
+                                  <span style={{ color: '#60a5fa', fontWeight: '600' }}>🛡️ ILP</span>
+                                )
+                              ) : policy.policyType}
                             </span>
                           </td>
                           <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
@@ -2081,7 +2311,21 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                             )}
                           </td>
                           <td style={{ padding: '12px 16px' }}>
-                            {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
+                            {policy.policyType === 'ILP' && policy.ilpSubtype === 'pure_investment' ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontSize: '11px', color: '#34d399', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <TrendingUp size={11} /> Fund: {formatCurrency(policy.currentFundValue || 0)}
+                                </span>
+                                {policy.fundStrategy && (
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={policy.fundStrategy}>
+                                    {policy.fundStrategy}
+                                  </span>
+                                )}
+                                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                  101% NAV Death Benefit {policy.investmentHorizonYears ? `• ${policy.investmentHorizonYears} MIP` : ''}
+                                </span>
+                              </div>
+                            ) : (!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
                               <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>-</span>
                             ) : (
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
@@ -2093,6 +2337,11 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                                     </span>
                                   );
                                 })}
+                                {policy.policyType === 'ILP' && policy.cashValue && (
+                                  <span style={{ fontSize: '10.5px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa' }}>
+                                    Cash Value: <strong>{formatCurrency(policy.cashValue)}</strong>
+                                  </span>
+                                )}
                               </div>
                             )}
                           </td>
@@ -2147,7 +2396,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                               textTransform: 'uppercase',
                               letterSpacing: '0.5px'
                             }}>
-                              {policy.provider} • {policy.policyType}
+                              {policy.provider} • {policy.policyType === 'ILP' ? (policy.ilpSubtype === 'pure_investment' ? '📈 Pure ILP (Investment)' : '🛡️ ILP (Coverage)') : policy.policyType}
                             </span>
                             {policy.insuredType === 'Dependent' ? (
                               <span style={{ 
@@ -2208,7 +2457,9 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                       <div style={{ marginTop: '4px', padding: '12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>Premium</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                              {policy.policyType === 'ILP' && policy.ilpSubtype === 'pure_investment' ? 'Investment Outlay' : 'Premium'}
+                            </div>
                             <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '500' }}>
                               {formatCurrency(policy.premiumAmount)} <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>{getFreqLabel(policy.premiumFrequency)}</span>
                             </div>
@@ -2226,24 +2477,57 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                           </div>
                         </div>
                         
-                        <div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>Coverages</div>
-                          {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
-                            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>None listed</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              {Object.entries(policy.coverages).map(([covType, amt]) => {
-                                if (!amt) return null;
-                                return (
-                                  <div key={covType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>{covType}</span>
-                                    <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(amt)}</span>
-                                  </div>
-                                );
-                              })}
+                        {policy.policyType === 'ILP' && policy.ilpSubtype === 'pure_investment' ? (
+                          <div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Investment Portfolio Details</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px 12px', backgroundColor: 'rgba(16, 185, 129, 0.05)', borderRadius: '6px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Current Valuation (NAV):</span>
+                                <span style={{ color: '#34d399', fontWeight: '700' }}>{formatCurrency(policy.currentFundValue || 0)}</span>
+                              </div>
+                              {policy.fundStrategy && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>Strategy:</span>
+                                  <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{policy.fundStrategy}</span>
+                                </div>
+                              )}
+                              {policy.investmentHorizonYears && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>Horizon (MIP):</span>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{policy.investmentHorizonYears}</span>
+                                </div>
+                              )}
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', fontStyle: 'italic' }}>
+                                🛡️ Nominal Death Benefit (101% NAV) • Excluded from Protection Gap
+                              </div>
                             </div>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>Coverages</div>
+                            {(!policy.coverages || Object.keys(policy.coverages).length === 0) ? (
+                              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>None listed</div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                {Object.entries(policy.coverages).map(([covType, amt]) => {
+                                  if (!amt) return null;
+                                  return (
+                                    <div key={covType} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>{covType}</span>
+                                      <span style={{ color: 'var(--text-primary)', fontWeight: '500' }}>{formatCurrency(amt)}</span>
+                                    </div>
+                                  );
+                                })}
+                                {policy.policyType === 'ILP' && policy.cashValue && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', marginTop: '4px', padding: '6px 8px', backgroundColor: 'rgba(59, 130, 246, 0.08)', borderRadius: '4px' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Accumulated Cash Value:</span>
+                                    <span style={{ color: '#60a5fa', fontWeight: '600' }}>{formatCurrency(policy.cashValue)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {(policy.remarks || policy.notes) && (
                           <div style={{ marginTop: '10px', padding: '8px 10px', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: '2px solid var(--accent-primary)', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
@@ -3282,6 +3566,151 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   </select>
                 </div>
               </div>
+
+              {/* ILP Structure Selector: With Coverage vs Pure Investment */}
+              {policyData.policyType === 'ILP' && (
+                <div style={{ marginBottom: '18px', padding: '14px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label className="input-label" style={{ fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>
+                      ILP Structure Classification *
+                    </label>
+                    <span style={{ fontSize: '11px', color: policyData.ilpSubtype === 'pure_investment' ? '#34d399' : '#60a5fa', fontWeight: '600' }}>
+                      {policyData.ilpSubtype === 'pure_investment' ? '📈 100% Wealth Accumulation' : '🛡️ Protection + Investment'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setPolicyData({ ...policyData, ilpSubtype: 'coverage' })}
+                      style={{
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: policyData.ilpSubtype !== 'pure_investment' ? '1px solid var(--accent-primary)' : '1px solid var(--border-light)',
+                        backgroundColor: policyData.ilpSubtype !== 'pure_investment' ? 'rgba(59, 130, 246, 0.18)' : 'rgba(255,255,255,0.02)',
+                        color: policyData.ilpSubtype !== 'pure_investment' ? '#60a5fa' : 'var(--text-secondary)',
+                        fontWeight: policyData.ilpSubtype !== 'pure_investment' ? '600' : 'normal',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      🛡️ + 📈 ILP with Coverage
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPolicyData({ ...policyData, ilpSubtype: 'pure_investment' })}
+                      style={{
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: policyData.ilpSubtype === 'pure_investment' ? '1px solid #10b981' : '1px solid var(--border-light)',
+                        backgroundColor: policyData.ilpSubtype === 'pure_investment' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(255,255,255,0.02)',
+                        color: policyData.ilpSubtype === 'pure_investment' ? '#34d399' : 'var(--text-secondary)',
+                        fontWeight: policyData.ilpSubtype === 'pure_investment' ? '600' : 'normal',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      📈 Pure ILP (Investment Only)
+                    </button>
+                  </div>
+
+                  {policyData.ilpSubtype === 'pure_investment' ? (
+                    <div style={{ fontSize: '11px', color: '#34d399', lineHeight: '1.4' }}>
+                      💡 <strong>Pure Investment ILP:</strong> Dedicated to wealth accumulation. Carries a nominal death benefit (101% NAV) and is <strong>strictly excluded</strong> from personal life/CI income-replacement protection gap benchmarks. Valuation syncs directly with Invested Assets & Retirement Planning.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: '#60a5fa', lineHeight: '1.4' }}>
+                      💡 <strong>ILP with Coverage:</strong> Hybrid policy offering substantive Death, TPD, and CI sum assured protection riders funded via unit deductions. Sums assured contribute directly to the Protection Gap Matrix.
+                    </div>
+                  )}
+
+                  {/* Pure ILP Dedicated Portfolio Inputs */}
+                  {policyData.ilpSubtype === 'pure_investment' && (
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Current Account Value / NAV ($) *</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              min="0" 
+                              name="currentFundValue" 
+                              className="input-field" 
+                              style={{ width: '100%', paddingLeft: '24px' }} 
+                              placeholder="e.g. 50000.00" 
+                              value={policyData.currentFundValue} 
+                              onChange={handlePolicyInputChange} 
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Minimum Investment Period (MIP)</label>
+                          <select 
+                            name="investmentHorizonYears" 
+                            className="input-field" 
+                            style={{ width: '100%' }} 
+                            value={policyData.investmentHorizonYears} 
+                            onChange={handlePolicyInputChange}
+                          >
+                            <option value="">-- Select Lock-in Period --</option>
+                            <option value="5 Years">5 Years</option>
+                            <option value="10 Years">10 Years</option>
+                            <option value="15 Years">15 Years</option>
+                            <option value="20 Years">20 Years</option>
+                            <option value="25 Years">25 Years</option>
+                            <option value="30 Years">30 Years</option>
+                            <option value="Open-Ended / Flexible">Open-Ended / Flexible</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Underlying Funds / Portfolio Strategy</label>
+                          <input 
+                            type="text" 
+                            name="fundStrategy" 
+                            className="input-field" 
+                            style={{ width: '100%' }} 
+                            placeholder="e.g. US Tech & S&P 500, Global Dividend, Balanced" 
+                            value={policyData.fundStrategy} 
+                            onChange={handlePolicyInputChange} 
+                          />
+                        </div>
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Projected Return (% p.a.)</label>
+                          <div style={{ position: 'relative' }}>
+                            <input 
+                              type="number" 
+                              step="0.1" 
+                              min="0" 
+                              name="projectedReturnRate" 
+                              className="input-field" 
+                              style={{ width: '100%', paddingRight: '24px' }} 
+                              placeholder="6.0" 
+                              value={policyData.projectedReturnRate} 
+                              onChange={handlePolicyInputChange} 
+                            />
+                            <span style={{ position: 'absolute', right: '10px', top: '10px', color: 'var(--text-muted)' }}>%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Policy Number</label>
@@ -3345,7 +3774,9 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>
-                    {policyData.policyType === 'Shield' ? 'Total Premium (Calculated)' : 'Premium Amount'}
+                    {policyData.policyType === 'ILP' && policyData.ilpSubtype === 'pure_investment' 
+                      ? 'Investment Contribution Outlay *' 
+                      : (policyData.policyType === 'Shield' ? 'Total Premium (Calculated)' : 'Premium Amount *')}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
@@ -3369,36 +3800,81 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                     <option value="Semi-Annually">Semi-Annually</option>
                     <option value="Quarterly">Quarterly</option>
                     <option value="Monthly">Monthly</option>
+                    <option value="Single Premium">Single Premium (Lump Sum)</option>
                   </select>
                 </div>
               </div>
-              <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
-                <h3 style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Policy Coverages</h3>
-                {expectedCoverages.length === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No specific coverages defined for this plan type.</div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    {expectedCoverages.map(coverageName => (
-                      <div key={coverageName}>
-                        <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>{coverageName}</label>
-                        <div style={{ position: 'relative' }}>
-                          <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
-                          <input 
-                            type="number" 
-                            step="0.01" 
-                            min="0"
-                            className="input-field" 
-                            style={{ width: '100%', paddingLeft: '24px' }} 
-                            placeholder="0.00"
-                            value={policyData.coverages[coverageName] || ''} 
-                            onChange={(e) => handleCoverageChange(coverageName, e.target.value)} 
-                          />
-                        </div>
-                      </div>
-                    ))}
+              {policyData.policyType === 'ILP' && policyData.ilpSubtype === 'pure_investment' ? (
+                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: 'rgba(16, 185, 129, 0.06)', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#10b981', fontWeight: 600, fontSize: '14px' }}>
+                    <TrendingUp size={16} />
+                    <span>Pure Investment Portfolio (Nominal 101% NAV Benefit)</span>
                   </div>
-                )}
-              </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '10px' }}>
+                    100% of outlays are directed toward fund accumulation. Mortality and morbidity riders (Death, TPD, Critical Illness) are intentionally excluded so investment capital does not falsely mask the client's personal income-protection insurance gaps.
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', fontSize: '12px' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Nominal In-Force Death Benefit (101% of NAV):</span>
+                    <strong style={{ color: '#10b981', fontFamily: 'monospace', fontSize: '13px' }}>
+                      ${(Number(policyData.currentFundValue || 0) * 1.01).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </strong>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>Policy Coverages</h3>
+                    {policyData.policyType === 'ILP' && (
+                      <span style={{ fontSize: '11px', color: 'var(--primary-color)', background: 'rgba(99, 102, 241, 0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                        Protection + Wealth ILP
+                      </span>
+                    )}
+                  </div>
+                  {expectedCoverages.length === 0 ? (
+                    <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No specific coverages defined for this plan type.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      {expectedCoverages.map(coverageName => (
+                        <div key={coverageName}>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>{coverageName}</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              min="0"
+                              className="input-field" 
+                              style={{ width: '100%', paddingLeft: '24px' }} 
+                              placeholder="0.00"
+                              value={policyData.coverages[coverageName] || ''} 
+                              onChange={(e) => handleCoverageChange(coverageName, e.target.value)} 
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      {policyData.policyType === 'ILP' && (
+                        <div>
+                          <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Accumulated Cash / Fund Value</label>
+                          <div style={{ position: 'relative' }}>
+                            <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              min="0"
+                              name="cashValue"
+                              className="input-field" 
+                              style={{ width: '100%', paddingLeft: '24px' }} 
+                              placeholder="0.00"
+                              value={policyData.cashValue || ''} 
+                              onChange={handlePolicyInputChange} 
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ marginBottom: '16px' }}>
                 <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Inception Date</label>
                 <DatePicker 
@@ -3640,6 +4116,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               {[
                 { type: 'task', label: 'Task / To-Do', icon: <CheckSquare size={12} />, color: 'var(--accent-primary)' },
                 { type: 'meeting', label: 'Meeting', icon: <CalendarDays size={12} />, color: '#8b5cf6' },
+                { type: 'social', label: '☕ Social', icon: <Coffee size={12} />, color: '#fb923c' },
                 { type: 'followup', label: 'Follow-up', icon: <Phone size={12} />, color: '#06b6d4' }
               ].map(t => (
                 <button
@@ -3670,7 +4147,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             <form onSubmit={handleSaveEditTask} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label" style={{ display: 'block', marginBottom: '5px' }}>
-                  {(editTaskForm.type || 'task') === 'meeting' ? 'Meeting Agenda / Title' : ((editTaskForm.type || 'task') === 'followup' ? 'Follow-up Topic / Notes' : 'Task Description')}
+                  {(editTaskForm.type || 'task') === 'social' ? 'Catch-Up Description / Subject' : ((editTaskForm.type || 'task') === 'meeting' ? 'Meeting Agenda / Title' : ((editTaskForm.type || 'task') === 'followup' ? 'Follow-up Topic / Notes' : 'Task Description'))}
                 </label>
                 <input 
                   type="text" 
@@ -3712,37 +4189,41 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                 </div>
               )}
 
-              {(editTaskForm.type || 'task') === 'followup' && (
+              {((editTaskForm.type || 'task') === 'followup' || (editTaskForm.type || 'task') === 'social') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '4px' }}>Communication Channel</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                    {['WhatsApp', 'Phone Call', 'Email', 'Coffee', 'In-Person'].map(ch => (
-                      <button
-                        key={ch}
-                        type="button"
-                        onClick={() => setEditTaskForm({ ...editTaskForm, channel: ch })}
-                        style={{
-                          padding: '5px 6px',
-                          borderRadius: '6px',
-                          fontSize: '11px',
-                          fontWeight: (editTaskForm.channel || 'WhatsApp') === ch ? '600' : '400',
-                          border: `1px solid ${(editTaskForm.channel || 'WhatsApp') === ch ? '#06b6d4' : 'var(--border-light)'}`,
-                          backgroundColor: (editTaskForm.channel || 'WhatsApp') === ch ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                          color: (editTaskForm.channel || 'WhatsApp') === ch ? '#38bdf8' : 'var(--text-muted)',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {ch}
-                      </button>
-                    ))}
-                  </div>
+                  {(editTaskForm.type || 'task') === 'followup' && (
+                    <>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '4px' }}>Communication Channel</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                        {['WhatsApp', 'Phone Call', 'Email', 'Coffee', 'In-Person'].map(ch => (
+                          <button
+                            key={ch}
+                            type="button"
+                            onClick={() => setEditTaskForm({ ...editTaskForm, channel: ch })}
+                            style={{
+                              padding: '5px 6px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: (editTaskForm.channel || 'WhatsApp') === ch ? '600' : '400',
+                              border: `1px solid ${(editTaskForm.channel || 'WhatsApp') === ch ? '#06b6d4' : 'var(--border-light)'}`,
+                              backgroundColor: (editTaskForm.channel || 'WhatsApp') === ch ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                              color: (editTaskForm.channel || 'WhatsApp') === ch ? '#38bdf8' : 'var(--text-muted)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {ch}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '11.5px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                     <input 
                       type="checkbox"
                       checked={!!editTaskForm.logTouchpointOnComplete}
                       onChange={(e) => setEditTaskForm({ ...editTaskForm, logTouchpointOnComplete: e.target.checked })}
-                      style={{ accentColor: '#06b6d4' }}
+                      style={{ accentColor: (editTaskForm.type || 'task') === 'social' ? '#fb923c' : '#06b6d4' }}
                     />
                     <span>Log to Client Touchpoint History when completed</span>
                   </label>
@@ -3753,7 +4234,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px', backgroundColor: 'rgba(255, 255, 255, 0.02)', borderRadius: '10px', border: '1px solid var(--border-light)' }}>
                 <div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '5px', fontWeight: '500' }}>
-                    <Calendar size={13} color="var(--text-muted)" /> {(editTaskForm.type || 'task') === 'meeting' ? 'Meeting Date' : ((editTaskForm.type || 'task') === 'task' ? 'Deadline (Due Date)' : 'Target Follow-up Date')}
+                    <Calendar size={13} color="var(--text-muted)" /> {(editTaskForm.type || 'task') === 'social' ? 'Catch-Up Date' : ((editTaskForm.type || 'task') === 'meeting' ? 'Meeting Date' : ((editTaskForm.type || 'task') === 'task' ? 'Deadline (Due Date)' : 'Target Follow-up Date'))}
                   </label>
                   <DatePicker 
                     style={{ width: '100%', padding: '6px 10px', fontSize: '12px' }}

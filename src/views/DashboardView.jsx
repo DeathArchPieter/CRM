@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, 
   AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar, 
   Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle,
-  Bell, ChevronDown, ChevronUp, Check
+  Bell, ChevronDown, ChevronUp, Check, Target, Flame, Coffee, Briefcase, MapPin, Edit3, X
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
@@ -52,6 +52,37 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const [loading, setLoading] = useState(true);
   const [activeDashboardSnoozeId, setActiveDashboardSnoozeId] = useState(null);
   const [isActionCenterCollapsed, setIsActionCenterCollapsed] = useState(false);
+
+  // Weekly Activity Pacemaker state (Target pace default: 15)
+  const [paceTarget, setPaceTarget] = useState(() => {
+    try {
+      const saved = localStorage.getItem('crm_weekly_meeting_pace_target');
+      return saved ? Math.max(1, parseInt(saved, 10)) : 15;
+    } catch (e) {
+      return 15;
+    }
+  });
+  const [isEditingPaceTarget, setIsEditingPaceTarget] = useState(false);
+  const [tempPaceTarget, setTempPaceTarget] = useState(15);
+  const [paceTimeframe, setPaceTimeframe] = useState('following'); // 'following' | 'next-7' | 'current'
+  const [selectedPaceDay, setSelectedPaceDay] = useState(null); // null = all days in range
+  const [isPacemakerExpanded, setIsPacemakerExpanded] = useState(false);
+  const [aiReconciliation, setAiReconciliation] = useState(null); // { weekKey, items, archieInsight, isAiVerified }
+  const [isAiReconciling, setIsAiReconciling] = useState(false);
+
+  // Quick Arrange Meeting Modal state
+  const [isAddMeetingModalOpen, setIsAddMeetingModalOpen] = useState(false);
+  const [meetingForm, setMeetingForm] = useState({
+    title: '',
+    category: 'social', // 'social' | 'client' | 'prospect' | 'networking' | 'meeting'
+    clientId: '',
+    date: '',
+    startTime: '10:00',
+    endTime: '11:00',
+    location: '',
+    channel: 'Coffee'
+  });
+  const [isSubmittingMeeting, setIsSubmittingMeeting] = useState(false);
 
   const todayDateStr = useMemo(() => {
     const d = new Date();
@@ -112,10 +143,12 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         setGoogleSettings(gsRes.data);
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        // Extend timeMax to 21 days so the following week is completely fetched
+        const rangeEnd = new Date();
+        rangeEnd.setDate(rangeEnd.getDate() + 21);
+        rangeEnd.setHours(23, 59, 59, 999);
         const timeMin = todayStart.toISOString();
-        const timeMax = todayEnd.toISOString();
+        const timeMax = rangeEnd.toISOString();
         
         const geRes = await window.electronAPI.getGoogleEvents({ timeMin, timeMax });
         if (geRes?.success) {
@@ -241,6 +274,673 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     return items;
   };
 
+  /* ── Weekly Activity Pacemaker Logic (Pace for 15 People to Meet) ── */
+  const weekRange = useMemo(() => {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
+    const distToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    
+    const currentMonday = new Date(now);
+    currentMonday.setDate(now.getDate() + distToMonday);
+    currentMonday.setHours(0, 0, 0, 0);
+
+    if (paceTimeframe === 'current') {
+      const start = new Date(currentMonday);
+      const end = new Date(currentMonday);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+      return { 
+        start, 
+        end, 
+        label: `This Week (${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+        shortLabel: 'This Week'
+      };
+    } else if (paceTimeframe === 'next-7') {
+      const start = new Date(now);
+      start.setDate(now.getDate() + 1); // Tomorrow
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(now);
+      end.setDate(now.getDate() + 7);
+      end.setHours(23, 59, 59, 999);
+      return { 
+        start, 
+        end, 
+        label: `Next 7 Days (${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+        shortLabel: 'Next 7 Days'
+      };
+    } else {
+      // 'following' (default)
+      const start = new Date(currentMonday);
+      start.setDate(start.getDate() + 7); // Next Monday
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6); // Next Sunday
+      end.setHours(23, 59, 59, 999);
+      return { 
+        start, 
+        end, 
+        label: `Following Week (${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`,
+        shortLabel: 'Following Week'
+      };
+    }
+  }, [paceTimeframe]);
+
+  // ── Smart Algorithmic + AI Hybrid Reconciliation Engine ──
+  const pacemakerData = useMemo(() => {
+    const { start, end } = weekRange;
+    const startTime = start.getTime();
+    const endTime = end.getTime();
+
+    // 1. Collect candidate Google Events in range
+    const rawGoogleEvents = [];
+    googleEvents.forEach(e => {
+      const eventStart = e.start?.dateTime ? new Date(e.start.dateTime) : (e.start?.date ? new Date(e.start.date) : null);
+      if (!eventStart) return;
+      const eventTime = eventStart.getTime();
+      if (eventTime < startTime || eventTime > endTime) return;
+
+      const summaryLower = (e.summary || '').toLowerCase();
+      const isAllDay = !e.start?.dateTime;
+      if (isAllDay && (summaryLower.includes('holiday') || summaryLower.includes('leave') || summaryLower.includes('flight') || summaryLower.includes('birthday'))) {
+        return;
+      }
+
+      // Match client / prospect
+      const matchedClient = clients.find(c => {
+        if (!c.fullName) return false;
+        const fn = c.fullName.toLowerCase();
+        const pn = c.preferredName ? c.preferredName.toLowerCase() : '';
+        if (summaryLower.includes(fn)) return true;
+        if (pn && pn.length > 2 && summaryLower.includes(pn)) return true;
+        if (e.attendees && c.email) {
+          return e.attendees.some(a => a.email && a.email.toLowerCase() === c.email.toLowerCase());
+        }
+        return false;
+      });
+
+      const gYear = eventStart.getFullYear();
+      const gMonth = String(eventStart.getMonth() + 1).padStart(2, '0');
+      const gDay = String(eventStart.getDate()).padStart(2, '0');
+      const gDateStr = e.start?.date || `${gYear}-${gMonth}-${gDay}`;
+
+      rawGoogleEvents.push({
+        id: `google-${e.id}`,
+        rawId: e.id,
+        source: 'google',
+        title: e.summary || '(No Title)',
+        description: e.description || '',
+        date: eventStart,
+        dateStr: gDateStr,
+        timeStr: e.start?.dateTime ? eventStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : 'All Day',
+        rawTimeMinutes: e.start?.dateTime ? (eventStart.getHours() * 60 + eventStart.getMinutes()) : null,
+        location: e.location || '',
+        attendees: e.attendees || [],
+        client: matchedClient || null,
+        originalData: e
+      });
+    });
+
+    // 2. Collect candidate CRM Tasks in range
+    const rawCrmTasks = [];
+    calendarTasks.forEach(t => {
+      if (!t.dueDate) return;
+      const taskDate = new Date(`${t.dueDate}T${t.dueTime || '12:00'}:00`);
+      const taskTime = taskDate.getTime();
+      if (taskTime < startTime || taskTime > endTime) return;
+
+      let taskMinutes = null;
+      if (t.dueTime && t.dueTime.includes(':')) {
+        const [h, m] = t.dueTime.split(':').map(Number);
+        taskMinutes = h * 60 + (m || 0);
+      }
+
+      const matchedClient = clients.find(c => c.id === t.clientId);
+
+      rawCrmTasks.push({
+        id: `task-${t.id}`,
+        rawId: t.id,
+        googleEventId: t.googleEventId || null,
+        source: 'crm',
+        type: t.type || 'task',
+        title: t.description || 'CRM Meeting',
+        description: '',
+        date: taskDate,
+        dateStr: t.dueDate,
+        timeStr: t.dueTime || 'Scheduled',
+        rawTimeMinutes: taskMinutes,
+        location: t.location || '',
+        client: matchedClient || null,
+        originalData: t
+      });
+    });
+
+    // 3. Smart De-duplication across Google Events & CRM Tasks
+    const mergedList = [];
+    const consumedGoogleIds = new Set();
+    const consumedTaskIds = new Set();
+
+    // Pass 3a: Explicit googleEventId sync link
+    rawCrmTasks.forEach(task => {
+      if (task.googleEventId) {
+        const matchedG = rawGoogleEvents.find(g => g.rawId === task.googleEventId);
+        if (matchedG) {
+          consumedGoogleIds.add(matchedG.id);
+          consumedTaskIds.add(task.id);
+          mergedList.push({
+            ...task,
+            id: `merged-${task.rawId}-${matchedG.rawId}`,
+            title: task.title.length > matchedG.title.length ? task.title : matchedG.title,
+            location: task.location || matchedG.location,
+            client: task.client || matchedG.client,
+            isMerged: true,
+            mergedSources: ['google', 'crm']
+          });
+        }
+      }
+    });
+
+    // Pass 3b: Fuzzy time + client/name matching on same date
+    rawCrmTasks.forEach(task => {
+      if (consumedTaskIds.has(task.id)) return;
+      const taskTitleLower = task.title.toLowerCase();
+      const clientNameLower = task.client?.fullName?.toLowerCase() || '';
+      const clientPrefLower = task.client?.preferredName?.toLowerCase() || '';
+
+      const matchedG = rawGoogleEvents.find(g => {
+        if (consumedGoogleIds.has(g.id)) return false;
+        if (g.dateStr !== task.dateStr) return false;
+
+        // Check time proximity (within 45 minutes)
+        if (task.rawTimeMinutes !== null && g.rawTimeMinutes !== null) {
+          if (Math.abs(task.rawTimeMinutes - g.rawTimeMinutes) > 45) return false;
+        }
+
+        const gTitleLower = g.title.toLowerCase();
+
+        // Match if client is identical
+        if (task.client && g.client && task.client.id === g.client.id) return true;
+
+        // Match if client name appears in Google title
+        if (clientNameLower && gTitleLower.includes(clientNameLower)) return true;
+        if (clientPrefLower && clientPrefLower.length > 2 && gTitleLower.includes(clientPrefLower)) return true;
+
+        // Match if Google title appears in task title or vice versa
+        if (gTitleLower.length > 4 && taskTitleLower.includes(gTitleLower)) return true;
+        if (taskTitleLower.length > 4 && gTitleLower.includes(taskTitleLower)) return true;
+
+        // Match common name token in both (e.g. Jacelyn Lee, Steven, Janice)
+        const nameTokens = gTitleLower.split(/[\s,@-]+/).filter(t => t.length >= 3 && !['with', 'over', 'lunch', 'coffee', 'meeting', 'catch', 'breakfast', 'huddle', 'office', 'project', 'consultation'].includes(t));
+        for (const token of nameTokens) {
+          if (taskTitleLower.includes(token)) return true;
+        }
+
+        return false;
+      });
+
+      if (matchedG) {
+        consumedGoogleIds.add(matchedG.id);
+        consumedTaskIds.add(task.id);
+        const resolvedTitle = task.title.includes(matchedG.title) 
+          ? task.title 
+          : (task.client ? `${task.title} (${task.client.fullName})` : `${task.title} / ${matchedG.title}`);
+        mergedList.push({
+          ...task,
+          id: `merged-${task.rawId}-${matchedG.rawId}`,
+          title: resolvedTitle,
+          location: task.location || matchedG.location,
+          client: task.client || matchedG.client,
+          isMerged: true,
+          mergedSources: ['google', 'crm']
+        });
+      }
+    });
+
+    // Pass 3c: Add remaining un-merged Google Events
+    rawGoogleEvents.forEach(g => {
+      if (!consumedGoogleIds.has(g.id)) {
+        mergedList.push(g);
+      }
+    });
+
+    // Pass 3d: Add remaining un-merged CRM Tasks
+    rawCrmTasks.forEach(t => {
+      if (!consumedTaskIds.has(t.id)) {
+        mergedList.push(t);
+      }
+    });
+
+    // Pass 3e: Same-Day Same-Contact / Title Deduplication across all candidates
+    const dedupedList = [];
+    const consumedSecondaryIds = new Set();
+
+    for (let i = 0; i < mergedList.length; i++) {
+      const itemA = mergedList[i];
+      if (consumedSecondaryIds.has(itemA.id)) continue;
+
+      let combinedItem = { ...itemA };
+
+      for (let j = i + 1; j < mergedList.length; j++) {
+        const itemB = mergedList[j];
+        if (consumedSecondaryIds.has(itemB.id)) continue;
+        if (itemA.dateStr !== itemB.dateStr) continue;
+
+        // Don't merge internal agency meetings with client meetings
+        const aTitleLower = (itemA.title || '').toLowerCase();
+        const bTitleLower = (itemB.title || '').toLowerCase();
+        const isAgencyA = /huddle|district|agency|sprint|convention|expo|office|townhall/i.test(aTitleLower);
+        const isAgencyB = /huddle|district|agency|sprint|convention|expo|office|townhall/i.test(bTitleLower);
+        if (isAgencyA !== isAgencyB) continue;
+
+        // Check if both relate to the same client or same person name
+        let isSameContact = false;
+        if (itemA.client && itemB.client && itemA.client.id === itemB.client.id) {
+          isSameContact = true;
+        } else {
+          const nameA = itemA.client?.fullName?.toLowerCase();
+          const nameB = itemB.client?.fullName?.toLowerCase();
+          if (nameA && (bTitleLower.includes(nameA) || (itemB.client && itemB.client.fullName.toLowerCase().includes(nameA)))) isSameContact = true;
+          if (nameB && (aTitleLower.includes(nameB) || (itemA.client && itemA.client.fullName.toLowerCase().includes(nameB)))) isSameContact = true;
+
+          // Check token overlap for names (e.g. "Jacelyn Lee", "Janice")
+          const extractNames = str => str.toLowerCase().split(/[\s,@\-:()[\]]+/).filter(t => t.length >= 3 && !['with', 'over', 'lunch', 'coffee', 'meeting', 'task', 'project', 'catch', 'breakfast', 'huddle', 'consultation', 'district', 'sprint', 'check', 'sync'].includes(t));
+          const tokensA = extractNames(itemA.title);
+          const tokensB = extractNames(itemB.title);
+          const common = tokensA.filter(t => tokensB.includes(t));
+          if (common.length > 0) isSameContact = true;
+        }
+
+        if (isSameContact) {
+          consumedSecondaryIds.add(itemB.id);
+          combinedItem.isMerged = true;
+          combinedItem.mergedIds = [...(combinedItem.mergedIds || [itemA.rawId || itemA.id]), itemB.rawId || itemB.id];
+          combinedItem.client = combinedItem.client || itemB.client;
+          combinedItem.location = combinedItem.location || itemB.location;
+          // Prefer cleaner or combined title
+          if (combinedItem.title.toLowerCase().includes(itemB.title.toLowerCase())) {
+            // keep combinedItem.title
+          } else if (itemB.title.toLowerCase().includes(combinedItem.title.toLowerCase())) {
+            combinedItem.title = itemB.title;
+          } else {
+            combinedItem.title = `${combinedItem.title} · ${itemB.title}`;
+          }
+        }
+      }
+
+      dedupedList.push(combinedItem);
+    }
+
+    // 4. Classify and compute Pace Eligibility
+    const classifiedItems = dedupedList.map(item => {
+      const titleLower = item.title.toLowerCase();
+
+      // Check if internal agency meeting (CRITICAL: DOES NOT COUNT TOWARDS 15-PERSON CLIENT PACE)
+      const isInternalAgency = /huddle|district meeting|district huddle|agency meeting|unit meeting|sprint|convention|expo|townhall|assembly|meeting @ office|weekly meeting|cluster meeting|product briefing|agent briefing|agency training/i.test(titleLower) ||
+        /gravitas|acacia huddle|aia final sprint|branch meeting/i.test(titleLower);
+
+      if (isInternalAgency) {
+        return {
+          ...item,
+          category: 'internal_agency',
+          categoryLabel: 'Agency Internal',
+          categoryColor: '#94a3b8',
+          categoryBg: 'rgba(148, 163, 184, 0.15)',
+          peopleCount: 0,
+          isExternalPace: false,
+          pacingTag: 'Internal Session (Excluded from Pace)'
+        };
+      }
+
+      // Check if personal
+      const isPersonal = /leave|flight|gym|dentist|doctor|holiday|birthday|personal block|off day/i.test(titleLower);
+      if (isPersonal) {
+        return {
+          ...item,
+          category: 'personal',
+          categoryLabel: 'Personal',
+          categoryColor: '#64748b',
+          categoryBg: 'rgba(100, 116, 139, 0.15)',
+          peopleCount: 0,
+          isExternalPace: false,
+          pacingTag: 'Personal (Excluded from Pace)'
+        };
+      }
+
+      // Social catch-up (check explicit type, channel, or keywords)
+      const isSocialType = item.type === 'social' || 
+        item.originalData?.type === 'social' || 
+        item.originalData?.channel === 'Coffee' || 
+        item.originalData?.channel === 'Coffee / Social' ||
+        titleLower.includes('coffee') ||
+        titleLower.includes('lunch') ||
+        titleLower.includes('dinner') ||
+        titleLower.includes('drinks') ||
+        titleLower.includes('catch up') ||
+        titleLower.includes('catchup') ||
+        titleLower.includes('chat') ||
+        titleLower.includes('social') ||
+        titleLower.includes('tea') ||
+        titleLower.includes('breakfast');
+
+      if (isSocialType) {
+        return {
+          ...item,
+          category: 'social',
+          categoryLabel: 'Social Catch-up',
+          categoryColor: '#fb923c',
+          categoryBg: 'rgba(251, 146, 60, 0.15)',
+          peopleCount: 1,
+          isExternalPace: true
+        };
+      }
+
+      // Client or Prospect
+      if (item.client) {
+        if (item.client.clientStatus === 'Prospect') {
+          return {
+            ...item,
+            category: 'prospect',
+            categoryLabel: 'Prospect',
+            categoryColor: '#c084fc',
+            categoryBg: 'rgba(192, 132, 252, 0.15)',
+            peopleCount: 1,
+            isExternalPace: true
+          };
+        }
+        return {
+          ...item,
+          category: 'client',
+          categoryLabel: 'Client',
+          categoryColor: '#34d399',
+          categoryBg: 'rgba(52, 211, 153, 0.15)',
+          peopleCount: 1,
+          isExternalPace: true
+        };
+      }
+
+      // Networking
+      if (titleLower.includes('network') || titleLower.includes('bni') || titleLower.includes('mixer') || titleLower.includes('summit') || titleLower.includes('chamber') || titleLower.includes('referral')) {
+        return {
+          ...item,
+          category: 'networking',
+          categoryLabel: 'Networking',
+          categoryColor: '#38bdf8',
+          categoryBg: 'rgba(56, 189, 248, 0.15)',
+          peopleCount: 1,
+          isExternalPace: true
+        };
+      }
+
+      // Default Work Session
+      return {
+        ...item,
+        category: 'meeting',
+        categoryLabel: 'Work Session',
+        categoryColor: '#60a5fa',
+        categoryBg: 'rgba(96, 165, 250, 0.15)',
+        peopleCount: 1,
+        isExternalPace: true
+      };
+    });
+
+    // Chronological Sort
+    classifiedItems.sort((a, b) => a.date - b.date);
+
+    // Apply AI verified enhancements if available for this timeframe
+    let finalItems = classifiedItems;
+    let isAiVerified = false;
+
+    const candidateHash = classifiedItems.map(c => `${c.id}:${c.dateStr}`).sort().join(',');
+    const currentWeekKey = `${paceTimeframe}-${weekRange.label}-${candidateHash}`;
+
+    if (aiReconciliation && aiReconciliation.weekKey === currentWeekKey && Array.isArray(aiReconciliation.items) && aiReconciliation.items.length > 0) {
+      isAiVerified = true;
+
+      const categoryColors = {
+        client: '#34d399',
+        prospect: '#c084fc',
+        social: '#fb923c',
+        networking: '#38bdf8',
+        internal_agency: '#94a3b8',
+        personal: '#64748b',
+        meeting: '#60a5fa'
+      };
+      const categoryBgs = {
+        client: 'rgba(52, 211, 153, 0.15)',
+        prospect: 'rgba(192, 132, 252, 0.15)',
+        social: 'rgba(251, 146, 60, 0.15)',
+        networking: 'rgba(56, 189, 248, 0.15)',
+        internal_agency: 'rgba(148, 163, 184, 0.15)',
+        personal: 'rgba(100, 116, 139, 0.15)',
+        meeting: 'rgba(96, 165, 250, 0.15)'
+      };
+
+      // Set of candidate IDs merged into other items by AI
+      const consumedByAi = new Set();
+      aiReconciliation.items.forEach(ai => {
+        if (Array.isArray(ai.mergedIds) && ai.mergedIds.length > 1) {
+          ai.mergedIds.slice(1).forEach(mId => consumedByAi.add(mId));
+        }
+      });
+
+      // Enrich the canonical classifiedItems directly without appending duplicate lists
+      finalItems = classifiedItems
+        .filter(item => !consumedByAi.has(item.id) && !consumedByAi.has(item.rawId))
+        .map(item => {
+          const aiMatch = aiReconciliation.items.find(ai => 
+            ai.id === item.id || 
+            (Array.isArray(ai.mergedIds) && (ai.mergedIds.includes(item.id) || ai.mergedIds.includes(item.rawId))) ||
+            (item.client && ai.clientName && item.client.fullName.toLowerCase().includes(ai.clientName.toLowerCase())) ||
+            (item.title && ai.title && (item.title.toLowerCase().includes(ai.title.toLowerCase()) || ai.title.toLowerCase().includes(item.title.toLowerCase())))
+          );
+
+          if (aiMatch) {
+            const effectiveCat = aiMatch.category || item.category;
+            return {
+              ...item,
+              category: effectiveCat,
+              categoryLabel: aiMatch.categoryLabel || item.categoryLabel,
+              categoryColor: categoryColors[effectiveCat] || item.categoryColor,
+              categoryBg: categoryBgs[effectiveCat] || item.categoryBg,
+              peopleCount: typeof aiMatch.peopleCount === 'number' ? aiMatch.peopleCount : item.peopleCount,
+              isExternalPace: typeof aiMatch.isExternalPace === 'boolean' ? aiMatch.isExternalPace : item.isExternalPace,
+              isAiClassified: true,
+              aiReason: aiMatch.reason || null
+            };
+          }
+          return item;
+        });
+    }
+
+    // Totals calculation (Single Source of Truth)
+    const externalItems = finalItems.filter(i => i.isExternalPace);
+    const totalPeople = externalItems.reduce((sum, item) => sum + (item.peopleCount || 0), 0);
+    const clientsCount = finalItems.filter(i => i.category === 'client' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
+    const prospectsCount = finalItems.filter(i => i.category === 'prospect' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
+    const socialCount = finalItems.filter(i => i.category === 'social' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
+    const networkingCount = finalItems.filter(i => i.category === 'networking' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
+    const workCount = finalItems.filter(i => i.category === 'meeting' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
+    const internalCount = finalItems.filter(i => i.category === 'internal_agency').length;
+    const mergedCount = finalItems.filter(i => i.isMerged).length;
+
+    // Archie Insight - ALWAYS 100% mathematically aligned with totalPeople
+    const remaining = Math.max(0, paceTarget - totalPeople);
+    const activeContacts = externalItems.map(i => i.client?.preferredName || i.client?.fullName || i.title.split(/[\s,]+/)[0]).filter(Boolean);
+    const uniqueContacts = [...new Set(activeContacts)].slice(0, 4);
+    const contactSummary = uniqueContacts.length > 0 ? ` (${uniqueContacts.join(', ')})` : '';
+
+    let archieInsight = '';
+    if (isAiVerified && aiReconciliation?.archieInsight) {
+      // Reconcile Gemini's coaching narrative with actual live count so there is zero mismatch
+      const baseInsight = aiReconciliation.archieInsight
+        .replace(/^\d+\s+genuine.*?\.\s*/i, '')
+        .replace(/^great start.*?confirmed.*?\.\s*/i, '')
+        .replace(/you need \d+ more.*?pace!/i, '')
+        .trim();
+      archieInsight = `${totalPeople} confirmed engagement${totalPeople !== 1 ? 's' : ''}${contactSummary} towards your weekly pace. ${baseInsight ? `${baseInsight} ` : ''}${remaining > 0 ? `Aim to book ${remaining} more to hit your ${paceTarget}-person target!` : 'Target achieved! 🔥'}`;
+    } else {
+      archieInsight = `${totalPeople} genuine client/prospect catch-up${totalPeople !== 1 ? 's' : ''} confirmed${contactSummary}. De-duplicated ${mergedCount} overlapping entries and excluded ${internalCount} internal agency sessions. ${remaining > 0 ? `${remaining} more to book to hit your ${paceTarget}-person weekly pace!` : 'Target achieved! 🚀'}`;
+    }
+
+    // Days strip for 7 days
+    const daysStrip = [];
+    const curDay = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0, 0);
+    for (let i = 0; i < 7; i++) {
+      const year = curDay.getFullYear();
+      const month = String(curDay.getMonth() + 1).padStart(2, '0');
+      const day = String(curDay.getDate()).padStart(2, '0');
+      const dStr = `${year}-${month}-${day}`;
+
+      const dayItems = finalItems.filter(item => item.dateStr === dStr);
+      const dayPeople = dayItems.filter(item => item.isExternalPace).reduce((s, item) => s + (item.peopleCount || 0), 0);
+      daysStrip.push({
+        date: new Date(curDay),
+        dateStr: dStr,
+        dayName: curDay.toLocaleDateString('en-US', { weekday: 'short' }),
+        dayNum: curDay.getDate(),
+        monthName: curDay.toLocaleDateString('en-US', { month: 'short' }),
+        peopleCount: dayPeople,
+        meetingsCount: dayItems.length,
+        items: dayItems
+      });
+      curDay.setDate(curDay.getDate() + 1);
+    }
+
+    return {
+      items: finalItems,
+      rawCandidates: classifiedItems,
+      totalMeetings: finalItems.length,
+      totalPeople,
+      clientsCount,
+      prospectsCount,
+      socialCount,
+      networkingCount,
+      workCount,
+      internalCount,
+      mergedCount,
+      daysStrip,
+      archieInsight,
+      isAiVerified
+    };
+  }, [weekRange, googleEvents, calendarTasks, clients, aiReconciliation, paceTimeframe, paceTarget]);
+
+  // AI Reconciliation Execution Hook
+  const runAiReconciliation = useCallback(async (force = false) => {
+    if (!window.electronAPI?.reconcilePacemakerWithAi) return;
+    const candidates = pacemakerData.rawCandidates || [];
+    if (candidates.length === 0) return;
+
+    const candidateHash = candidates.map(c => `${c.id}:${c.dateStr}`).sort().join(',');
+    const weekKey = `${paceTimeframe}-${weekRange.label}-${candidateHash}`;
+    if (!force && aiReconciliation?.weekKey === weekKey) return;
+
+    setIsAiReconciling(true);
+    try {
+      const payload = {
+        weekLabel: weekRange.label,
+        paceTarget,
+        items: candidates.map(c => ({
+          id: c.id,
+          rawId: c.rawId,
+          source: c.source,
+          title: c.title,
+          clientName: c.client ? (c.client.preferredName || c.client.fullName) : null,
+          dateStr: c.dateStr,
+          timeStr: c.timeStr,
+          location: c.location,
+          attendeesCount: Array.isArray(c.attendees) ? c.attendees.length : 1,
+          isTask: c.source === 'crm'
+        }))
+      };
+
+      const res = await window.electronAPI.reconcilePacemakerWithAi(payload);
+      if (res && res.success && res.data) {
+        setAiReconciliation({
+          weekKey,
+          items: res.data.items || [],
+          archieInsight: res.data.archieInsight || '',
+          isAiVerified: true
+        });
+      }
+    } catch (err) {
+      console.warn('AI schedule reconciliation error:', err);
+    } finally {
+      setIsAiReconciling(false);
+    }
+  }, [paceTimeframe, weekRange.label, paceTarget, pacemakerData.rawCandidates, aiReconciliation]);
+
+  // Background trigger on week change or calendar load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      runAiReconciliation();
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [paceTimeframe, googleEvents.length, calendarTasks.length]);
+
+  const handleSavePaceTarget = (newVal) => {
+    const parsed = Math.max(1, parseInt(newVal, 10) || 15);
+    setPaceTarget(parsed);
+    localStorage.setItem('crm_weekly_meeting_pace_target', String(parsed));
+    setIsEditingPaceTarget(false);
+    addToast(`Weekly pace target updated to ${parsed} people`, 'info');
+  };
+
+  const handleOpenAddMeeting = (preferredDateStr = null) => {
+    let targetDateStr = preferredDateStr;
+    if (!targetDateStr) {
+      if (selectedPaceDay?.dateStr) {
+        targetDateStr = selectedPaceDay.dateStr;
+      } else {
+        const nextMon = new Date(weekRange.start);
+        targetDateStr = `${nextMon.getFullYear()}-${String(nextMon.getMonth() + 1).padStart(2, '0')}-${String(nextMon.getDate()).padStart(2, '0')}`;
+      }
+    }
+    setMeetingForm({
+      title: '',
+      category: 'social',
+      clientId: '',
+      date: targetDateStr,
+      startTime: '10:00',
+      endTime: '11:00',
+      location: '',
+      channel: 'Coffee'
+    });
+    setIsAddMeetingModalOpen(true);
+  };
+
+  const handleAddMeetingSubmit = async (e) => {
+    e.preventDefault();
+    if (!meetingForm.title.trim() || !meetingForm.date) {
+      addToast('Please enter a meeting title and date', 'error');
+      return;
+    }
+    setIsSubmittingMeeting(true);
+    try {
+      if (window.electronAPI?.addTask) {
+        const res = await window.electronAPI.addTask({
+          clientId: meetingForm.clientId || null,
+          description: meetingForm.title.trim(),
+          dueDate: meetingForm.date,
+          dueTime: meetingForm.startTime || null,
+          dueEndTime: meetingForm.endTime || null,
+          location: meetingForm.location.trim() || '',
+          channel: meetingForm.channel || 'Coffee',
+          type: 'meeting',
+          priority: 'Normal'
+        });
+        if (res.success) {
+          addToast(`Meeting scheduled: "${meetingForm.title.trim()}"`, 'success');
+          setIsAddMeetingModalOpen(false);
+          await loadData();
+        } else {
+          addToast(res.error || 'Failed to schedule meeting', 'error');
+        }
+      }
+    } catch (err) {
+      addToast(err.message || 'Error creating meeting', 'error');
+    } finally {
+      setIsSubmittingMeeting(false);
+    }
+  };
+
   /* ── Upcoming Client Milestones (Birthdays & Policy Anniversaries) ── */
   const upcomingMilestones = useMemo(() => {
     const items = [];
@@ -349,10 +1049,10 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   }
 
   return (
-    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '100%', height: 'auto', flexShrink: 0, paddingBottom: '32px' }}>
 
       {/* ── Page Header ──────────────────────────────────────── */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '12px', flexShrink: 0 }}>
         <div>
           <h1 className="text-gradient" style={{ fontSize: '24px', margin: 0, fontWeight: '700' }}>Executive Dashboard</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '2px 0 0 0' }}>
@@ -379,8 +1079,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         </div>
       </header>
 
-      {/* ── Row 1: 4 Clickable KPI Cards ─────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+      {/* ── Row 1: 5 Clickable KPI Cards ─────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', flexShrink: 0 }}>
         <StatCard
           icon={<Users size={18} />} iconColor="#60a5fa"
           label="Active Clients" value={activeClients.length}
@@ -405,6 +1105,18 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           sub={`${issuedThisMonth.length} case${issuedThisMonth.length !== 1 ? 's' : ''} issued`} subColor="#34d399"
           onClick={() => onNavigateTab && onNavigateTab('sales')}
         />
+        <StatCard
+          icon={<Target size={18} />} iconColor="#c084fc"
+          label={`${weekRange.shortLabel} Pace`}
+          value={`${pacemakerData.totalPeople} / ${paceTarget}`}
+          sub={`${Math.round((pacemakerData.totalPeople / paceTarget) * 100)}% pace · ${pacemakerData.totalPeople >= paceTarget ? 'Target Hit! 🔥' : `${Math.max(0, paceTarget - pacemakerData.totalPeople)} more to book`}`}
+          subColor={pacemakerData.totalPeople >= paceTarget ? '#34d399' : pacemakerData.totalPeople >= Math.ceil(paceTarget * 0.6) ? '#fbbf24' : 'var(--text-muted)'}
+          onClick={() => {
+            setIsPacemakerExpanded(true);
+            const el = document.getElementById('weekly-pacemaker-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
+        />
       </div>
 
       {/* ── Action Center: High-Priority Reminders & Follow-ups Banner ── */}
@@ -421,7 +1133,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+          flexShrink: 0
         }}>
           {/* Banner Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -504,6 +1217,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                 const isOverdue = task.dueDate < todayDateStr;
                 const isSnoozeOpen = activeDashboardSnoozeId === task.id;
                 const matchedClient = clients.find(c => c.id === task.clientId);
+                const isProspect = task.isProspect || (!matchedClient && task.clientName && task.clientName !== 'Unknown Client' && task.clientName !== 'Client');
                 const clientName = matchedClient ? (matchedClient.preferredName || matchedClient.fullName) : (task.clientName || 'Client');
                 const clientPhone = matchedClient ? matchedClient.phone : task.clientPhone;
 
@@ -564,10 +1278,36 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                         {task.description}
                       </div>
                       <div
-                        style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: '600', marginTop: '2px', cursor: 'pointer', textDecoration: 'underline' }}
-                        onClick={() => matchedClient && handleOpenClient(matchedClient)}
-                        title="Click to view client file"
+                        style={{ 
+                          fontSize: '11px', 
+                          color: isProspect ? '#c084fc' : 'var(--accent-primary)', 
+                          fontWeight: '600', 
+                          marginTop: '2px', 
+                          cursor: 'pointer', 
+                          textDecoration: 'underline',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                        onClick={() => {
+                          if (matchedClient) handleOpenClient(matchedClient);
+                          else if (isProspect && onNavigateTab) onNavigateTab('special-projects');
+                        }}
+                        title={isProspect ? "Project 100 Prospect (Click to view Special Projects)" : "Click to view client file"}
                       >
+                        {isProspect && (
+                          <span style={{ 
+                            fontSize: '8.5px', 
+                            fontWeight: '700', 
+                            padding: '1px 4px', 
+                            borderRadius: '3px', 
+                            backgroundColor: 'rgba(192, 132, 252, 0.2)', 
+                            color: '#c084fc', 
+                            textDecoration: 'none' 
+                          }}>
+                            🎯 Prospect
+                          </span>
+                        )}
                         {clientName}
                       </div>
                     </div>
@@ -694,8 +1434,621 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         </div>
       )}
 
+      {/* ── Weekly Activity Pacemaker Hero Widget (Pace for 15 People to Meet) ── */}
+      <div 
+        id="weekly-pacemaker-section"
+        style={{
+          background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(6, 182, 212, 0.04) 50%, rgba(16, 185, 129, 0.06) 100%)',
+          border: '1px solid rgba(139, 92, 246, 0.25)',
+          borderRadius: '12px',
+          padding: '12px 18px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+          position: 'relative',
+          flexShrink: 0
+        }}
+      >
+        {/* Glow Accent */}
+        <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '180px', height: '180px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+
+        {/* Top Control & Metric Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', zIndex: 1 }}>
+          {/* Left Title & Target */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{
+              padding: '6px',
+              borderRadius: '8px',
+              background: pacemakerData.totalPeople >= paceTarget ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.2)',
+              color: pacemakerData.totalPeople >= paceTarget ? '#34d399' : '#a78bfa',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}>
+              <Flame size={16} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                  Weekly Activity Pacemaker
+                </span>
+                {isEditingPaceTarget ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(0,0,0,0.3)', padding: '1px 5px', borderRadius: '5px', border: '1px solid var(--border-light)' }}>
+                    <span style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>Target:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={tempPaceTarget}
+                      onChange={e => setTempPaceTarget(e.target.value)}
+                      style={{ width: '40px', padding: '1px 3px', fontSize: '10.5px', background: 'rgba(255,255,255,0.1)', border: '1px solid var(--border-light)', borderRadius: '4px', color: '#fff', textAlign: 'center' }}
+                    />
+                    <button
+                      onClick={() => handleSavePaceTarget(tempPaceTarget)}
+                      style={{ background: 'var(--accent-primary)', border: 'none', color: '#fff', borderRadius: '3px', padding: '1px 5px', fontSize: '9.5px', cursor: 'pointer' }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setIsEditingPaceTarget(false)}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', borderRadius: '3px', padding: '1px 3px', fontSize: '9.5px', cursor: 'pointer' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <span
+                    onClick={() => {
+                      setTempPaceTarget(paceTarget);
+                      setIsEditingPaceTarget(true);
+                    }}
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      backgroundColor: pacemakerData.totalPeople >= paceTarget ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.2)',
+                      color: pacemakerData.totalPeople >= paceTarget ? '#34d399' : '#c084fc',
+                      border: `1px solid ${pacemakerData.totalPeople >= paceTarget ? 'rgba(16, 185, 129, 0.3)' : 'rgba(139, 92, 246, 0.3)'}`,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title="Click to edit pace target"
+                  >
+                    🎯 Target: {paceTarget} People / Week <Edit3 size={9} style={{ opacity: 0.7 }} />
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                {weekRange.label} · Pace for clients, prospects, social catch-ups & networking
+              </div>
+            </div>
+          </div>
+
+          {/* Center Progress Metric at a Glance */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px' }}>
+              <span style={{
+                fontSize: '20px',
+                fontWeight: '800',
+                color: pacemakerData.totalPeople >= paceTarget ? '#34d399' : '#ffffff',
+                lineHeight: '1'
+              }}>
+                {pacemakerData.totalPeople}
+              </span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                / {paceTarget} People
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', width: '130px' }}>
+              <div style={{
+                width: '100%',
+                height: '6px',
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                borderRadius: '999px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.min(100, Math.round((pacemakerData.totalPeople / paceTarget) * 100))}%`,
+                  background: pacemakerData.totalPeople >= paceTarget
+                    ? 'linear-gradient(90deg, #10b981 0%, #34d399 100%)'
+                    : 'linear-gradient(90deg, #8b5cf8 0%, #06b6d4 50%, #10b981 100%)',
+                  borderRadius: '999px',
+                  boxShadow: pacemakerData.totalPeople >= paceTarget
+                    ? '0 0 8px rgba(16, 185, 129, 0.5)'
+                    : '0 0 8px rgba(139, 92, 246, 0.4)'
+                }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9.5px', color: 'var(--text-muted)' }}>
+                <span>{Math.round((pacemakerData.totalPeople / paceTarget) * 100)}% pace</span>
+                <span>{pacemakerData.totalPeople >= paceTarget ? 'Met! 🔥' : `${Math.max(0, paceTarget - pacemakerData.totalPeople)} left`}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Action Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Timeframe Selector Pills */}
+            <div style={{ display: 'flex', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-light)' }}>
+              {[
+                { id: 'following', label: 'Following Wk' },
+                { id: 'next-7', label: 'Next 7 Days' },
+                { id: 'current', label: 'This Week' }
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  onClick={() => {
+                    setPaceTimeframe(opt.id);
+                    setSelectedPaceDay(null);
+                  }}
+                  style={{
+                    background: paceTimeframe === opt.id ? 'var(--accent-primary)' : 'transparent',
+                    color: paceTimeframe === opt.id ? '#ffffff' : 'var(--text-muted)',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '3px 8px',
+                    fontSize: '10.5px',
+                    fontWeight: paceTimeframe === opt.id ? '600' : 'normal',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {/* + Arrange Meeting Action */}
+            <button
+              onClick={() => handleOpenAddMeeting()}
+              className="btn btn-primary"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                fontSize: '11px',
+                padding: '4px 10px',
+                background: 'linear-gradient(135deg, #8b5cf8 0%, #06b6d4 100%)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(139, 92, 246, 0.25)'
+              }}
+            >
+              <Plus size={12} /> <span>Arrange Meeting</span>
+            </button>
+
+            {/* Collapse / Expand Toggle */}
+            <button
+              onClick={() => setIsPacemakerExpanded(prev => !prev)}
+              style={{
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--border-light)',
+                borderRadius: '6px',
+                color: 'var(--text-secondary)',
+                padding: '4px 8px',
+                fontSize: '10.5px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              {isPacemakerExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <span>{isPacemakerExpanded ? 'Hide Schedule' : 'View Schedule'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Archie Copilot Pacing Insight & AI Verification Status Banner */}
+        <div style={{
+          backgroundColor: pacemakerData.isAiVerified ? 'rgba(139, 92, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+          border: `1px solid ${pacemakerData.isAiVerified ? 'rgba(139, 92, 246, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+          borderRadius: '8px',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '240px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '24px',
+              height: '24px',
+              borderRadius: '6px',
+              backgroundColor: pacemakerData.isAiVerified ? 'rgba(139, 92, 246, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+              color: pacemakerData.isAiVerified ? '#c084fc' : 'var(--text-muted)',
+              flexShrink: 0
+            }}>
+              <Sparkles size={14} />
+            </div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-primary)', lineHeight: '1.4' }}>
+              <span style={{ fontWeight: '700', color: pacemakerData.isAiVerified ? '#c084fc' : '#a78bfa', marginRight: '6px' }}>
+                Archie Copilot:
+              </span>
+              <span>{pacemakerData.archieInsight}</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{
+              fontSize: '10px',
+              fontWeight: '600',
+              padding: '2px 7px',
+              borderRadius: '10px',
+              backgroundColor: pacemakerData.isAiVerified ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+              color: pacemakerData.isAiVerified ? '#34d399' : '#38bdf8',
+              border: `1px solid ${pacemakerData.isAiVerified ? 'rgba(16, 185, 129, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              {pacemakerData.isAiVerified ? '✨ Archie AI Verified' : '⚡ Smart Reconciled'}
+            </span>
+
+            {window.electronAPI?.reconcilePacemakerWithAi && (
+              <button
+                onClick={() => runAiReconciliation(true)}
+                disabled={isAiReconciling}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '6px',
+                  color: isAiReconciling ? 'var(--text-muted)' : 'var(--text-secondary)',
+                  padding: '3px 8px',
+                  fontSize: '10.5px',
+                  cursor: isAiReconciling ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Force AI re-analysis and de-duplication with Gemini"
+              >
+                <RefreshCw size={11} className={isAiReconciling ? 'animate-spin' : ''} />
+                <span>{isAiReconciling ? 'Analyzing with AI...' : 'Re-analyze with AI'}</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category Breakdown Chips Row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', paddingTop: '2px' }}>
+          <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginRight: '2px' }}>Breakdown:</span>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.25)', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>💼 Clients</span>
+            <span style={{ fontWeight: '700', color: '#34d399' }}>{pacemakerData.clientsCount}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(192, 132, 252, 0.1)', border: '1px solid rgba(192, 132, 252, 0.25)', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>🎯 Prospects</span>
+            <span style={{ fontWeight: '700', color: '#c084fc' }}>{pacemakerData.prospectsCount}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(251, 146, 60, 0.1)', border: '1px solid rgba(251, 146, 60, 0.25)', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>☕ Social</span>
+            <span style={{ fontWeight: '700', color: '#fb923c' }}>{pacemakerData.socialCount}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>🤝 Networking</span>
+            <span style={{ fontWeight: '700', color: '#38bdf8' }}>{pacemakerData.networkingCount}</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(96, 165, 250, 0.1)', border: '1px solid rgba(96, 165, 250, 0.25)', fontSize: '11px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>🏢 Work Sessions</span>
+            <span style={{ fontWeight: '700', color: '#60a5fa' }}>{pacemakerData.workCount}</span>
+          </div>
+
+          {pacemakerData.internalCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(148, 163, 184, 0.1)', border: '1px solid rgba(148, 163, 184, 0.25)', fontSize: '11px' }} title="Internal agency meetings & sessions are excluded from external client pace target">
+              <span style={{ color: 'var(--text-muted)' }}>🏢 Agency / Internal</span>
+              <span style={{ fontWeight: '700', color: '#94a3b8' }}>{pacemakerData.internalCount}</span>
+              <span style={{ fontSize: '9.5px', color: '#64748b' }}>(Excluded)</span>
+            </div>
+          )}
+
+          {pacemakerData.mergedCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(168, 85, 247, 0.1)', border: '1px solid rgba(168, 85, 247, 0.25)', fontSize: '11px' }} title="Calendar events and CRM tasks deduplicated together">
+              <span style={{ color: 'var(--text-muted)' }}>🔗 Merged Duplicates</span>
+              <span style={{ fontWeight: '700', color: '#c084fc' }}>{pacemakerData.mergedCount}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Expanded 7-Day Strip & Meeting Roster */}
+        {isPacemakerExpanded && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            {/* 7-Day Activity Distribution Strip */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  7-Day Activity Distribution · Click day to filter meetings
+                </span>
+                {selectedPaceDay && (
+                  <button
+                    onClick={() => setSelectedPaceDay(null)}
+                    style={{ background: 'none', border: 'none', color: 'var(--accent-secondary)', fontSize: '10.5px', cursor: 'pointer', padding: 0 }}
+                  >
+                    Clear Day Filter (Show All {pacemakerData.items.length})
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px' }}>
+                {pacemakerData.daysStrip.map(day => {
+                  const isSelected = selectedPaceDay?.dateStr === day.dateStr;
+                  const hasActivity = day.peopleCount > 0;
+                  return (
+                    <div
+                      key={day.dateStr}
+                      onClick={() => setSelectedPaceDay(isSelected ? null : day)}
+                      style={{
+                        backgroundColor: isSelected
+                          ? 'rgba(139, 92, 246, 0.2)'
+                          : hasActivity
+                            ? 'rgba(255, 255, 255, 0.03)'
+                            : 'rgba(255, 255, 255, 0.01)',
+                        border: isSelected
+                          ? '1px solid #a78bfa'
+                          : hasActivity
+                            ? '1px solid rgba(139, 92, 246, 0.3)'
+                            : '1px solid var(--border-light)',
+                        borderRadius: '8px',
+                        padding: '6px 4px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '3px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 0 10px rgba(139, 92, 246, 0.3)' : 'none'
+                      }}
+                    >
+                      <span style={{ fontSize: '9.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{day.dayName}</span>
+                      <span style={{ fontSize: '13px', fontWeight: '700', color: hasActivity ? '#ffffff' : 'var(--text-secondary)' }}>{day.dayNum}</span>
+                      <span style={{
+                        fontSize: '9px',
+                        fontWeight: '600',
+                        padding: '1px 4px',
+                        borderRadius: '4px',
+                        backgroundColor: hasActivity ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.03)',
+                        color: hasActivity ? '#34d399' : 'var(--text-muted)'
+                      }}>
+                        {hasActivity ? `${day.peopleCount} ${day.peopleCount === 1 ? 'person' : 'people'}` : 'Open'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Collapsible Scheduled Meetings Roster */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                  {selectedPaceDay
+                    ? `Meetings for ${selectedPaceDay.dayName}, ${selectedPaceDay.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${(selectedPaceDay.items || []).length})`
+                    : `All Arranged Engagements (${pacemakerData.items.length})`}
+                </span>
+                <button
+                  onClick={() => handleOpenAddMeeting(selectedPaceDay?.dateStr)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent-primary)',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '3px'
+                  }}
+                >
+                  <Plus size={12} /> Book for this week
+                </button>
+              </div>
+
+              {(() => {
+                const activeList = selectedPaceDay ? (selectedPaceDay.items || []) : pacemakerData.items;
+
+                if (activeList.length === 0) {
+                  return (
+                    <div style={{
+                      padding: '20px 16px',
+                      textAlign: 'center',
+                      backgroundColor: 'rgba(0,0,0,0.15)',
+                      borderRadius: '8px',
+                      border: '1px dashed var(--border-light)',
+                      color: 'var(--text-muted)',
+                      fontSize: '11.5px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <Coffee size={20} style={{ opacity: 0.4 }} />
+                      <span>No meetings arranged {selectedPaceDay ? 'for this day' : 'for this period'} yet.</span>
+                      <button
+                        onClick={() => handleOpenAddMeeting(selectedPaceDay?.dateStr)}
+                        className="btn"
+                        style={{ fontSize: '10.5px', padding: '3px 8px', backgroundColor: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', marginTop: '2px' }}
+                      >
+                        <Plus size={11} /> Schedule Catch-up or Meeting
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+                    gap: '8px',
+                    maxHeight: '260px',
+                    overflowY: 'auto',
+                    paddingRight: '4px'
+                  }}>
+                    {activeList.map(item => {
+                      const isClient = item.client;
+                      const phone = item.client?.phone;
+                      const displayName = item.client ? (item.client.preferredName || item.client.fullName) : null;
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            backgroundColor: 'rgba(18, 18, 24, 0.75)',
+                            border: '1px solid var(--border-light)',
+                            borderLeft: `3px solid ${item.categoryColor}`,
+                            borderRadius: '8px',
+                            padding: '8px 10px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '5px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                                <span style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: '700',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  backgroundColor: item.categoryBg,
+                                  color: item.categoryColor
+                                }}>
+                                  {item.categoryLabel}
+                                </span>
+
+                                {item.isMerged ? (
+                                  <span style={{ fontSize: '9px', color: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.15)', border: '1px solid rgba(167, 139, 250, 0.3)', padding: '1px 5px', borderRadius: '3px', fontWeight: '600' }} title="Calendar event deduplicated with CRM task">
+                                    🔗 Cal + Task Synced
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '9px', color: 'var(--text-muted)', backgroundColor: 'rgba(255,255,255,0.04)', padding: '1px 4px', borderRadius: '3px' }}>
+                                    {item.source === 'google' ? 'Google Cal' : 'CRM Schedule'}
+                                  </span>
+                                )}
+
+                                {!item.isExternalPace && (
+                                  <span style={{ fontSize: '9px', color: '#94a3b8', backgroundColor: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.25)', padding: '1px 5px', borderRadius: '3px' }} title={item.pacingTag || "Internal or personal session, not counted towards external pace target"}>
+                                    Excluded from Pace
+                                  </span>
+                                )}
+
+                                {item.isExternalPace && item.peopleCount > 1 && (
+                                  <span style={{ fontSize: '9px', color: '#c084fc', fontWeight: '600' }}>
+                                    👥 {item.peopleCount} people
+                                  </span>
+                                )}
+
+                                {item.aiReason && (
+                                  <span style={{ fontSize: '9px', color: '#34d399', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '1px 4px', borderRadius: '3px' }} title={item.aiReason}>
+                                    ✨ AI Reconciled
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '12.5px',
+                                  fontWeight: '600',
+                                  color: 'var(--text-primary)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}
+                                title={item.title}
+                              >
+                                {item.title}
+                              </div>
+                            </div>
+
+                            <span style={{
+                              fontSize: '10.5px',
+                              color: 'var(--text-muted)',
+                              fontFamily: 'monospace',
+                              backgroundColor: 'rgba(255,255,255,0.03)',
+                              padding: '2px 5px',
+                              borderRadius: '4px',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {item.timeStr}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                              <span>📅 {item.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                              {item.location && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <MapPin size={9} /> {item.location}
+                                </span>
+                              )}
+                            </div>
+
+                            {isClient && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <button
+                                  onClick={() => handleOpenClient(item.client)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--accent-primary)',
+                                    fontSize: '10.5px',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    textDecoration: 'underline'
+                                  }}
+                                >
+                                  {displayName}
+                                </button>
+                                {phone && (
+                                  <button
+                                    onClick={() => handleWhatsApp(phone, displayName)}
+                                    style={{
+                                      background: 'rgba(37, 211, 102, 0.12)',
+                                      border: '1px solid rgba(37, 211, 102, 0.25)',
+                                      color: '#25D366',
+                                      padding: '2px 5px',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '2px',
+                                      fontSize: '9.5px'
+                                    }}
+                                    title="WhatsApp"
+                                  >
+                                    <MessageCircle size={9} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── Row 2: AI Briefing (span 2) + Today's Schedule + Overdue ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', flexShrink: 0 }}>
 
         {/* AI Briefing */}
         <div style={{
@@ -912,7 +2265,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       </div>
 
       {/* ── Row 3: Upcoming Milestones (Birthdays & Renewals) + Pending Tasks ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', flexShrink: 0 }}>
 
         {/* Upcoming Client Milestones Widget */}
         <div style={cardStyle}>
@@ -1068,6 +2421,252 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           )}
         </div>
       </div>
+
+      {/* ── Modal: Arrange Meeting / Add to Pace ───────────────────────── */}
+      {isAddMeetingModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-light)',
+            borderRadius: '14px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border-light)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, transparent 100%)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.2)', color: '#c084fc' }}>
+                  <Calendar size={16} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', color: 'var(--text-primary)', fontWeight: '700' }}>
+                    Arrange Meeting / Add to Weekly Pace
+                  </h3>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                    Log an engagement towards your weekly goal of {paceTarget} people
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddMeetingModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleAddMeetingSubmit} style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Meeting Category Selector */}
+              <div>
+                <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>
+                  Engagement Type
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                  {[
+                    { id: 'social', label: '☕ Social Catch-up', color: '#fb923c' },
+                    { id: 'client', label: '👥 Client Meeting', color: '#34d399' },
+                    { id: 'prospect', label: '🎯 Prospect Fact-Find', color: '#c084fc' },
+                    { id: 'networking', label: '🤝 Networking', color: '#38bdf8' },
+                    { id: 'meeting', label: '💼 Work Session', color: '#60a5fa' },
+                  ].map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setMeetingForm({ ...meetingForm, category: cat.id })}
+                      style={{
+                        padding: '6px 8px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        borderRadius: '6px',
+                        border: meetingForm.category === cat.id ? `1px solid ${cat.color}` : '1px solid var(--border-light)',
+                        backgroundColor: meetingForm.category === cat.id ? `${cat.color}22` : 'rgba(255,255,255,0.02)',
+                        color: meetingForm.category === cat.id ? cat.color : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Title / Description */}
+              <div>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                  Meeting Title / Purpose *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Coffee catch-up with Kevin / Annual Portfolio Review"
+                  className="input-field"
+                  style={{ width: '100%' }}
+                  value={meetingForm.title}
+                  onChange={e => setMeetingForm({ ...meetingForm, title: e.target.value })}
+                />
+              </div>
+
+              {/* Link CRM Client / Prospect (Optional) */}
+              <div>
+                <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                  Link to Client / Prospect (Optional)
+                </label>
+                <select
+                  className="input-field"
+                  style={{ width: '100%' }}
+                  value={meetingForm.clientId}
+                  onChange={e => {
+                    const cid = e.target.value;
+                    const matched = clients.find(c => c.id === cid);
+                    setMeetingForm({
+                      ...meetingForm,
+                      clientId: cid,
+                      title: meetingForm.title || (matched ? `Meeting with ${matched.fullName}` : '')
+                    });
+                  }}
+                >
+                  <option value="">-- No linked CRM record (Social / External / New Contact) --</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.fullName} {c.preferredName ? `("${c.preferredName}")` : ''} ({c.clientStatus})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date & Time Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    Date *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={meetingForm.date}
+                    onChange={e => setMeetingForm({ ...meetingForm, date: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    Start Time
+                  </label>
+                  <input
+                    type="time"
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={meetingForm.startTime}
+                    onChange={e => setMeetingForm({ ...meetingForm, startTime: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    End Time
+                  </label>
+                  <input
+                    type="time"
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={meetingForm.endTime}
+                    onChange={e => setMeetingForm({ ...meetingForm, endTime: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Location & Channel */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    Venue / Location
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Starbucks Raffles City / Zoom"
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={meetingForm.location}
+                    onChange={e => setMeetingForm({ ...meetingForm, location: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    Channel
+                  </label>
+                  <select
+                    className="input-field"
+                    style={{ width: '100%' }}
+                    value={meetingForm.channel}
+                    onChange={e => setMeetingForm({ ...meetingForm, channel: e.target.value })}
+                  >
+                    <option value="Coffee">☕ Coffee / Casual</option>
+                    <option value="Lunch">🍽️ Lunch / Dinner</option>
+                    <option value="In-Person">🏢 Office / In-Person</option>
+                    <option value="Video">💻 Zoom / Video Call</option>
+                    <option value="Phone Call">📞 Phone Discussion</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Footer Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', paddingTop: '14px', borderTop: '1px solid var(--border-light)' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddMeetingModalOpen(false)}
+                  className="btn"
+                  style={{ backgroundColor: 'transparent', color: 'var(--text-secondary)' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingMeeting}
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #8b5cf8 0%, #06b6d4 100%)',
+                    border: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 18px',
+                    fontWeight: '600'
+                  }}
+                >
+                  {isSubmittingMeeting ? <RefreshCw size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={13} />}
+                  <span>Save & Add to Pace</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

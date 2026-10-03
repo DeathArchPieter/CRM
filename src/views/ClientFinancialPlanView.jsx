@@ -283,6 +283,13 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
   const liquidEmergencyMonths = (Number(cashflow.monthlyLivingExpenses) || 0) > 0 
     ? (totalLiquid / Number(cashflow.monthlyLivingExpenses)).toFixed(1) 
     : '0.0';
+ 
+  // 2.1 Compute Total Pure ILP Investments across in-force policies
+  const totalPureIlpFundValue = useMemo(() => {
+    return policies
+      .filter(p => p.status === 'In Force' && p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment')
+      .reduce((sum, p) => sum + (Number(p.currentFundValue) || 0), 0);
+  }, [policies]);
 
   // 3. Compute Aggregated Insurance Coverage from In-Force Policies
   const inForceCoverage = useMemo(() => {
@@ -297,6 +304,8 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
       if (p.status !== 'In Force') return;
       // Dependent-insured policies must not inflate the parent's personal income-replacement protection gap matrix
       if (p.insuredType === 'Dependent') return;
+      // Pure ILP is an investment portfolio (nominal 101% NAV) - exclude from mortality & critical illness income-replacement gap benchmarks
+      if (p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment') return;
       if (p.policyType === 'Shield') hasShield = true;
       if (p.coverages) {
         if (p.coverages['Death']) death += Number(p.coverages['Death']) || 0;
@@ -344,6 +353,8 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
       else if (p.premiumFrequency === 'Semi-Annually') prem *= 2;
       map[key].annualPremium += prem;
 
+      // Pure ILP is an investment accumulation vehicle, exclude from dependent protection gap
+      if (p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment') return;
       if (p.policyType === 'Shield') map[key].hasShield = true;
       if (p.coverages) {
         if (p.coverages['Death']) map[key].death += Number(p.coverages['Death']) || 0;
@@ -2418,7 +2429,19 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
                   policies.map((p, idx) => (
                     <tr key={idx} style={{ borderBottom: '1px solid #E2E8F0' }}>
                       <td style={{ padding: '6px 12px', fontWeight: '600' }}>
-                        {p.planName || p.policyName || p.policyType}
+                        <div>
+                          {p.planName || p.policyName || p.policyType}
+                          {p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' && (
+                            <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '3px', backgroundColor: '#ECFDF5', color: '#047857', fontWeight: '700', marginLeft: '6px' }}>
+                              📈 Pure ILP
+                            </span>
+                          )}
+                          {p.policyType === 'ILP' && p.ilpSubtype !== 'pure_investment' && (
+                            <span style={{ fontSize: '8px', padding: '1px 5px', borderRadius: '3px', backgroundColor: '#EEF2FF', color: '#4F46E5', fontWeight: '700', marginLeft: '6px' }}>
+                              🛡️ Protection ILP
+                            </span>
+                          )}
+                        </div>
                         {p.insuredType === 'Dependent' && (
                           <div style={{ fontSize: '8px', color: '#7C3AED', fontWeight: '700', marginTop: '2px' }}>
                             👶 Insured: {p.insuredName || 'Dependent'} ({p.insuredRelationship || 'Family'})
@@ -2433,7 +2456,23 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
                         </span>
                       </td>
                       <td style={{ padding: '6px 12px', color: '#334155' }}>
-                        {p.coverages ? Object.entries(p.coverages).filter(([_, v]) => Number(v) > 0).map(([k, v]) => `${k}: ${formatCurrency(v)}`).join(' | ') : 'N/A'}
+                        {p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' ? (
+                          <div>
+                            <span style={{ fontWeight: '600', color: '#047857' }}>Portfolio NAV: {formatCurrency(p.currentFundValue || 0)}</span>
+                            <span style={{ fontSize: '8px', color: '#64748B', display: 'block' }}>
+                              Nominal Death: 101% NAV ({formatCurrency((Number(p.currentFundValue || 0) * 1.01))}) • Strategy: {p.fundStrategy || 'Balanced'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div>
+                            {p.coverages ? Object.entries(p.coverages).filter(([_, v]) => Number(v) > 0).map(([k, v]) => `${k}: ${formatCurrency(v)}`).join(' | ') : 'N/A'}
+                            {p.policyType === 'ILP' && p.cashValue && (
+                              <div style={{ fontSize: '8px', color: '#4F46E5', fontWeight: '600', marginTop: '2px' }}>
+                                Accumulated Cash/Fund: {formatCurrency(p.cashValue)}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -3143,7 +3182,22 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
               </div>
 
               <div>
-                <label style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Investments & Portfolios ($)</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Investments & Portfolios ($)</label>
+                  {totalPureIlpFundValue > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cur = Number(balanceSheet.investedAssets) || 0;
+                        setBalanceSheet({ ...balanceSheet, investedAssets: cur + totalPureIlpFundValue });
+                      }}
+                      title="Add in-force Pure ILP NAV to Invested Assets"
+                      style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', fontSize: '10px', fontWeight: '600', padding: 0, textDecoration: 'underline' }}
+                    >
+                      + Add Pure ILP ({formatCurrency(totalPureIlpFundValue)})
+                    </button>
+                  )}
+                </div>
                 <input
                   type="number"
                   placeholder="0"
@@ -3153,8 +3207,13 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
                   style={{ width: '100%', padding: '6px 10px', fontSize: '13px' }}
                 />
                 <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', display: 'block' }}>
-                  Equities, unit trusts, ETFs & bonds
+                  Equities, unit trusts, ETFs, bonds & Pure ILP holdings
                 </span>
+                {totalPureIlpFundValue > 0 && (
+                  <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.08)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                    <span>📈 In-force Pure ILP NAV: {formatCurrency(totalPureIlpFundValue)}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4692,9 +4751,14 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
                               <td style={{ padding: '8px 10px', color: 'var(--text-primary)' }}>
                                 {p.policyName || 'Plan Name'}<br />
                                 <span style={{ fontSize: '10px', color: '#60a5fa' }}>{p.policyType || 'General'}</span>
+                                {p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' && (
+                                  <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '4px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399', fontWeight: '700', marginLeft: '6px' }}>
+                                    📈 Pure ILP
+                                  </span>
+                                )}
                               </td>
                               <td style={{ padding: '8px 10px', color: 'var(--text-primary)' }}>
-                                {formatCurrency(p.premium)} / {p.premiumFrequency || 'yr'}
+                                {formatCurrency(p.premium || p.premiumAmount)} / {p.premiumFrequency || 'yr'}
                               </td>
                               <td style={{ padding: '8px 10px' }}>
                                 <span style={{ padding: '2px 6px', borderRadius: '6px', fontSize: '10px', backgroundColor: p.status === 'In Force' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)', color: p.status === 'In Force' ? '#34d399' : 'var(--text-muted)' }}>
@@ -4702,13 +4766,23 @@ export default function ClientFinancialPlanView({ client, onBack, onUpdateClient
                                 </span>
                               </td>
                               <td style={{ padding: '8px 10px', color: 'var(--text-secondary)' }}>
-                                {p.coverages && Object.keys(p.coverages).length > 0 ? (
+                                {p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' ? (
+                                  <div>
+                                    <div style={{ fontWeight: '600', color: '#34d399' }}>Portfolio Fund NAV: {formatCurrency(p.currentFundValue || 0)}</div>
+                                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Nominal Death: 101% NAV ({formatCurrency((Number(p.currentFundValue || 0) * 1.01))}) • Strategy: {p.fundStrategy || 'Balanced'}</div>
+                                  </div>
+                                ) : p.coverages && Object.keys(p.coverages).length > 0 ? (
                                   <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                                     {Object.entries(p.coverages).map(([k, v]) => (
                                       <span key={k} style={{ padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(255,255,255,0.04)', fontSize: '10px', color: 'var(--text-primary)' }}>
                                         {k}: <strong>{formatCurrency(v)}</strong>
                                       </span>
                                     ))}
+                                    {p.policyType === 'ILP' && p.cashValue && (
+                                      <span style={{ padding: '1px 6px', borderRadius: '4px', backgroundColor: 'rgba(99, 102, 241, 0.1)', fontSize: '10px', color: '#818cf8', fontWeight: '600' }}>
+                                        Cash Value: {formatCurrency(p.cashValue)}
+                                      </span>
+                                    )}
                                   </div>
                                 ) : (
                                   <span style={{ color: 'var(--text-muted)' }}>Standard Policy Benefits</span>

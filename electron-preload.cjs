@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateGoogleEvent: (payload) => ipcRenderer.invoke('update-google-event', payload),
   deleteGoogleEvent: (payload) => ipcRenderer.invoke('delete-google-event', payload),
   syncAllTasks: () => ipcRenderer.invoke('sync-all-tasks'),
+  syncMobileCompanion: () => ipcRenderer.invoke('sync-mobile-companion'),
+  reconcilePacemakerWithAi: (payload) => ipcRenderer.invoke('reconcile-weekly-pacemaker-ai', payload),
   openPath: (pathString) => ipcRenderer.invoke('open-path', pathString),
   
   // Project 100 API

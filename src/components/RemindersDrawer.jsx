@@ -231,6 +231,10 @@ export default function RemindersDrawer({ isOpen, onClose, onSelectClient, onNav
         }
       }
     }
+    if (task.isProspect && onNavigateTab) {
+      onNavigateTab('special-projects');
+      return;
+    }
     if (onNavigateTab) {
       onNavigateTab('clients');
     }
@@ -527,17 +531,30 @@ export default function RemindersDrawer({ isOpen, onClose, onSelectClient, onNav
                       style={{
                         background: 'none',
                         border: 'none',
-                        color: 'var(--accent-primary)',
+                        color: task.isProspect ? '#c084fc' : 'var(--accent-primary)',
                         padding: 0,
                         cursor: 'pointer',
                         fontWeight: '600',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '3px',
+                        gap: '4px',
                         textDecoration: 'underline'
                       }}
-                      title="Open client profile"
+                      title={task.isProspect ? "Project 100 Prospect (Click to open Special Projects)" : "Open client profile"}
                     >
+                      {task.isProspect && (
+                        <span style={{ 
+                          fontSize: '8.5px', 
+                          fontWeight: '700', 
+                          padding: '1px 5px', 
+                          borderRadius: '3px', 
+                          backgroundColor: 'rgba(192, 132, 252, 0.2)', 
+                          color: '#c084fc', 
+                          textDecoration: 'none' 
+                        }}>
+                          🎯 Prospect
+                        </span>
+                      )}
                       {task.clientName}
                       <ArrowUpRight size={11} />
                     </button>

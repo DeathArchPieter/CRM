@@ -27,6 +27,7 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog, Notification } = re
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const http = require('http');
+const { syncMobileCompanion } = require('./src/services/mobileSyncService.cjs');
 
 const isDev = !app.isPackaged;
 
@@ -585,6 +586,12 @@ function createWindow() {
         policyNumber: policyData.policyNumber || '',
         provider: policyData.provider || '',
         policyType: policyData.policyType || '',
+        ilpSubtype: policyData.ilpSubtype || (policyData.policyType === 'ILP' ? 'coverage' : undefined),
+        currentFundValue: policyData.currentFundValue !== undefined && policyData.currentFundValue !== '' ? Number(policyData.currentFundValue) : undefined,
+        cashValue: policyData.cashValue !== undefined && policyData.cashValue !== '' ? Number(policyData.cashValue) : undefined,
+        investmentHorizonYears: policyData.investmentHorizonYears || '',
+        fundStrategy: policyData.fundStrategy || '',
+        projectedReturnRate: policyData.projectedReturnRate !== undefined && policyData.projectedReturnRate !== '' ? Number(policyData.projectedReturnRate) : undefined,
         status: policyData.status || 'In Force',
         premiumAmount: Number(policyData.premiumAmount) || 0,
         medisavePremium: policyData.medisavePremium !== undefined && policyData.medisavePremium !== '' ? Number(policyData.medisavePremium) : undefined,
@@ -655,6 +662,12 @@ function createWindow() {
         insuredDob: policyData.insuredDob !== undefined ? policyData.insuredDob : (db.policies[index].insuredDob || null),
         insuredGender: policyData.insuredGender !== undefined ? policyData.insuredGender : (db.policies[index].insuredGender || ''),
         policyName: policyData.policyName || db.policies[index].policyName || '',
+        ilpSubtype: policyData.ilpSubtype !== undefined ? policyData.ilpSubtype : db.policies[index].ilpSubtype,
+        currentFundValue: policyData.currentFundValue !== undefined && policyData.currentFundValue !== '' ? Number(policyData.currentFundValue) : (policyData.currentFundValue === '' ? null : db.policies[index].currentFundValue),
+        cashValue: policyData.cashValue !== undefined && policyData.cashValue !== '' ? Number(policyData.cashValue) : (policyData.cashValue === '' ? null : db.policies[index].cashValue),
+        investmentHorizonYears: policyData.investmentHorizonYears !== undefined ? policyData.investmentHorizonYears : (db.policies[index].investmentHorizonYears || ''),
+        fundStrategy: policyData.fundStrategy !== undefined ? policyData.fundStrategy : (db.policies[index].fundStrategy || ''),
+        projectedReturnRate: policyData.projectedReturnRate !== undefined && policyData.projectedReturnRate !== '' ? Number(policyData.projectedReturnRate) : (policyData.projectedReturnRate === '' ? null : db.policies[index].projectedReturnRate),
         premiumAmount: Number(policyData.premiumAmount) || 0,
         coverages: policyData.coverages || {},
         remarks: policyData.remarks !== undefined ? policyData.remarks : (policyData.notes !== undefined ? policyData.notes : db.policies[index].remarks || db.policies[index].notes || ''),
@@ -1320,6 +1333,22 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
         scoreTrust: contactData.scoreTrust !== undefined ? Number(contactData.scoreTrust) : db.project100Contacts[index].scoreTrust,
         updatedAt: new Date().toISOString()
       };
+
+      // If prospect was ported/converted to a client, link all their tasks to the new client
+      if (contactData.portedClientId) {
+        if (!db.tasks) db.tasks = [];
+        const contactFullName = (db.project100Contacts[index].fullName || '').toLowerCase().trim();
+        db.tasks.forEach(t => {
+          if (
+            t.prospectId === contactData.id || 
+            (t.clientId && t.clientId === contactData.id) ||
+            (!t.clientId && contactFullName && t.description && t.description.toLowerCase().includes(contactFullName))
+          ) {
+            t.clientId = contactData.portedClientId;
+          }
+        });
+      }
+
       saveDatabase();
       return { success: true };
     } catch (error) {
@@ -1496,8 +1525,10 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
       const now = new Date().toISOString();
       const newTask = {
         id,
-        clientId: taskData.clientId,
-        type: taskData.type || 'task', // 'task' | 'meeting' | 'followup'
+        clientId: taskData.clientId || null,
+        prospectId: taskData.prospectId || null,
+        prospectName: taskData.prospectName || null,
+        type: taskData.type || 'task', // 'task' | 'meeting' | 'social' | 'followup'
         description: taskData.description || '',
         status: taskData.status || 'Pending', // Pending | Completed
         dueDate: taskData.dueDate || null,
@@ -1505,7 +1536,7 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
         dueEndTime: taskData.dueEndTime || null,
         location: taskData.location || '',
         priority: taskData.priority || 'Normal', // 'Normal' | 'High' | 'Urgent'
-        channel: taskData.channel || null, // 'WhatsApp' | 'Phone Call' | 'Email' | 'Coffee' | 'Office' | 'In-Person'
+        channel: taskData.channel || null, // 'WhatsApp' | 'Phone Call' | 'Email' | 'Coffee' | 'Coffee / Social' | 'Office' | 'In-Person'
         logTouchpointOnComplete: !!taskData.logTouchpointOnComplete,
         createdAt: now,
         updatedAt: now
@@ -1544,6 +1575,9 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
       const updatedTask = {
         ...db.tasks[index],
         ...taskData,
+        clientId: taskData.clientId !== undefined ? (taskData.clientId || null) : db.tasks[index].clientId,
+        prospectId: taskData.prospectId !== undefined ? (taskData.prospectId || null) : db.tasks[index].prospectId,
+        prospectName: taskData.prospectName !== undefined ? (taskData.prospectName || null) : db.tasks[index].prospectName,
         updatedAt: new Date().toISOString()
       };
       db.tasks[index] = updatedTask;
@@ -1554,8 +1588,8 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
           if (updatedTask.status === 'Completed') {
             db.clients[clientIndex].lastContactedAt = new Date().toISOString();
             
-            // Automatically log touchpoint if marked as completed follow-up/meeting or explicitly requested
-            if (updatedTask.logTouchpointOnComplete || updatedTask.type === 'followup' || updatedTask.type === 'meeting') {
+            // Automatically log touchpoint if marked as completed follow-up/meeting/social or explicitly requested
+            if (updatedTask.logTouchpointOnComplete || updatedTask.type === 'followup' || updatedTask.type === 'meeting' || updatedTask.type === 'social') {
               db.clients[clientIndex].touchpoints = db.clients[clientIndex].touchpoints || [];
               const touchpointDate = updatedTask.dueDate || new Date().toISOString().split('T')[0];
               const alreadyLogged = db.clients[clientIndex].touchpoints.some(tp => {
@@ -1565,7 +1599,7 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
               if (!alreadyLogged) {
                 db.clients[clientIndex].touchpoints.push({
                   date: touchpointDate,
-                  type: updatedTask.type === 'meeting' ? 'Meeting' : (updatedTask.channel || 'Follow-up'),
+                  type: updatedTask.type === 'meeting' ? 'Meeting' : (updatedTask.type === 'social' ? 'Coffee / Social' : (updatedTask.channel || 'Follow-up')),
                   notes: updatedTask.description
                 });
               }
@@ -1633,12 +1667,27 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
         .filter(t => t.status === 'Pending')
         .map(t => {
           const client = db.clients.find(c => c.id === t.clientId);
+          const prospect = !client ? (db.project100Contacts || []).find(p => 
+            (t.prospectId && p.id === t.prospectId) ||
+            (t.clientId && p.id === t.clientId) ||
+            (t.prospectName && (p.fullName || '').toLowerCase().trim() === t.prospectName.toLowerCase().trim()) ||
+            (p.fullName && t.description && t.description.toLowerCase().includes(p.fullName.toLowerCase()))
+          ) : null;
+
+          const isProspect = !client && !!(prospect || t.prospectName || (t.clientId && t.clientId.startsWith('prospect:')));
+          const resolvedName = client 
+            ? client.fullName 
+            : (prospect ? prospect.fullName : (t.prospectName || 'Unknown Client'));
+
           return {
             ...t,
-            clientName: client ? client.fullName : 'Unknown Client',
-            clientPreferredName: client ? (client.preferredName || client.fullName) : null,
-            clientPhone: client ? client.phone : null,
-            clientEmail: client ? client.email : null
+            clientName: resolvedName,
+            clientPreferredName: client ? (client.preferredName || client.fullName) : (prospect ? (prospect.fullName.split(' ')[0] || prospect.fullName) : (t.prospectName || null)),
+            clientPhone: client ? client.phone : (prospect ? prospect.phone : null),
+            clientEmail: client ? client.email : (prospect ? prospect.email : null),
+            isProspect,
+            prospectId: prospect ? prospect.id : (t.prospectId || null),
+            prospectCategory: prospect ? prospect.category : null
           };
         })
         .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -2055,6 +2104,110 @@ PENDING TASKS: ${pendingTasks.length}${pendingTasks.length > 0 ? '\n' + taskList
 
       return { success: true, data: text, cached: false };
     } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Gemini AI Weekly Activity Pacemaker Schedule Reconciliation & Deduplication
+  ipcMain.handle('reconcile-weekly-pacemaker-ai', async (event, payload) => {
+    try {
+      const { items = [], paceTarget = 15, weekLabel = '' } = payload || {};
+      if (!Array.isArray(items) || items.length === 0) {
+        return {
+          success: true,
+          data: {
+            items: [],
+            archieInsight: 'No calendar events found for this week. Great opportunity to start scheduling client catch-ups!'
+          }
+        };
+      }
+
+      const systemInstruction = `You are Archie, an expert AI Practice Manager and Scheduling Copilot for Beetsma Consultancy, an elite financial advisory practice.
+The consultant aims to meet ${paceTarget} people per week (target pace) across clients, prospects, networking, and social catch-ups.
+
+Your role is to analyze a combined list of raw calendar events and CRM tasks for ${weekLabel}, resolve cross-source duplicates, and classify each event accurately.
+
+RULES FOR CLASSIFICATION & PACING:
+1. DEDUPLICATION:
+   - If a Google Calendar event and a CRM task describe the same meeting or same contact at the same or overlapping time on the same date (e.g., "Janice Tay Li Jing" on Google Cal and "Catch-Up over lunch" with Janice on CRM, or "Breakfast with Jacelyn Lee" on Google Cal and "Project 100 Consultation: Jacelyn Lee" on CRM), MERGE THEM into 1 single item.
+   - List all merged IDs in "mergedIds" (e.g. ["google-123", "task-456"]).
+
+2. ACCURATE CATEGORIZATION:
+   - "client": Existing client portfolio review, policy servicing, financial planning, claims advisory. (Counts toward pace)
+   - "prospect": Discovery meeting, fact-finding, Project 100 consultation, pitch. (Counts toward pace)
+   - "social": 1-on-1 coffee, lunch, dinner, catch-up with friend/acquaintance. (Counts toward pace)
+   - "networking": BNI, chamber mixer, professional introductions, 1-on-1 partnership chat. (Counts toward pace)
+   - "internal_agency": Agency huddle (e.g. ACACIA Huddle), district meeting (e.g. GRAVITAS District), AIA sprint/convention, unit meeting, company training, team briefing, internal operations. (DOES NOT COUNT TOWARDS 15-PERSON CLIENT PACE! Mark peopleCount: 0 for pacing).
+   - "personal": Gym, flight, personal leave, family/personal block. (DOES NOT COUNT TOWARDS 15-PERSON CLIENT PACE! Mark peopleCount: 0).
+
+3. PEOPLE COUNT:
+   - For 1-on-1 client/prospect/social meetings, peopleCount = 1.
+   - For joint client meetings (e.g. husband and wife), peopleCount = 2.
+   - For internal_agency or personal events, peopleCount = 0 for client pacing purposes (do NOT count all colleagues in the agency room!).
+
+4. ARCHIE COACH INSIGHT:
+   - Provide a concise, motivating 1-2 sentence Archie coach summary. Mention how many genuine client/prospect meetings were confirmed, how many duplicates or internal agency events were filtered out, and how many more are needed to reach the ${paceTarget}-person pace.
+
+5. EXACT ID PRESERVATION:
+   - Every object in "items" MUST keep the exact "id" from the input candidate list. If you merge two or more items, keep the primary item's exact "id" and put the other merged IDs in "mergedIds". Do NOT invent new IDs.
+
+Respond with pure JSON conforming to this schema:
+{
+  "items": [
+    {
+      "id": "exact id from input items",
+      "mergedIds": ["string"],
+      "title": "string",
+      "clientName": "string or null",
+      "dateStr": "YYYY-MM-DD",
+      "timeStr": "HH:MM or All Day",
+      "location": "string",
+      "category": "client" | "prospect" | "social" | "networking" | "internal_agency" | "personal",
+      "categoryLabel": "Client" | "Prospect" | "Social Catch-up" | "Networking" | "Agency Internal" | "Personal",
+      "peopleCount": number,
+      "isExternalPace": boolean,
+      "reason": "string"
+    }
+  ],
+  "archieInsight": "string"
+}`;
+
+      const userMessage = `Here is the raw list of ${items.length} calendar and CRM items for ${weekLabel}:\n` +
+        JSON.stringify(items, null, 2);
+
+      const response = await fetch(getGeminiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API error (${response.status}): ${errBody}`);
+      }
+
+      const json = await response.json();
+      const rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      return {
+        success: true,
+        data: {
+          items: parsed.items || [],
+          archieInsight: parsed.archieInsight || 'Calendar reconciled by Archie.'
+        }
+      };
+    } catch (error) {
+      console.error('Error in reconcile-weekly-pacemaker-ai:', error);
       return { success: false, error: error.message };
     }
   });
@@ -3164,7 +3317,7 @@ INSURANCE PROTECTION GAP MATRIX:
 - Hospital Shield Plan: ${planData?.protection?.hasShield ? 'In Force' : 'None / Not recorded'}
 
 IN-FORCE INSURANCE POLICIES SCHEDULE:
-${(policies || []).map((p, idx) => `${idx + 1}. [${p.status || 'In Force'}] ${p.insurer || 'Insurer'} - ${p.policyName || 'Plan'} (Type: ${p.policyType || 'General'}, Policy #: ${p.policyNumber || 'N/A'}, Premium: $${p.premium || 0}/${p.premiumFrequency || 'yr'}, Coverages: ${JSON.stringify(p.coverages || {})})`).join('\n') || 'No policies currently recorded'}
+${(policies || []).map((p, idx) => `${idx + 1}. [${p.status || 'In Force'}] ${p.insurer || p.provider || 'Insurer'} - ${p.policyName || 'Plan'} (Type: ${p.policyType || 'General'}${p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' ? ` [Pure Investment ILP - Current NAV: $${p.currentFundValue || 0}, Strategy: ${p.fundStrategy || 'N/A'}, MIP: ${p.investmentHorizonYears || 'Flexible'}]` : ''}${p.insuredType === 'Dependent' ? ` [Insured: ${p.insuredName || 'Dependent'} (${p.insuredRelationship || 'Child'})]` : ''}, Policy #: ${p.policyNumber || 'N/A'}, Premium: $${p.premium || p.premiumAmount || 0}/${p.premiumFrequency || 'yr'}, Coverages: ${JSON.stringify(p.coverages || {})})`).join('\n') || 'No policies currently recorded'}
 
 ACTIVE SIMULATED LIFE EVENTS / STRESS TESTS:
 ${(planData?.lifeEvents || []).filter(e => e.active).map(e => `- [ACTIVE] ${e.title} at Age ${e.triggerAge}: ${e.description} (Impact: Lump sum $${e.lumpSumCost || 0}, Monthly cashflow delta $${e.monthlyDelta || 0} for ${e.durationYears || 1} years)`).join('\n') || 'None active (baseline scenario)'}
@@ -4210,11 +4363,15 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
           ${p.policyName || 'Plan Name'}<br>
           <span style="font-size: 8.5px; color: #2563EB;">${p.policyType || 'General'}</span>
           ${p.insuredType === 'Dependent' ? ` &bull; <span style="font-size: 8px; color: #7C3AED; font-weight: 600; background: #F3E8FF; padding: 1px 4px; border-radius: 3px;">👶 Insured: ${p.insuredName || 'Dependent'} (${p.insuredRelationship || 'Family'})</span>` : ' &bull; <span style="font-size: 8px; color: #64748B;">👤 Insured: Self</span>'}
+          ${p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' ? ` &bull; <span style="font-size: 8px; color: #059669; font-weight: 700; background: #ECFDF5; padding: 1px 4px; border-radius: 3px;">📈 Pure Investment ILP (Fund: ${formatCur(p.currentFundValue || 0)})</span>` : ''}
+          ${p.policyType === 'ILP' && p.ilpSubtype !== 'pure_investment' && p.cashValue ? ` &bull; <span style="font-size: 8px; color: #2563EB; font-weight: 600; background: #EFF6FF; padding: 1px 4px; border-radius: 3px;">Cash Value: ${formatCur(p.cashValue)}</span>` : ''}
         </td>
         <td>${formatCur(p.premium)} / ${p.premiumFrequency || 'yr'}</td>
         <td><span class="${p.status === 'In Force' ? 'badge-success' : 'badge-primary'}">${p.status || 'Active'}</span></td>
         <td>
-          ${p.coverages && Object.keys(p.coverages).length > 0 ? Object.entries(p.coverages).map(([k, v]) => `<span style="display: inline-block; background: #EEF2F6; padding: 1px 4px; border-radius: 3px; font-size: 8.5px; margin: 1px;">${k}: <strong>${formatCur(v)}</strong></span>`).join(' ') : '<span style="color: #94A3B8;">Standard Benefits</span>'}
+          ${p.policyType === 'ILP' && p.ilpSubtype === 'pure_investment' ? 
+            `<span style="color: #059669; font-style: italic; font-size: 8.5px;">Wealth Accumulation (101% NAV Nominal Death Benefit)</span>` : 
+            (p.coverages && Object.keys(p.coverages).length > 0 ? Object.entries(p.coverages).map(([k, v]) => `<span style="display: inline-block; background: #EEF2F6; padding: 1px 4px; border-radius: 3px; font-size: 8.5px; margin: 1px;">${k}: <strong>${formatCur(v)}</strong></span>`).join(' ') : '<span style="color: #94A3B8;">Standard Benefits</span>')}
         </td>
       </tr>`).join('')}
     </tbody>
@@ -5340,9 +5497,26 @@ Generate the tweaked outreach message script template in the specified JSON form
     try {
       const allTasks = db.tasks.map(t => {
         const client = db.clients.find(c => c.id === t.clientId);
+        const prospect = !client ? (db.project100Contacts || []).find(p => 
+          (t.prospectId && p.id === t.prospectId) ||
+          (t.clientId && p.id === t.clientId) ||
+          (t.prospectName && (p.fullName || '').toLowerCase().trim() === t.prospectName.toLowerCase().trim()) ||
+          (p.fullName && t.description && t.description.toLowerCase().includes(p.fullName.toLowerCase()))
+        ) : null;
+
+        const isProspect = !client && !!(prospect || t.prospectName || (t.clientId && t.clientId.startsWith('prospect:')));
+        const resolvedName = client 
+          ? client.fullName 
+          : (prospect ? prospect.fullName : (t.prospectName || 'Unknown Client'));
+
         return {
           ...t,
-          clientName: client ? client.fullName : 'Unknown Client'
+          clientName: resolvedName,
+          clientPhone: client ? client.phone : (prospect ? prospect.phone : null),
+          clientEmail: client ? client.email : (prospect ? prospect.email : null),
+          isProspect,
+          prospectId: prospect ? prospect.id : (t.prospectId || null),
+          prospectCategory: prospect ? prospect.category : null
         };
       });
       return { success: true, data: allTasks };
@@ -5381,6 +5555,24 @@ Generate the tweaked outreach message script template in the specified JSON form
     }
   });
 
+  // Mobile Companion Synchronization IPC Handler
+  ipcMain.handle('sync-mobile-companion', async () => {
+    writeToLogFile('[IPC] sync-mobile-companion triggered');
+    try {
+      const res = await syncMobileCompanion({ db, saveDatabase, syncTaskToGoogleCalendar, writeToLogFile });
+      if (res.success && (res.pulledAppts > 0 || res.pulledDebriefs > 0)) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('db-updated');
+          mainWindow.webContents.send('calendar-synced');
+        }
+      }
+      return res;
+    } catch (error) {
+      writeToLogFile(`[IPC] sync-mobile-companion error: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
   if (isDev) {
     // In development, load from Vite dev server
     mainWindow.loadURL('http://localhost:18429');
@@ -5393,6 +5585,27 @@ Generate the tweaked outreach message script template in the specified JSON form
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
+}
+
+async function runBackgroundMobileSync() {
+  try {
+    const res = await syncMobileCompanion({ db, saveDatabase, syncTaskToGoogleCalendar, writeToLogFile });
+    if (res.success && (res.pulledAppts > 0 || res.pulledDebriefs > 0)) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('db-updated');
+        mainWindow.webContents.send('calendar-synced');
+      }
+    }
+  } catch (err) {
+    writeToLogFile(`[Mobile Auto-Sync] Warning: ${err.message}`);
+  }
+}
+
+function startContinuousMobileSync() {
+  // Initial sync after 8 seconds
+  setTimeout(runBackgroundMobileSync, 8000);
+  // Continuous sync every 3 minutes
+  setInterval(runBackgroundMobileSync, 3 * 60 * 1000);
 }
 
 app.whenReady().then(() => {
@@ -5421,6 +5634,9 @@ app.whenReady().then(() => {
 
   // Start continuous native desktop reminder scheduler
   startContinuousReminderScheduler();
+
+  // Start continuous Mobile Companion sync with Firebase
+  startContinuousMobileSync();
 });
 
 app.on('window-all-closed', function () {
@@ -5656,7 +5872,15 @@ async function syncTaskToGoogleCalendar(task) {
 
   // Prepare event data
   const client = db.clients.find(c => c.id === task.clientId);
-  const clientName = client ? client.fullName : 'Unknown Client';
+  const prospect = !client ? (db.project100Contacts || []).find(p => 
+    (task.prospectId && p.id === task.prospectId) ||
+    (task.clientId && p.id === task.clientId) ||
+    (task.prospectName && (p.fullName || '').toLowerCase().trim() === task.prospectName.toLowerCase().trim()) ||
+    (p.fullName && task.description && task.description.toLowerCase().includes(p.fullName.toLowerCase()))
+  ) : null;
+  const isProspect = !client && !!(prospect || task.prospectName);
+  const personName = client ? client.fullName : (prospect ? prospect.fullName : (task.prospectName || ''));
+  const entityLabel = personName ? (isProspect ? ` [Prospect: ${personName}]` : ` (${personName})`) : '';
   const prefix = task.status === 'Completed' ? '✓ ' : '';
   
   let summary = '';
@@ -5664,20 +5888,23 @@ async function syncTaskToGoogleCalendar(task) {
 
   const type = task.type || 'task';
   if (type === 'meeting') {
-    summary = `${prefix}📅 Meeting: ${task.description} (${clientName})`;
+    summary = `${prefix}📅 Meeting: ${task.description}${entityLabel}`;
     colorId = '3'; // Grape (violet)
+  } else if (type === 'social') {
+    summary = `${prefix}☕ Social Catch-Up: ${task.description}${entityLabel}`;
+    colorId = '6'; // Tangerine (orange)
   } else if (type === 'followup') {
     const ch = task.channel ? ` [${task.channel}]` : '';
-    summary = `${prefix}📞 Follow-up${ch}: ${task.description} (${clientName})`;
+    summary = `${prefix}📞 Follow-up${ch}: ${task.description}${entityLabel}`;
     colorId = '7'; // Peacock (cyan)
   } else {
     const prio = task.priority && task.priority !== 'Normal' ? ` [${task.priority}]` : '';
-    summary = `${prefix}📋 Task${prio}: ${task.description} (${clientName})`;
+    summary = `${prefix}📋 Task${prio}: ${task.description}${entityLabel}`;
     colorId = task.priority === 'Urgent' ? '11' : (task.priority === 'High' ? '4' : '5'); // Flamingo (red) or Banana (yellow)
   }
 
   const descLines = [
-    `Linked to CRM Client: ${clientName}`,
+    client ? `Linked to CRM Client: ${personName}` : (prospect ? `Project 100 Prospect: ${personName} (${prospect.category || 'Prospect'})` : null),
     `Type: ${type.toUpperCase()}`,
     task.priority ? `Priority: ${task.priority}` : null,
     task.channel ? `Channel: ${task.channel}` : null,
@@ -5830,7 +6057,7 @@ function runTaskReminderCheck() {
               showTaskDesktopNotification({
                 title: task.type === 'meeting' 
                   ? `📅 Meeting in ${diffMinutes}m: ${clientName}` 
-                  : (task.type === 'followup' ? `📞 Follow-up in ${diffMinutes}m: ${clientName}` : `📋 Task due in ${diffMinutes}m: ${clientName}`),
+                  : (task.type === 'social' ? `☕ Social Catch-Up in ${diffMinutes}m: ${clientName}` : (task.type === 'followup' ? `📞 Follow-up in ${diffMinutes}m: ${clientName}` : `📋 Task due in ${diffMinutes}m: ${clientName}`)),
                 body: `${task.description}${task.location ? ` • ${task.location}` : ''}${task.channel ? ` • ${task.channel}` : ''}`,
                 task,
                 client
@@ -5846,7 +6073,7 @@ function runTaskReminderCheck() {
               showTaskDesktopNotification({
                 title: task.type === 'meeting'
                   ? `📅 Meeting Starting Now: ${clientName}`
-                  : (task.type === 'followup' ? `📞 Follow-up Due Now: ${clientName}` : `📋 Task Deadline: ${clientName}`),
+                  : (task.type === 'social' ? `☕ Social Catch-Up Starting Now: ${clientName}` : (task.type === 'followup' ? `📞 Follow-up Due Now: ${clientName}` : `📋 Task Deadline: ${clientName}`)),
                 body: `${task.description}${task.location ? ` • ${task.location}` : ''}`,
                 task,
                 client
