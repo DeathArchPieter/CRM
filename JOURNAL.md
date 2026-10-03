@@ -1091,6 +1091,21 @@ When tasks or appointments originated from **Project 100** consultations or **Sp
 
 ---
 
+## Hotfix Release: v0.1.6 Packaging Bundle Resolution & Main Process Resilience (October 2026)
+
+### Issue Identified
+Following the auto-update deployment to `v0.1.5`, users encountered a launch modal:
+`Uncaught Exception: Error: Cannot find module './src/services/mobileSyncService.cjs'`
+This occurred because `package.json` `build.files` bundled `dist/**/*`, `electron-main.cjs`, `electron-preload.cjs`, etc., but omitted `src/services/**/*`. As a result, `mobileSyncService.cjs` was missing from `app.asar`.
+
+### Fix Applied
+1. **`package.json`**: Added `"src/services/**/*"` to the `build.files` bundle specification so all main-process auxiliary services are packaged into production `app.asar`.
+2. **`electron-main.cjs`**: Wrapped the import of `./src/services/mobileSyncService.cjs` in a fail-safe `try...catch` block. Even in the event of an IO or path anomaly, the CRM main window and app lifecycle continue normally without unhandled startup exceptions.
+3. **IPC & Background Task Guards**: Added protective checks (`typeof syncMobileCompanion === 'function'`) before executing manual or background sync routines.
+4. **Desktop Installer & GitHub Release**: Packaged `v0.1.6` NSIS installer and pushed GitHub release to restore seamless auto-update functionality.
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.

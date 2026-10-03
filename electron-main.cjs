@@ -27,7 +27,14 @@ const { app, BrowserWindow, ipcMain, shell, session, dialog, Notification } = re
 const { autoUpdater } = require('electron-updater');
 const crypto = require('crypto');
 const http = require('http');
-const { syncMobileCompanion } = require('./src/services/mobileSyncService.cjs');
+
+let syncMobileCompanion = null;
+try {
+  const mobileSyncMod = require('./src/services/mobileSyncService.cjs');
+  syncMobileCompanion = mobileSyncMod.syncMobileCompanion;
+} catch (err) {
+  console.warn('[MobileSync] mobileSyncService load error:', err.message);
+}
 
 const isDev = !app.isPackaged;
 
@@ -5559,6 +5566,10 @@ Generate the tweaked outreach message script template in the specified JSON form
   ipcMain.handle('sync-mobile-companion', async () => {
     writeToLogFile('[IPC] sync-mobile-companion triggered');
     try {
+      if (typeof syncMobileCompanion !== 'function') {
+        writeToLogFile('[IPC] sync-mobile-companion skipped: mobileSyncService not available');
+        return { success: false, error: 'Mobile sync service unavailable' };
+      }
       const res = await syncMobileCompanion({ db, saveDatabase, syncTaskToGoogleCalendar, writeToLogFile });
       if (res.success && (res.pulledAppts > 0 || res.pulledDebriefs > 0)) {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -5589,6 +5600,7 @@ Generate the tweaked outreach message script template in the specified JSON form
 
 async function runBackgroundMobileSync() {
   try {
+    if (typeof syncMobileCompanion !== 'function') return;
     const res = await syncMobileCompanion({ db, saveDatabase, syncTaskToGoogleCalendar, writeToLogFile });
     if (res.success && (res.pulledAppts > 0 || res.pulledDebriefs > 0)) {
       if (mainWindow && !mainWindow.isDestroyed()) {
