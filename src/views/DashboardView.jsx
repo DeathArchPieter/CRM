@@ -346,10 +346,10 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
 
       // Match client / prospect (supports preferredName, surname tokens, and punctuation cleanup)
       const summaryTokens = summaryLower.split(/[\s\-:,/()]+/).filter(t => t.length >= 3 && !['appt', 'appts', 'meeting', 'catchup', 'catch', 'coffee', 'lunch', 'dinner', 'sync', 'chat', 'call', 'with', 'over'].includes(t));
-      const matchedClient = clients.find(c => {
-        if (!c.fullName) return false;
-        const fn = c.fullName.toLowerCase().trim();
-        const cleanPn = (c.preferredName || '').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
+      const matchedClient = Array.isArray(clients) ? clients.find(c => {
+        if (!c || !c.fullName) return false;
+        const fn = String(c.fullName).toLowerCase().trim();
+        const cleanPn = String(c.preferredName || '').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
         if (summaryLower.includes(fn)) return true;
         if (cleanPn && cleanPn.length >= 3 && (summaryLower.includes(cleanPn) || summaryTokens.includes(cleanPn))) return true;
 
@@ -357,11 +357,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         const fnTokens = fn.split(/\s+/).filter(t => t.length >= 3 && !['mr', 'mrs', 'ms', 'mdm', 'dr'].includes(t));
         if (fnTokens.some(t => summaryTokens.includes(t))) return true;
 
-        if (e.attendees && c.email) {
-          return e.attendees.some(a => a.email && a.email.toLowerCase() === c.email.toLowerCase());
+        if (Array.isArray(e.attendees) && c.email) {
+          return e.attendees.some(a => a && typeof a.email === 'string' && typeof c.email === 'string' && a.email.toLowerCase() === c.email.toLowerCase());
         }
         return false;
-      });
+      }) : null;
 
       const gYear = eventStart.getFullYear();
       const gMonth = String(eventStart.getMonth() + 1).padStart(2, '0');
@@ -600,6 +600,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       const titleLower = (item.title || '').toLowerCase();
       const descLower = (item.description || '').toLowerCase();
       const locLower = (item.location || '').toLowerCase();
+      const fullText = `${titleLower} ${descLower} ${locLower}`.trim();
 
       // Check training strictly in title & description (NEVER check location to avoid false positives from venues like "Golf Course", "The Concourse", "Racecourse")
       const activityText = `${titleLower} ${descLower}`.replace(/\b(golf|race|main)\s+course\b/gi, '').replace(/\bconcourse\b/gi, '');
@@ -644,7 +645,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       }
 
       // C. Other Personal Errands, Leave & Workouts (EXCLUDED FROM SALES PACE)
-      const isPersonal = /leave|flight|gym|workout|fitness|holiday|birthday|personal block|off day|family day|parent|kids|haircut|errand/i.test(combinedText);
+      const isPersonal = /leave|flight|gym|workout|fitness|holiday|birthday|personal block|off day|family day|parent|kids|haircut|errand/i.test(fullText);
       if (isPersonal) {
         return {
           ...item,
@@ -725,7 +726,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       }
 
       // G. Solo Admin / Paperwork check
-      const isSoloAdmin = /admin|paperwork|desk work|prep slides|emailing|internal review|invoicing/i.test(combinedText);
+      const isSoloAdmin = /admin|paperwork|desk work|prep slides|emailing|internal review|invoicing/i.test(fullText);
       if (isSoloAdmin) {
         return {
           ...item,

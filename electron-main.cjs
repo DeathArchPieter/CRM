@@ -407,6 +407,42 @@ function createWindow() {
     autoHideMenuBar: true, // Hides the default File/Edit menu
   });
 
+  // Capture renderer console messages and forward warnings/errors to app.log
+  mainWindow.webContents.on('console-message', (event, ...args) => {
+    let msg = '';
+    let levelStr = 'INFO';
+    let line = 0;
+    let source = '';
+    if (args.length === 1 && args[0] && typeof args[0] === 'object') {
+      const details = args[0];
+      msg = details.message || '';
+      levelStr = details.level === 'error' || details.level === 3 ? 'ERROR' : (details.level === 'warning' || details.level === 2 ? 'WARN' : 'INFO');
+      line = details.lineNumber || 0;
+      source = details.sourceId || '';
+    } else {
+      const [level, message, lineNum, srcId] = args;
+      msg = message || '';
+      levelStr = level === 3 ? 'ERROR' : (level === 2 ? 'WARN' : 'INFO');
+      line = lineNum || 0;
+      source = srcId || '';
+    }
+    if (levelStr === 'ERROR' || levelStr === 'WARN' || /error|exception|fail|uncaught/i.test(msg)) {
+      writeToLogFile(`[Renderer ${levelStr}] ${msg} (${source}:${line})`);
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    writeToLogFile(`[Window] did-fail-load code=${errorCode}, desc=${errorDescription}, url=${validatedURL}`);
+  });
+
+  // Enable F12 and Ctrl+Shift+I for developer diagnostics in all environments
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      mainWindow.webContents.toggleDevTools();
+      event.preventDefault();
+    }
+  });
+
   // IPC Handlers for custom window controls
   ipcMain.on('window-minimize', () => {
     mainWindow.minimize();

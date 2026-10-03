@@ -16,6 +16,7 @@ import ProductAnalysisView from './views/ProductAnalysisView';
 import SettingsView from './views/SettingsView';
 import UpdateNotificationBanner from './components/UpdateNotificationBanner';
 import AssistantGuide from './components/AssistantGuide';
+import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
 function MainApp() {
@@ -150,7 +151,9 @@ function MainApp() {
         
         {/* Dynamic Content Area */}
         <div id="main-scroll-container" style={{ flex: 1, overflowY: 'auto', padding: '28px', backgroundColor: 'var(--bg-base)' }}>
-          {renderView()}
+          <ErrorBoundary onReset={() => setActiveTab('dashboard')}>
+            {renderView()}
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -173,11 +176,13 @@ function MainApp() {
 
 function App() {
   return (
-    <ToastProvider>
-      <AdvisorContextProvider activeMainTab="dashboard">
-        <MainApp />
-      </AdvisorContextProvider>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AdvisorContextProvider activeMainTab="dashboard">
+          <MainApp />
+        </AdvisorContextProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 

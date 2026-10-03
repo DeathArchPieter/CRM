@@ -1,7 +1,7 @@
 {
   "name": "financial-crm",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
@@ -42,6 +42,10 @@
     "icon": "public/icon.png",
     "files": [
       "dist/**/*",
+      "!dist/*.exe",
+      "!dist/*.blockmap",
+      "!dist/*.yml",
+      "!dist/win-unpacked/**",
       "src/services/**/*",
       "electron-main.cjs",
       "electron-preload.cjs",

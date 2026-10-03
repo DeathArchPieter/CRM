@@ -1144,6 +1144,37 @@ In the Weekly Activity Pacemaker (designed to track progress toward meeting 15 p
 4. **Always rebuild desktop dist (`npm run electron:build`)** upon completing feature requests, bug fixes, or major milestones so that `dist/` is always up to date.
 5. **Financial Report Consistency**: All client PDF reports, financial blueprints, and AI financial summaries must strictly follow the standard schema, structure, and actuarial benchmarks defined in [FINANCIAL_REPORT_SPECIFICATION.md](file:///c:/dev/CRM/FINANCIAL_REPORT_SPECIFICATION.md).
 
+---
+
+## Bugfix & Hardening: Total Blank Screen on Startup Resolution, Dual-Layer ErrorBoundary & Diagnostic Logging (v0.1.9 - October 2026)
+
+### Root Cause Analysis of Blank Screen
+1. **ReferenceError on Initial Render**: During the refactoring of the Weekly Activity Pacemaker in `v0.1.8`, `combinedText` was replaced with individual variables (`titleLower`, `descLower`, `locLower`), but two downstream checks (lines 647 for Personal Leave/Errands and 728 for Solo Admin/Paperwork) still referenced `combinedText`. Because `pacemakerData` is evaluated synchronously via `useMemo` upon mounting the Dashboard, any event within the current week's range triggered an immediate, unhandled `ReferenceError: combinedText is not defined`.
+2. **Missing React Error Boundary**: React 19's default behavior for unhandled exceptions in the component tree is to completely unmount the DOM root, resulting in a silent blank screen showing only the window background color.
+3. **Silent Renderer Errors**: Renderer console errors were not piped to `app.log`, making production troubleshooting invisible without DevTools.
+
+### Architecture & Fixes Implemented
+1. **Undefined Variable Elimination (`DashboardView.jsx`)**:
+   - Replaced all obsolete `combinedText` references with `fullText = `${titleLower} ${descLower} ${locLower}`.trim()`.
+   - Verified via ESLint `no-undef` rules across all components.
+2. **Defensive Attendee & Client Name Guards (`DashboardView.jsx`)**:
+   - Guarded `e.attendees` checking with `Array.isArray(e.attendees) && c.email && e.attendees.some(a => a && typeof a.email === 'string' && typeof c.email === 'string' && a.email.toLowerCase() === c.email.toLowerCase())`.
+   - Wrapped `clients.find` with `Array.isArray(clients)` and string coercion on all full and preferred names.
+3. **Dual-Layer `ErrorBoundary` Component (`ErrorBoundary.jsx` & `App.jsx`)**:
+   - Implemented an elegant, dark-themed Error Boundary with mashead alert icon, expandable error message, stack trace, 1-click clipboard copy, and "Reload Application" / "Reset View" recovery buttons.
+   - Dual-wrapped:
+     - Outer Boundary: Wraps entire `<MainApp />` under `<ToastProvider>`.
+     - Inner Boundary: Wraps the dynamic tab content container (`#main-scroll-container`), isolating tab-level errors and keeping navigation/sidebar completely functional.
+4. **Desktop Diagnostics & Production DevTools (`electron-main.cjs`)**:
+   - Added `mainWindow.webContents.on('console-message', ...)` to automatically mirror renderer console warnings and exceptions to `C:\Users\<user>\AppData\Roaming\financial-crm\app.log`.
+   - Added `did-fail-load` logging for script/resource failures.
+   - Enabled `F12` and `Ctrl+Shift+I` keybindings in `before-input-event` to toggle Chrome DevTools anytime in packaged builds.
+5. **Mobile Sync Typo Fix (`mobileSyncService.cjs`)**:
+   - Corrected typo `debbrief.nextActionDate` to `debrief.nextActionDate`.
+6. **Package Cleanliness & Distribution Build (`package.json`)**:
+   - Excluded `!dist/*.exe`, `!dist/*.blockmap`, `!dist/*.yml`, and `!dist/win-unpacked/**` from `build.files` to eliminate recursive bundling.
+   - Bumped version to `v0.1.9` and built final NSIS distribution installer.
+
 
 
 
