@@ -1129,6 +1129,10 @@ In the Weekly Activity Pacemaker (designed to track progress toward meeting 15 p
    - Added `🎓 Training / Agency: X (Excluded)` and `🏥 Medical / Personal: Y (Excluded)` chips in the Category Breakdown row for complete transparency.
    - Rendered inline AI explanation tooltips (`✨ AI Reconciled` and italicized reasoning) directly on engagement cards.
    - Added 1-click routing to Project 100 (`projects`) when clicking prospect badges on engagement cards.
+5. **Venue False Positive Prevention & Client Name Token Matching**:
+   - Fixed an algorithmic false positive where appointments located at sporting/recreational venues containing the word "course" (e.g. `60 Punggol East, Golf Course Singapore 82`, `Marina Bay Golf Course`, `The Concourse`) were erroneously matching `/course/` and getting marked as `Training`.
+   - Constrained training course keyword checks strictly to the title and description (ignoring location addresses and explicitly stripping venue terms like `golf course`).
+   - Enhanced client matching in `rawGoogleEvents`: cleaned trailing punctuation from `preferredName` (e.g. `"Poh,"` -> `"Poh"`) and added surname/name token matching so events like `"Appt - Poh"` immediately resolve to client `"Poh Tze Sen"`.
 
 ---
 

@@ -344,13 +344,19 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         return;
       }
 
-      // Match client / prospect
+      // Match client / prospect (supports preferredName, surname tokens, and punctuation cleanup)
+      const summaryTokens = summaryLower.split(/[\s\-:,/()]+/).filter(t => t.length >= 3 && !['appt', 'appts', 'meeting', 'catchup', 'catch', 'coffee', 'lunch', 'dinner', 'sync', 'chat', 'call', 'with', 'over'].includes(t));
       const matchedClient = clients.find(c => {
         if (!c.fullName) return false;
-        const fn = c.fullName.toLowerCase();
-        const pn = c.preferredName ? c.preferredName.toLowerCase() : '';
+        const fn = c.fullName.toLowerCase().trim();
+        const cleanPn = (c.preferredName || '').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
         if (summaryLower.includes(fn)) return true;
-        if (pn && pn.length > 2 && summaryLower.includes(pn)) return true;
+        if (cleanPn && cleanPn.length >= 3 && (summaryLower.includes(cleanPn) || summaryTokens.includes(cleanPn))) return true;
+
+        // Match primary name tokens (e.g. "Poh" from "Poh Tze Sen")
+        const fnTokens = fn.split(/\s+/).filter(t => t.length >= 3 && !['mr', 'mrs', 'ms', 'mdm', 'dr'].includes(t));
+        if (fnTokens.some(t => summaryTokens.includes(t))) return true;
+
         if (e.attendees && c.email) {
           return e.attendees.some(a => a.email && a.email.toLowerCase() === c.email.toLowerCase());
         }
@@ -594,14 +600,19 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       const titleLower = (item.title || '').toLowerCase();
       const descLower = (item.description || '').toLowerCase();
       const locLower = (item.location || '').toLowerCase();
-      const combinedText = `${titleLower} ${descLower} ${locLower}`;
+
+      // Check training strictly in title & description (NEVER check location to avoid false positives from venues like "Golf Course", "The Concourse", "Racecourse")
+      const activityText = `${titleLower} ${descLower}`.replace(/\b(golf|race|main)\s+course\b/gi, '').replace(/\bconcourse\b/gi, '');
 
       // A. Training & Professional Education (CRITICAL: EXCLUDED FROM SALES PACE)
       const isTrainingOrAgency = 
-        /training|workshop|seminar|webinar|course|exam|cpd|briefing|lecture|masterclass|study group|onboarding|agency meeting|unit meeting|district meeting|huddle|sprint|convention|expo|townhall|assembly|meeting @ office|weekly meeting|cluster meeting|gravitas|acacia|aia sprint|branch meeting/i.test(combinedText);
+        /\b(training|workshop|seminar|webinar|exam|exams|cpd|lecture|masterclass|study group|onboarding)\b/i.test(activityText) ||
+        /\b(cpd course|training course|certification course|online course|e-learning)\b/i.test(activityText) ||
+        /\b(agency meeting|unit meeting|district meeting|district huddle|huddle|sprint|convention|expo|townhall|assembly|meeting @ office|weekly meeting|cluster meeting|branch meeting)\b/i.test(activityText) ||
+        /\b(gravitas|acacia|aia sprint)\b/i.test(activityText);
 
       if (isTrainingOrAgency) {
-        const isEdu = /training|webinar|seminar|workshop|course|exam|cpd|lecture|masterclass|briefing|study group/i.test(combinedText);
+        const isEdu = /\b(training|webinar|seminar|workshop|course|exam|cpd|lecture|masterclass|briefing|study group)\b/i.test(activityText);
         return {
           ...item,
           category: 'internal_agency',
@@ -616,7 +627,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
 
       // B. Medical & Healthcare Appointments (CRITICAL: EXCLUDED FROM SALES PACE)
       const isMedical = 
-        /medical|doctor|dr\b|dentist|dental|clinic|hospital|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|surgery|pharmacy|med appt|specialist appt|polyclinic|mount elizabeth|gleneagles|raffles medical|tan tock seng|sgh/i.test(combinedText);
+        /\b(medical|doctor|dr\b|dentist|dental|clinic|hospital|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|surgery|pharmacy|med appt|specialist appt|polyclinic)\b/i.test(`${titleLower} ${descLower}`) ||
+        /\b(mount elizabeth|gleneagles|raffles medical|tan tock seng|sgh|national university hospital|nuh)\b/i.test(`${titleLower} ${descLower} ${locLower}`);
 
       if (isMedical) {
         return {

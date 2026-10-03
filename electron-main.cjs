@@ -2147,6 +2147,7 @@ RULES FOR CLASSIFICATION & PACING:
    A. TRAINING & PROFESSIONAL EDUCATION (category: "internal_agency", categoryLabel: "Training / Agency", peopleCount: 0, isExternalPace: false):
       - Includes: Agency training, company/AIA training, product briefings, CPD accreditation courses, compliance exams, seminars, webinars, masterclasses, underwriting workshops, agency huddles (ACACIA, GRAVITAS), unit meetings, branch meetings, conventions, and sprint briefings.
       - IMPORTANT: Even if a trainer, mentor, speaker, or colleague is named (e.g. "Training with Marcus", "Briefing by Underwriter Kelvin", "Coaching with Director"), this is PROFESSIONAL EDUCATION / INTERNAL AGENCY, NOT a sales meeting with a prospect or client!
+      - CRITICAL VENUE DISTINCTION: Do NOT mistake venue/address names like "Golf Course", "Punggol East Golf Course", "Marina Bay Golf Course", "The Concourse", or "Racecourse Road" for a training course! An appointment at a golf course (e.g. "Appt - Poh" at Punggol Golf Course) is a client/prospect/social meeting, NOT a training session!
       - peopleCount: 0, isExternalPace: false.
       - reason: Explain that this is internal training/education, excluded from sales pace.
 
