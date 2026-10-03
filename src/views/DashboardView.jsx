@@ -3,7 +3,7 @@ import {
   Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, 
   AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar, 
   Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle,
-  Bell, ChevronDown, ChevronUp, Check, Target, Flame, Coffee, Briefcase, MapPin, Edit3, X
+  Bell, ChevronDown, ChevronUp, Check, Target, Flame, Coffee, Briefcase, MapPin, Edit3, X, Info
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
@@ -394,6 +394,14 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       }
 
       const matchedClient = clients.find(c => c.id === t.clientId);
+      const isProspectTask = !!(t.isProspect || t.prospectName || t.prospectId);
+      const prospectObj = isProspectTask ? {
+        fullName: t.prospectName || t.clientName || 'Prospect',
+        preferredName: (t.prospectName || t.clientName || '').split(' ')[0],
+        phone: t.clientPhone || t.phone || null,
+        clientStatus: 'Prospect',
+        isProspect: true
+      } : null;
 
       rawCrmTasks.push({
         id: `task-${t.id}`,
@@ -401,14 +409,18 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         googleEventId: t.googleEventId || null,
         source: 'crm',
         type: t.type || 'task',
-        title: t.description || 'CRM Meeting',
-        description: '',
+        title: t.title || t.description || 'CRM Meeting',
+        description: t.title && t.description ? t.description : (t.notes || t.remarks || ''),
+        notes: t.notes || t.remarks || '',
         date: taskDate,
         dateStr: t.dueDate,
         timeStr: t.dueTime || 'Scheduled',
         rawTimeMinutes: taskMinutes,
         location: t.location || '',
-        client: matchedClient || null,
+        attendees: [],
+        client: matchedClient || prospectObj,
+        isProspect: isProspectTask,
+        prospectName: t.prospectName || (t.isProspect ? t.clientName : null),
         originalData: t
       });
     });
@@ -429,8 +441,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
             ...task,
             id: `merged-${task.rawId}-${matchedG.rawId}`,
             title: task.title.length > matchedG.title.length ? task.title : matchedG.title,
+            description: [matchedG.description, task.description].filter(Boolean).join('\n'),
             location: task.location || matchedG.location,
+            attendees: matchedG.attendees || [],
             client: task.client || matchedG.client,
+            isProspect: task.isProspect || matchedG.client?.clientStatus === 'Prospect',
             isMerged: true,
             mergedSources: ['google', 'crm']
           });
@@ -486,8 +501,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           ...task,
           id: `merged-${task.rawId}-${matchedG.rawId}`,
           title: resolvedTitle,
+          description: [matchedG.description, task.description].filter(Boolean).join('\n'),
           location: task.location || matchedG.location,
+          attendees: matchedG.attendees || [],
           client: task.client || matchedG.client,
+          isProspect: task.isProspect || matchedG.client?.clientStatus === 'Prospect',
           isMerged: true,
           mergedSources: ['google', 'crm']
         });
@@ -553,7 +571,10 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           combinedItem.isMerged = true;
           combinedItem.mergedIds = [...(combinedItem.mergedIds || [itemA.rawId || itemA.id]), itemB.rawId || itemB.id];
           combinedItem.client = combinedItem.client || itemB.client;
+          combinedItem.description = [combinedItem.description, itemB.description].filter(Boolean).join('\n');
           combinedItem.location = combinedItem.location || itemB.location;
+          combinedItem.attendees = (combinedItem.attendees && combinedItem.attendees.length > 0) ? combinedItem.attendees : (itemB.attendees || []);
+          combinedItem.isProspect = combinedItem.isProspect || itemB.isProspect;
           // Prefer cleaner or combined title
           if (combinedItem.title.toLowerCase().includes(itemB.title.toLowerCase())) {
             // keep combinedItem.title
@@ -568,29 +589,50 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       dedupedList.push(combinedItem);
     }
 
-    // 4. Classify and compute Pace Eligibility
+    // 4. Classify and compute Pace Eligibility (Deterministic Pass)
     const classifiedItems = dedupedList.map(item => {
-      const titleLower = item.title.toLowerCase();
+      const titleLower = (item.title || '').toLowerCase();
+      const descLower = (item.description || '').toLowerCase();
+      const locLower = (item.location || '').toLowerCase();
+      const combinedText = `${titleLower} ${descLower} ${locLower}`;
 
-      // Check if internal agency meeting (CRITICAL: DOES NOT COUNT TOWARDS 15-PERSON CLIENT PACE)
-      const isInternalAgency = /huddle|district meeting|district huddle|agency meeting|unit meeting|sprint|convention|expo|townhall|assembly|meeting @ office|weekly meeting|cluster meeting|product briefing|agent briefing|agency training/i.test(titleLower) ||
-        /gravitas|acacia huddle|aia final sprint|branch meeting/i.test(titleLower);
+      // A. Training & Professional Education (CRITICAL: EXCLUDED FROM SALES PACE)
+      const isTrainingOrAgency = 
+        /training|workshop|seminar|webinar|course|exam|cpd|briefing|lecture|masterclass|study group|onboarding|agency meeting|unit meeting|district meeting|huddle|sprint|convention|expo|townhall|assembly|meeting @ office|weekly meeting|cluster meeting|gravitas|acacia|aia sprint|branch meeting/i.test(combinedText);
 
-      if (isInternalAgency) {
+      if (isTrainingOrAgency) {
+        const isEdu = /training|webinar|seminar|workshop|course|exam|cpd|lecture|masterclass|briefing|study group/i.test(combinedText);
         return {
           ...item,
           category: 'internal_agency',
-          categoryLabel: 'Agency Internal',
+          categoryLabel: isEdu ? 'Training' : 'Agency Internal',
           categoryColor: '#94a3b8',
           categoryBg: 'rgba(148, 163, 184, 0.15)',
           peopleCount: 0,
           isExternalPace: false,
-          pacingTag: 'Internal Session (Excluded from Pace)'
+          pacingTag: `${isEdu ? 'Training' : 'Agency'} Session (Excluded from Pace)`
         };
       }
 
-      // Check if personal
-      const isPersonal = /leave|flight|gym|dentist|doctor|holiday|birthday|personal block|off day/i.test(titleLower);
+      // B. Medical & Healthcare Appointments (CRITICAL: EXCLUDED FROM SALES PACE)
+      const isMedical = 
+        /medical|doctor|dr\b|dentist|dental|clinic|hospital|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|surgery|pharmacy|med appt|specialist appt|polyclinic|mount elizabeth|gleneagles|raffles medical|tan tock seng|sgh/i.test(combinedText);
+
+      if (isMedical) {
+        return {
+          ...item,
+          category: 'personal',
+          categoryLabel: 'Medical',
+          categoryColor: '#f43f5e',
+          categoryBg: 'rgba(244, 63, 94, 0.15)',
+          peopleCount: 0,
+          isExternalPace: false,
+          pacingTag: 'Medical Appointment (Excluded from Pace)'
+        };
+      }
+
+      // C. Other Personal Errands, Leave & Workouts (EXCLUDED FROM SALES PACE)
+      const isPersonal = /leave|flight|gym|workout|fitness|holiday|birthday|personal block|off day|family day|parent|kids|haircut|errand/i.test(combinedText);
       if (isPersonal) {
         return {
           ...item,
@@ -600,11 +642,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           categoryBg: 'rgba(100, 116, 139, 0.15)',
           peopleCount: 0,
           isExternalPace: false,
-          pacingTag: 'Personal (Excluded from Pace)'
+          pacingTag: 'Personal Block (Excluded from Pace)'
         };
       }
 
-      // Social catch-up (check explicit type, channel, or keywords)
+      // D. Social catch-up (check explicit type, channel, or keywords)
       const isSocialType = item.type === 'social' || 
         item.originalData?.type === 'social' || 
         item.originalData?.channel === 'Coffee' || 
@@ -632,9 +674,10 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         };
       }
 
-      // Client or Prospect
-      if (item.client) {
-        if (item.client.clientStatus === 'Prospect') {
+      // E. Client or Prospect Meeting
+      if (item.client || item.isProspect) {
+        const isProspectStatus = item.isProspect || item.client?.clientStatus === 'Prospect' || item.client?.isProspect;
+        if (isProspectStatus) {
           return {
             ...item,
             category: 'prospect',
@@ -656,7 +699,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         };
       }
 
-      // Networking
+      // F. Networking
       if (titleLower.includes('network') || titleLower.includes('bni') || titleLower.includes('mixer') || titleLower.includes('summit') || titleLower.includes('chamber') || titleLower.includes('referral')) {
         return {
           ...item,
@@ -666,6 +709,21 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           categoryBg: 'rgba(56, 189, 248, 0.15)',
           peopleCount: 1,
           isExternalPace: true
+        };
+      }
+
+      // G. Solo Admin / Paperwork check
+      const isSoloAdmin = /admin|paperwork|desk work|prep slides|emailing|internal review|invoicing/i.test(combinedText);
+      if (isSoloAdmin) {
+        return {
+          ...item,
+          category: 'internal_agency',
+          categoryLabel: 'Admin / Desk',
+          categoryColor: '#94a3b8',
+          categoryBg: 'rgba(148, 163, 184, 0.15)',
+          peopleCount: 0,
+          isExternalPace: false,
+          pacingTag: 'Desk Work (Excluded from Pace)'
         };
       }
 
@@ -700,7 +758,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         social: '#fb923c',
         networking: '#38bdf8',
         internal_agency: '#94a3b8',
-        personal: '#64748b',
+        personal: '#f43f5e',
         meeting: '#60a5fa'
       };
       const categoryBgs = {
@@ -709,7 +767,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         social: 'rgba(251, 146, 60, 0.15)',
         networking: 'rgba(56, 189, 248, 0.15)',
         internal_agency: 'rgba(148, 163, 184, 0.15)',
-        personal: 'rgba(100, 116, 139, 0.15)',
+        personal: 'rgba(244, 63, 94, 0.15)',
         meeting: 'rgba(96, 165, 250, 0.15)'
       };
 
@@ -734,12 +792,16 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
 
           if (aiMatch) {
             const effectiveCat = aiMatch.category || item.category;
+            const isMedicalOrPersonal = effectiveCat === 'personal';
+            const catColor = isMedicalOrPersonal && (aiMatch.categoryLabel === 'Personal' ? '#64748b' : '#f43f5e') || categoryColors[effectiveCat] || item.categoryColor;
+            const catBg = isMedicalOrPersonal && (aiMatch.categoryLabel === 'Personal' ? 'rgba(100, 116, 139, 0.15)' : 'rgba(244, 63, 94, 0.15)') || categoryBgs[effectiveCat] || item.categoryBg;
+
             return {
               ...item,
               category: effectiveCat,
               categoryLabel: aiMatch.categoryLabel || item.categoryLabel,
-              categoryColor: categoryColors[effectiveCat] || item.categoryColor,
-              categoryBg: categoryBgs[effectiveCat] || item.categoryBg,
+              categoryColor: catColor,
+              categoryBg: catBg,
               peopleCount: typeof aiMatch.peopleCount === 'number' ? aiMatch.peopleCount : item.peopleCount,
               isExternalPace: typeof aiMatch.isExternalPace === 'boolean' ? aiMatch.isExternalPace : item.isExternalPace,
               isAiClassified: true,
@@ -759,6 +821,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     const networkingCount = finalItems.filter(i => i.category === 'networking' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
     const workCount = finalItems.filter(i => i.category === 'meeting' && i.isExternalPace).reduce((s, i) => s + i.peopleCount, 0);
     const internalCount = finalItems.filter(i => i.category === 'internal_agency').length;
+    const personalCount = finalItems.filter(i => i.category === 'personal').length;
     const mergedCount = finalItems.filter(i => i.isMerged).length;
 
     // Archie Insight - ALWAYS 100% mathematically aligned with totalPeople
@@ -815,6 +878,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       networkingCount,
       workCount,
       internalCount,
+      personalCount,
       mergedCount,
       daysStrip,
       archieInsight,
@@ -837,18 +901,27 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       const payload = {
         weekLabel: weekRange.label,
         paceTarget,
-        items: candidates.map(c => ({
-          id: c.id,
-          rawId: c.rawId,
-          source: c.source,
-          title: c.title,
-          clientName: c.client ? (c.client.preferredName || c.client.fullName) : null,
-          dateStr: c.dateStr,
-          timeStr: c.timeStr,
-          location: c.location,
-          attendeesCount: Array.isArray(c.attendees) ? c.attendees.length : 1,
-          isTask: c.source === 'crm'
-        }))
+        items: candidates.map(c => {
+          const attendeesList = Array.isArray(c.attendees)
+            ? c.attendees.map(a => typeof a === 'string' ? a : (a.displayName ? `${a.displayName} (${a.email || ''})` : (a.email || ''))).filter(Boolean)
+            : [];
+          return {
+            id: c.id,
+            rawId: c.rawId,
+            source: c.source,
+            title: c.title,
+            description: c.description || c.notes || '',
+            location: c.location || '',
+            attendees: attendeesList,
+            clientName: c.client ? (c.client.preferredName || c.client.fullName) : (c.prospectName || null),
+            isClient: !!(c.client && !c.client.isProspect && c.client.clientStatus !== 'Prospect'),
+            isProspect: !!(c.isProspect || c.client?.clientStatus === 'Prospect' || c.client?.isProspect),
+            dateStr: c.dateStr,
+            timeStr: c.timeStr,
+            attendeesCount: attendeesList.length || 1,
+            isTask: c.source === 'crm'
+          };
+        })
       };
 
       const res = await window.electronAPI.reconcilePacemakerWithAi(payload);
@@ -1026,6 +1099,10 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const overdueCases = activePipeline.filter(c => c.expectedCloseDate && new Date(c.expectedCloseDate) < new Date());
 
   const handleOpenClient = (client) => {
+    if (client?.isProspect) {
+      if (onNavigateTab) onNavigateTab('projects');
+      return;
+    }
     if (client && onSelectClient) {
       onSelectClient(client);
     } else if (onNavigateTab) {
@@ -1750,9 +1827,17 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           </div>
 
           {pacemakerData.internalCount > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(148, 163, 184, 0.1)', border: '1px solid rgba(148, 163, 184, 0.25)', fontSize: '11px' }} title="Internal agency meetings & sessions are excluded from external client pace target">
-              <span style={{ color: 'var(--text-muted)' }}>🏢 Agency / Internal</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(148, 163, 184, 0.1)', border: '1px solid rgba(148, 163, 184, 0.25)', fontSize: '11px' }} title="Internal agency meetings & training sessions are excluded from external sales pace target">
+              <span style={{ color: 'var(--text-muted)' }}>🎓 Training / Agency</span>
               <span style={{ fontWeight: '700', color: '#94a3b8' }}>{pacemakerData.internalCount}</span>
+              <span style={{ fontSize: '9.5px', color: '#64748b' }}>(Excluded)</span>
+            </div>
+          )}
+
+          {pacemakerData.personalCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.25)', fontSize: '11px' }} title="Medical appointments & personal blocks are excluded from external sales pace target">
+              <span style={{ color: 'var(--text-muted)' }}>🏥 Medical / Personal</span>
+              <span style={{ fontWeight: '700', color: '#f43f5e' }}>{pacemakerData.personalCount}</span>
               <span style={{ fontSize: '9.5px', color: '#64748b' }}>(Excluded)</span>
             </div>
           )}
@@ -1942,7 +2027,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                                 )}
 
                                 {!item.isExternalPace && (
-                                  <span style={{ fontSize: '9px', color: '#94a3b8', backgroundColor: 'rgba(148, 163, 184, 0.12)', border: '1px solid rgba(148, 163, 184, 0.25)', padding: '1px 5px', borderRadius: '3px' }} title={item.pacingTag || "Internal or personal session, not counted towards external pace target"}>
+                                  <span style={{ fontSize: '9px', color: item.category === 'personal' ? '#f43f5e' : '#94a3b8', backgroundColor: item.category === 'personal' ? 'rgba(244, 63, 94, 0.12)' : 'rgba(148, 163, 184, 0.12)', border: `1px solid ${item.category === 'personal' ? 'rgba(244, 63, 94, 0.25)' : 'rgba(148, 163, 184, 0.25)'}`, padding: '1px 5px', borderRadius: '3px' }} title={item.aiReason || item.pacingTag || "Internal, training, or medical session, excluded from sales pace"}>
                                     Excluded from Pace
                                   </span>
                                 )}
@@ -1954,7 +2039,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                                 )}
 
                                 {item.aiReason && (
-                                  <span style={{ fontSize: '9px', color: '#34d399', backgroundColor: 'rgba(16, 185, 129, 0.1)', padding: '1px 4px', borderRadius: '3px' }} title={item.aiReason}>
+                                  <span style={{ fontSize: '9px', color: item.isExternalPace ? '#34d399' : '#94a3b8', backgroundColor: item.isExternalPace ? 'rgba(16, 185, 129, 0.1)' : 'rgba(255,255,255,0.04)', padding: '1px 4px', borderRadius: '3px' }} title={item.aiReason}>
                                     ✨ AI Reconciled
                                   </span>
                                 )}
@@ -1972,6 +2057,12 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                               >
                                 {item.title}
                               </div>
+                              {item.aiReason && (
+                                <div style={{ fontSize: '10px', color: item.isExternalPace ? '#34d399' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '1px' }} title={item.aiReason}>
+                                  <Info size={10} style={{ color: item.isExternalPace ? '#34d399' : (item.category === 'personal' ? '#f43f5e' : '#94a3b8'), flexShrink: 0 }} />
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.aiReason}</span>
+                                </div>
+                              )}
                             </div>
 
                             <span style={{
@@ -2004,14 +2095,15 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                                   style={{
                                     background: 'none',
                                     border: 'none',
-                                    color: 'var(--accent-primary)',
+                                    color: item.client?.isProspect ? '#c084fc' : 'var(--accent-primary)',
                                     fontSize: '10.5px',
                                     cursor: 'pointer',
                                     padding: 0,
                                     textDecoration: 'underline'
                                   }}
+                                  title={item.client?.isProspect ? 'View in Project 100 Prospects' : 'View Client Profile'}
                                 >
-                                  {displayName}
+                                  {item.client?.isProspect ? `🎯 ${displayName}` : displayName}
                                 </button>
                                 {phone && (
                                   <button

@@ -1106,6 +1106,32 @@ This occurred because `package.json` `build.files` bundled `dist/**/*`, `electro
 
 ---
 
+## Feature Enhancement: Weekly Activity Pacemaker Deep Semantic AI Inspection & Non-Sales Activity Filtering (October 2026)
+
+### Problem & Advisor Need
+In the Weekly Activity Pacemaker (designed to track progress toward meeting 15 people/week across prospective clients, existing clients, networking, and relationship building):
+1. **False-Positive Sales Attributions**: Professional education/training events (e.g. "Agency Training", "CPD Course", "Product Briefing with Underwriting", "AIA Sprint") and personal healthcare appointments (e.g. "Doctor Appointment with Dr Tan", "Dental Scaling", "Physiotherapy at Raffles Hospital", "Health Screening") were inadvertently being counted towards the 15-person sales pace or classified as prospect/client meetups when person or doctor names were present.
+2. **Shallow AI Data Ingestion**: The reconciliation payload passed to Gemini AI previously stripped out descriptions, notes, location details, and attendee lists, leaving the AI with only surface-level event titles to analyze.
+
+### Implementation & Architecture
+1. **Rich Candidate Data Ingestion (`DashboardView.jsx`)**:
+   - Google Calendar events and CRM tasks now transmit full context: `description`, `notes`, `location`, clean `attendees` lists (`name` + `email`), and explicit `isProspect` flags.
+   - Preserves rich metadata across all multi-pass de-duplication stages (Pass 3a, 3b, and 3e) so notes and attendee info are never wiped out during cross-source merging.
+2. **Deep Semantic AI System Instruction (`electron-main.cjs`)**:
+   - Mandated deep semantic reading into `title`, `description`, `location`, and `attendees`.
+   - **Training & Professional Education Exclusion**: Classified as `internal_agency` (`categoryLabel: "Training / Agency"`), `peopleCount: 0`, `isExternalPace: false`. Even if a trainer, mentor, speaker, or colleague is named (e.g. "Training with Marcus", "Briefing by Underwriter Kelvin"), this is strictly classified as professional education and excluded from sales pacing.
+   - **Medical & Healthcare Exclusion**: Classified as `personal` (`categoryLabel: "Medical / Personal"`), `peopleCount: 0`, `isExternalPace: false`. Doctor appointments, clinic visits, hospital consultations, dentist visits, and screenings are strictly categorized as healthcare and never counted as sales meetings with prospects.
+   - **Solo Admin & Desk Work**: Explicitly marked with `peopleCount: 0` and excluded from the 15-person client pace.
+   - **Reasoning**: Each reconciled item now includes a concise `reason` (e.g. `"Medical checkup with physician — excluded from sales pace"` or `"Internal product training course — excluded from sales pace"`).
+3. **Robust Deterministic Fallback Filter (`DashboardView.jsx`)**:
+   - Immediate algorithmic regex analysis across `title`, `description`, and `location` instantly identifies medical appointments and educational training sessions with dedicated color tokens (`#f43f5e` for Medical, `#94a3b8` for Training) and `Excluded from Pace` badges before and alongside AI execution.
+4. **Enhanced Pacemaker UI Breakdown & Cards (`DashboardView.jsx`)**:
+   - Added `🎓 Training / Agency: X (Excluded)` and `🏥 Medical / Personal: Y (Excluded)` chips in the Category Breakdown row for complete transparency.
+   - Rendered inline AI explanation tooltips (`✨ AI Reconciled` and italicized reasoning) directly on engagement cards.
+   - Added 1-click routing to Project 100 (`projects`) when clicking prospect badges on engagement cards.
+
+---
+
 ## Instructions for AI Agents Working on This Project
 
 1. **Always read this journal (`JOURNAL.md`)** before proposing or executing architectural changes.
