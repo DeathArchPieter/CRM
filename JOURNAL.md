@@ -1175,10 +1175,66 @@ In the Weekly Activity Pacemaker (designed to track progress toward meeting 15 p
    - Excluded `!dist/*.exe`, `!dist/*.blockmap`, `!dist/*.yml`, and `!dist/win-unpacked/**` from `build.files` to eliminate recursive bundling.
    - Bumped version to `v0.1.9` and built final NSIS distribution installer.
 
+---
 
+## Feature Release: Claims Event Archetypes Architecture — Hospitalisation, Personal Accident & Major Claims (CI / DI / TPD / Death) (October 2026)
 
+### Business Context & Actuarial Requirement
+In Singapore financial advisory practice, insurance claims fundamentally divide into two distinct actuarial models:
+1. **Reimbursement / Indemnity Claims**:
+   - **Hospitalisation & Inpatient**: Integrated Shield Plans (IP), private hospital riders, ward classes (Standard, Single, Deluxe), Letters of Guarantee (LOG / e-LOG), pre/post-hospitalisation bills (90–365 days window), MediSave offsets, and co-payment caps.
+   - **Personal Accident (PA)**: Outpatient clinic/A&E invoices, fracture benefits, incident injury descriptions, and specific sub-limit caps (e.g. TCM, chiropractic, physiotherapy caps of $500–$1,000).
+2. **Defined Benefit / Sum Assured Claims (Major Claims)**:
+   - **Critical Illness (CI)**: Early, Intermediate, and Major Stage CI lump-sum payouts based on policy Sum Assured, waiting period (90 days), and survival period (14–30 days) requirements rather than clinic bills.
+   - **Disability Income (DI)**: Continuing monthly benefit rates ($/month), elimination/deferment periods (60/90/180 days), periodic medical recertification, and ongoing monthly income disbursement tranches.
+   - **Total & Permanent Disability (TPD)**: ADL (Activities of Daily Living) impairment evaluations (e.g. inability to perform 3 of 6 ADLs) and lump-sum/annuity tranches.
+   - **Death / Terminal Illness**: Certified death registration, Grant of Probate / Letters of Administration / Insurance Act Section 49L (Revocable) or Section 49M (Trust) nomination payouts to beneficiaries.
 
+Presenting a single, generic "medical bills and receipts ledger" for all claim events was confusing and structurally unsuitable for Major Claims where no hospital clinic bills are being reimbursed.
 
+### Architecture & Solution (Option 2: Archetype Picker Modal & Tailored Workspaces)
+We implemented a two-step claim flow providing dedicated workspaces for each claim archetype while maintaining 100% backward compatibility for all existing claim records.
 
+#### 1. Archetype Picker Modal (`src/components/ClaimArchetypeModal.jsx`)
+- Renders an interactive, glassmorphic 3-card modal when an advisor clicks **"New Claim Event"**:
+  - **Hospitalisation & Inpatient** (`#38bdf8` Sky Blue): Inpatient stays, day surgeries, Integrated Shield Plans, LOG tracking, pre/post bills, MediSave offsets.
+  - **Personal Accident** (`#fbbf24` Amber): Outpatient injuries, A&E visits, TCM/Physiotherapy sub-limits, incident reports.
+  - **Major Claims** (`#c084fc` Purple): Fixed Sum Assured lump sums, CI stages, Disability Income monthly schedules, ADL impairment, nominations.
+- Displays rich feature highlights and 1-click selection buttons, instantly routing into the customized claim creation modal.
+
+#### 2. Tailored Major Claim Workspaces
+- **Benefit Schedule & Tranches Ledger (`src/components/MajorClaimBenefitSchedule.jsx`)**:
+  - **For CI, TPD, and Death**: Displays policy Sum Assured claimed vs. Insurer approved & paid out vs. Remaining balance. Features an Insurer Payout Tranches ledger with payout date, reference numbers, payment channels (PayNow, GIRO, Cheque), and settlement notes.
+  - **For Disability Income**: Configures Monthly Benefit Rate ($/mo), Deferment Period (60/90/180 days), and Benefit Duration. Includes a 1-click **"Quick Log 1 Month Payout"** shortcut and an audit ledger of monthly disbursements.
+- **Major Claim Settlement Reconciliation (`src/components/MajorClaimReconciliation.jsx`)**:
+  - Replaces irrelevant hospital bill formulas (`Total Incurred = Paid + Co-Pay + MediSave`) with an actuarial settlement audit:
+    - **Sum Assured Settlement**: Compares total entitled Sum Assured against insurer disbursements, flagging `✅ 100% Full Sum Assured Disbursed` or highlighting unpaid balances.
+    - **Disability Income Reconciliation**: Audits monthly accumulated benefit totals and tracks ongoing medical recertification status.
+
+#### 3. Adaptive Claim Modal (`src/components/ClaimModal.jsx`)
+- Accepts `initialCategory` and dynamically customizes:
+  - Header badge and quick archetype switcher (`🏥 Hosp`, `🩹 Accident`, `🎗️ Major`).
+  - Tab 2 label: switches dynamically between **"2. Tag Bills & Receipts"** and **"2. Benefit Schedule"**.
+  - Tab 3 label: switches dynamically between **"3. Payout Reconciliation"** and **"3. Benefit Reconciliation"**.
+  - Step 1 Event Details:
+    - *Hospitalisation*: Hospital/Clinic, Ward Class (Class A/B1/B2/Private/Deluxe), Panel Specialist status, LOG Request / Approved / Waived tracking.
+    - *Personal Accident*: Accident cause, accident date/time, injury type, treatment venue, TCM/Physio sub-limit caps, and police/incident report status.
+    - *Major Claims*: CI Subtype (Critical Illness, Disability Income, TPD, Death, Terminal Illness), CI stage (Early, Intermediate, Major), Sum Assured claimed, monthly DI benefit, deferment days, waiting & survival period verification, ADL count, and nomination type.
+  - Singapore Standard Vault Checklist Presets: Quick-load checklists for Hospitalisation, Accident, Critical Illness, Disability Income, and Death/TPD.
+
+#### 4. Claims Portfolio Dashboard & Filtering (`src/components/ClientClaimsSection.jsx`)
+- Added archetype filter bar: **All Claims**, **🏥 Hospitalisation**, **🩹 Personal Accident**, and **🎗️ Major Claims** with live event count badges.
+- Updated claim cards:
+  - Prominent category pill headers.
+  - Specialized financial schedule rows: Major Claims display Sum Assured Claimed, Insurer Disbursed, Remaining Entitlement, and Tranches count, while Hospitalisation/Accident claims display Incurred Bills, Claimed, Insurer Paid, and Client Co-Pay.
+
+#### 5. Data Persistence (`electron-main.cjs`)
+- Updated `add-claim` IPC handler to persist all new archetype attributes: `claimCategory`, `wardClass`, `logStatus`, `isPanelDoctor`, `accidentTime`, `accidentCause`, `injuryType`, `treatmentVenues`, `tcmSublimitCap`, `hasIncidentReport`, `majorClaimSubtype`, `ciStage`, `benefitType`, `sumAssuredClaimed`, `sumAssuredTotal`, `monthlyBenefitAmount`, `defermentPeriodDays`, `benefitStartDate`, `benefitDurationMonths`, `waitingPeriodVerified`, `survivalPeriodVerified`, `adlCount`, `nominationType`, `beneficiaryName`.
+- Kept all IPC method signatures in `electron-preload.cjs` unchanged, ensuring strict Rule 2 compliance.
+
+#### 6. Version Bump & Auto-Update Release (`v0.1.10`)
+- Bumped version in `package.json` to `v0.1.10`.
+- Rebuilt Windows desktop distribution package (`npm run electron:build`), producing `dist/Beetsma-Consultancy-CRM-Setup-0.1.10.exe`, `Beetsma-Consultancy-CRM-Setup-0.1.10.exe.blockmap`, and `latest.yml`.
+- Published GitHub release `v0.1.10` so installed clients on `v0.1.9` automatically download and apply the update via `electron-updater`.
 
 

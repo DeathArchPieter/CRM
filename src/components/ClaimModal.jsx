@@ -3,9 +3,47 @@ import {
   X, Plus, Trash2, FileText, Upload, CheckCircle2, Clock, AlertTriangle, 
   ExternalLink, Folder, Layers, DollarSign, Calendar, Sparkles, Building, User,
   FileCheck, Shield, ChevronRight, Check, ArrowRight, Receipt, Scale, BookOpen,
-  Edit2, Loader2
+  Edit2, Loader2, Building2, Activity, Award, Bed, HeartPulse
 } from 'lucide-react';
 import DatePicker from './DatePicker';
+import MajorClaimBenefitSchedule from './MajorClaimBenefitSchedule';
+import MajorClaimReconciliation from './MajorClaimReconciliation';
+
+export const CLAIM_CATEGORIES = {
+  HOSPITALISATION: 'hospitalisation',
+  ACCIDENT: 'accident',
+  MAJOR: 'major'
+};
+
+export const ARCHETYPE_CONFIG = {
+  hospitalisation: {
+    label: 'Hospitalisation & Inpatient',
+    shortLabel: 'Hospitalisation',
+    defaultType: 'Hospitalisation / Shield',
+    accent: '#38bdf8',
+    badgeBg: 'rgba(56, 189, 248, 0.15)',
+    border: 'rgba(56, 189, 248, 0.3)',
+    checklistKey: 'Hospitalisation / Shield'
+  },
+  accident: {
+    label: 'Personal Accident',
+    shortLabel: 'Personal Accident',
+    defaultType: 'Accident & Medical',
+    accent: '#fbbf24',
+    badgeBg: 'rgba(245, 158, 11, 0.15)',
+    border: 'rgba(245, 158, 11, 0.3)',
+    checklistKey: 'Accident & Medical'
+  },
+  major: {
+    label: 'Major Claim (CI / DI / TPD / Death)',
+    shortLabel: 'Major Claims',
+    defaultType: 'Critical Illness',
+    accent: '#c084fc',
+    badgeBg: 'rgba(168, 85, 247, 0.15)',
+    border: 'rgba(168, 85, 247, 0.3)',
+    checklistKey: 'Critical Illness'
+  }
+};
 
 const CLAIM_TYPES = [
   'Hospitalisation / Shield',
@@ -16,15 +54,58 @@ const CLAIM_TYPES = [
   'Travel / Other'
 ];
 
-const CLAIM_STATUSES = [
-  'Draft / Gathering Bills',
-  'Submitted to Insurer',
-  'Under Review',
-  'Information Required',
-  'Approved',
-  'Partially Approved',
-  'Declined',
-  'Paid Out'
+const MAJOR_CLAIM_SUBTYPES = [
+  'Critical Illness',
+  'Disability Income',
+  'Total Permanent Disability (TPD)',
+  'Death / Terminal Illness'
+];
+
+const WARD_CLASSES = [
+  'Private Hospital Single',
+  'Private Hospital Deluxe / Suite',
+  'Restructured Class A',
+  'Restructured Class B1',
+  'Restructured Class B2 / C',
+  'Day Surgery / Ambulatory Centre'
+];
+
+const LOG_STATUSES = [
+  'Not Required / Direct Claim',
+  'LOG Requested from Insurer',
+  'LOG Issued ($0 Cash Deposit)',
+  'LOG Declined / Self-Pay'
+];
+
+const ACCIDENT_CAUSES = [
+  'Sports & Recreational Activity',
+  'Slip, Trip & Fall',
+  'Road Traffic / Motor Accident',
+  'Workplace / Occupational Incident',
+  'Food Poisoning',
+  'Burns & Scalds',
+  'Animal / Insect Bite',
+  'Other Accidental Trauma'
+];
+
+const INJURY_TYPES = [
+  'Bone Fracture / Dislocation',
+  'Sprain / Ligament Strain',
+  'Laceration / Deep Cut',
+  'Head Injury / Concussion',
+  'Dental Injury (Accidental)',
+  'Soft Tissue Contusion / Bruising',
+  'Burn / Scald',
+  'Other'
+];
+
+const TREATMENT_VENUE_OPTIONS = [
+  'A&E / Emergency Dept',
+  'GP / Polyclinic',
+  'Specialist Clinic',
+  'TCM Clinic (Acupuncture/Tuina)',
+  'Physiotherapy / Rehab',
+  'Chiropractor'
 ];
 
 const CHECKLIST_TEMPLATES = {
@@ -33,6 +114,7 @@ const CHECKLIST_TEMPLATES = {
     'Inpatient Discharge Summary',
     'Doctor Medical Report / Memo',
     'Signed Inpatient Claim Form',
+    'Letter of Guarantee (LOG) / e-LOG Copy',
     'Pre/Post-Hospitalisation Clinic Receipts'
   ],
   'Critical Illness': [
@@ -40,32 +122,59 @@ const CHECKLIST_TEMPLATES = {
     'Histology / Biopsy / Pathology Lab Report',
     'Diagnostic Radiology / MRI / CT Scans',
     'Signed Critical Illness Claim Form',
-    'Specialist Clinical Summary'
+    'Specialist Clinical Summary & Stage Memo',
+    'First Diagnosis Confirmation Letter (Waiting period proof)'
   ],
   'Accident & Medical': [
     'Emergency Department Discharge Summary',
     'Itemised Clinic & Medical Receipts',
     'Accident Description & Incident Report',
     'Signed A&H Claim Form',
-    'Physiotherapy / TCM Referral & Invoices'
+    'Physiotherapy / TCM Referral & Invoices',
+    'Police / Traffic Incident Report (if applicable)'
+  ],
+  'Disability Income': [
+    'Attending Doctor Occupational Disability Report',
+    'Signed Disability Income Claim Form',
+    'Employer Salary Slips / CPF Statements (Proof of Loss of Income)',
+    'Occupational Duties & Job Description Declaration',
+    'Monthly Continuing Disability Medical Certification'
   ],
   'Death / TPD': [
     'Certified True Copy of Death Certificate',
-    'Grant of Probate / Letters of Administration',
+    'Grant of Probate / Letters of Administration / Nomination Form',
     'Medical Report on Total Permanent Disability',
     'Claimant Identity Documents (NRIC/Passport)',
     'Original Policy Documents / Discharge Voucher'
   ]
 };
 
-export default function ClaimModal({ client, policies = [], claim, isOpen, onClose, onSave, onOpenAiReconciler }) {
+export default function ClaimModal({ 
+  client, 
+  policies = [], 
+  claim, 
+  initialCategory = 'hospitalisation', 
+  isOpen, 
+  onClose, 
+  onSave, 
+  onOpenAiReconciler 
+}) {
   // 4-Tab Step-by-Step Workflow:
   // Step 1: 'event' (Event Details & Policy Link)
-  // Step 2: 'bills' (Tag Bills & Receipts Ledger)
+  // Step 2: 'bills' (Tag Bills & Receipts Ledger) or 'schedule' for Major Claims
   // Step 3: 'reconciliation' (Settlement & Payout Reconciliation)
   // Step 4: 'vault' (Document Vault & Case Timeline)
   const [activeTab, setActiveTab] = useState('event');
   const [uploadingDocId, setUploadingDocId] = useState(null);
+
+  const inferCategory = (claimObj, fallback = 'hospitalisation') => {
+    if (claimObj?.claimCategory) return claimObj.claimCategory;
+    if (claimObj?.claimType === 'Accident & Medical') return 'accident';
+    if (['Critical Illness', 'Disability Income', 'Death / TPD', 'Death / Terminal Illness', 'Total Permanent Disability (TPD)'].includes(claimObj?.claimType)) return 'major';
+    return fallback;
+  };
+
+  const initialCat = claim ? inferCategory(claim, initialCategory) : (initialCategory || 'hospitalisation');
 
   // Core Form State
   const [formData, setFormData] = useState({
@@ -74,7 +183,8 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     policyId: claim?.policyId || (policies[0]?.id || ''),
     additionalPolicyIds: claim?.additionalPolicyIds || [],
     claimNumber: claim?.claimNumber || '',
-    claimType: claim?.claimType || 'Hospitalisation / Shield',
+    claimCategory: initialCat,
+    claimType: claim?.claimType || (initialCat === 'accident' ? 'Accident & Medical' : initialCat === 'major' ? 'Critical Illness' : 'Hospitalisation / Shield'),
     title: claim?.title || '',
     incidentDate: claim?.incidentDate || '',
     admissionDate: claim?.admissionDate || '',
@@ -83,6 +193,35 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     doctorName: claim?.doctorName || '',
     status: claim?.status || 'Draft / Gathering Bills',
     
+    // Archetype Specific: Hospitalisation
+    wardClass: claim?.wardClass || 'Private Hospital Single',
+    logStatus: claim?.logStatus || 'Not Required / Direct Claim',
+    isPanelDoctor: claim?.isPanelDoctor !== undefined ? claim.isPanelDoctor : true,
+
+    // Archetype Specific: Personal Accident
+    accidentTime: claim?.accidentTime || '',
+    accidentCause: claim?.accidentCause || 'Sports & Recreational Activity',
+    injuryType: claim?.injuryType || 'Sprain / Ligament Strain',
+    treatmentVenues: Array.isArray(claim?.treatmentVenues) ? claim.treatmentVenues : ['A&E / Emergency Dept', 'GP Clinic'],
+    tcmSublimitCap: claim?.tcmSublimitCap || '',
+    hasIncidentReport: !!claim?.hasIncidentReport,
+
+    // Archetype Specific: Major Claims
+    majorClaimSubtype: claim?.majorClaimSubtype || (claim?.claimType === 'Disability Income' ? 'Disability Income' : claim?.claimType === 'Death / TPD' ? 'Total Permanent Disability (TPD)' : 'Critical Illness'),
+    ciStage: claim?.ciStage || 'Major / Advanced Stage CI',
+    benefitType: claim?.benefitType || 'Lump Sum',
+    sumAssuredClaimed: claim?.sumAssuredClaimed || (claim?.claimedAmount || ''),
+    sumAssuredTotal: claim?.sumAssuredTotal || '',
+    monthlyBenefitAmount: claim?.monthlyBenefitAmount || '',
+    defermentPeriodDays: claim?.defermentPeriodDays || '60 Days',
+    benefitStartDate: claim?.benefitStartDate || '',
+    benefitDurationMonths: claim?.benefitDurationMonths || 12,
+    waitingPeriodVerified: claim?.waitingPeriodVerified !== undefined ? claim.waitingPeriodVerified : true,
+    survivalPeriodVerified: claim?.survivalPeriodVerified !== undefined ? claim.survivalPeriodVerified : true,
+    adlCount: claim?.adlCount || '3 or more ADLs',
+    nominationType: claim?.nominationType || 'Trust Nomination (Sec 49L)',
+    beneficiaryName: claim?.beneficiaryName || '',
+
     // High level totals
     totalIncurredAmount: claim?.totalIncurredAmount || 0,
     claimedAmount: claim?.claimedAmount || 0,
@@ -143,9 +282,35 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
 
   useEffect(() => {
     if (claim) {
+      const cat = inferCategory(claim, initialCategory);
       setFormData({
         ...claim,
         id: claim.id || crypto.randomUUID(),
+        claimCategory: cat,
+        claimType: claim.claimType || (cat === 'accident' ? 'Accident & Medical' : cat === 'major' ? 'Critical Illness' : 'Hospitalisation / Shield'),
+        wardClass: claim.wardClass || 'Private Hospital Single',
+        logStatus: claim.logStatus || 'Not Required / Direct Claim',
+        isPanelDoctor: claim.isPanelDoctor !== undefined ? claim.isPanelDoctor : true,
+        accidentTime: claim.accidentTime || '',
+        accidentCause: claim.accidentCause || 'Sports & Recreational Activity',
+        injuryType: claim.injuryType || 'Sprain / Ligament Strain',
+        treatmentVenues: Array.isArray(claim.treatmentVenues) ? claim.treatmentVenues : ['A&E / Emergency Dept', 'GP Clinic'],
+        tcmSublimitCap: claim.tcmSublimitCap || '',
+        hasIncidentReport: !!claim.hasIncidentReport,
+        majorClaimSubtype: claim.majorClaimSubtype || (claim.claimType === 'Disability Income' ? 'Disability Income' : claim.claimType === 'Death / TPD' ? 'Total Permanent Disability (TPD)' : 'Critical Illness'),
+        ciStage: claim.ciStage || 'Major / Advanced Stage CI',
+        benefitType: claim.benefitType || 'Lump Sum',
+        sumAssuredClaimed: claim.sumAssuredClaimed || (claim.claimedAmount || ''),
+        sumAssuredTotal: claim.sumAssuredTotal || '',
+        monthlyBenefitAmount: claim.monthlyBenefitAmount || '',
+        defermentPeriodDays: claim.defermentPeriodDays || '60 Days',
+        benefitStartDate: claim.benefitStartDate || '',
+        benefitDurationMonths: claim.benefitDurationMonths || 12,
+        waitingPeriodVerified: claim.waitingPeriodVerified !== undefined ? claim.waitingPeriodVerified : true,
+        survivalPeriodVerified: claim.survivalPeriodVerified !== undefined ? claim.survivalPeriodVerified : true,
+        adlCount: claim.adlCount || '3 or more ADLs',
+        nominationType: claim.nominationType || 'Trust Nomination (Sec 49L)',
+        beneficiaryName: claim.beneficiaryName || '',
         billItems: claim.billItems || [],
         settlementEntries: claim.settlementEntries || [],
         documentChecklist: claim.documentChecklist || [],
@@ -153,15 +318,23 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
       });
     } else {
       // New Claim defaults
-      const initialTemplate = CHECKLIST_TEMPLATES['Hospitalisation / Shield'] || [];
+      const cat = initialCategory || 'hospitalisation';
+      const templateKey = cat === 'accident'
+        ? 'Accident & Medical'
+        : cat === 'major'
+        ? 'Critical Illness'
+        : 'Hospitalisation / Shield';
+      const initialTemplate = CHECKLIST_TEMPLATES[templateKey] || [];
       const newClaimId = crypto.randomUUID();
+
       setFormData({
         id: newClaimId,
         clientId: client?.id || '',
         policyId: policies[0]?.id || '',
         additionalPolicyIds: [],
         claimNumber: '',
-        claimType: 'Hospitalisation / Shield',
+        claimCategory: cat,
+        claimType: cat === 'accident' ? 'Accident & Medical' : cat === 'major' ? 'Critical Illness' : 'Hospitalisation / Shield',
         title: '',
         incidentDate: new Date().toISOString().split('T')[0],
         admissionDate: '',
@@ -169,6 +342,29 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
         hospitalOrClinic: '',
         doctorName: '',
         status: 'Draft / Gathering Bills',
+        wardClass: 'Private Hospital Single',
+        logStatus: 'Not Required / Direct Claim',
+        isPanelDoctor: true,
+        accidentTime: '',
+        accidentCause: 'Sports & Recreational Activity',
+        injuryType: 'Sprain / Ligament Strain',
+        treatmentVenues: ['A&E / Emergency Dept', 'GP Clinic'],
+        tcmSublimitCap: cat === 'accident' ? 500 : '',
+        hasIncidentReport: false,
+        majorClaimSubtype: 'Critical Illness',
+        ciStage: 'Major / Advanced Stage CI',
+        benefitType: 'Lump Sum',
+        sumAssuredClaimed: '',
+        sumAssuredTotal: '',
+        monthlyBenefitAmount: '',
+        defermentPeriodDays: '60 Days',
+        benefitStartDate: '',
+        benefitDurationMonths: 12,
+        waitingPeriodVerified: true,
+        survivalPeriodVerified: true,
+        adlCount: '3 or more ADLs',
+        nominationType: 'Trust Nomination (Sec 49L)',
+        beneficiaryName: '',
         totalIncurredAmount: 0,
         claimedAmount: 0,
         approvedAmount: 0,
@@ -189,13 +385,13 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
             id: crypto.randomUUID(),
             timestamp: new Date().toISOString(),
             stage: 'Draft / Gathering Bills',
-            note: 'Claim event created in CRM',
+            note: `${cat === 'hospitalisation' ? 'Hospitalisation' : cat === 'accident' ? 'Personal Accident' : 'Major claim'} event initiated in CRM`,
             author: 'Advisor'
           }
         ]
       });
     }
-  }, [claim, client, policies]);
+  }, [claim, client, policies, initialCategory]);
 
   // Recalculate summary totals whenever billItems or settlementEntries change
   useEffect(() => {
@@ -231,6 +427,69 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
     if (!val) return '$0';
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(val);
   };
+
+  const currentArchetypeConfig = ARCHETYPE_CONFIG[formData.claimCategory] || ARCHETYPE_CONFIG.hospitalisation;
+
+  const handleSwitchCategory = (newCat) => {
+    let newType = 'Hospitalisation / Shield';
+    if (newCat === 'accident') {
+      newType = 'Accident & Medical';
+    } else if (newCat === 'major') {
+      newType = formData.majorClaimSubtype || 'Critical Illness';
+    }
+    setFormData(prev => ({
+      ...prev,
+      claimCategory: newCat,
+      claimType: newType
+    }));
+  };
+
+  const handleSelectPolicy = (policyId) => {
+    const selected = policies.find(p => p.id === policyId);
+    let autoSum = formData.sumAssuredClaimed;
+    let autoMonthly = formData.monthlyBenefitAmount;
+    if (selected && formData.claimCategory === 'major') {
+      if (!autoSum) {
+        autoSum = selected.ciCoverage || selected.deathCoverage || selected.tpdCoverage || selected.sumAssured || selected.coverageAmount || '';
+      }
+      if (!autoMonthly && selected.disabilityIncome) {
+        autoMonthly = selected.disabilityIncome;
+      }
+    }
+    setFormData(prev => ({
+      ...prev,
+      policyId,
+      sumAssuredClaimed: autoSum || prev.sumAssuredClaimed,
+      claimedAmount: (prev.claimCategory === 'major' && autoSum) ? Number(autoSum) : prev.claimedAmount,
+      monthlyBenefitAmount: autoMonthly || prev.monthlyBenefitAmount
+    }));
+  };
+
+  const handleToggleTreatmentVenue = (venue) => {
+    setFormData(prev => {
+      const current = Array.isArray(prev.treatmentVenues) ? prev.treatmentVenues : [];
+      const updated = current.includes(venue)
+        ? current.filter(v => v !== venue)
+        : [...current, venue];
+      return { ...prev, treatmentVenues: updated };
+    });
+  };
+
+  const getStayDuration = (admission, discharge) => {
+    if (!admission || !discharge) return null;
+    const d1 = new Date(admission);
+    const d2 = new Date(discharge);
+    const diffTime = d2.getTime() - d1.getTime();
+    if (isNaN(diffTime) || diffTime < 0) return null;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return `${diffDays} ${diffDays === 1 ? 'Day' : 'Days'} Inpatient Stay`;
+  };
+
+  const tcmBillsTotal = formData.claimCategory === 'accident'
+    ? formData.billItems
+        .filter(b => (b.description || '').toLowerCase().includes('tcm') || (b.provider || '').toLowerCase().includes('tcm') || (b.description || '').toLowerCase().includes('physio') || (b.description || '').toLowerCase().includes('acupuncture'))
+        .reduce((sum, b) => sum + (Number(b.incurredAmount) || 0), 0)
+    : 0;
 
   const handleApplyTemplate = (typeKey) => {
     const list = CHECKLIST_TEMPLATES[typeKey] || [];
@@ -698,24 +957,101 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
       }}>
         {/* Header */}
         <div style={{
-          padding: '18px 24px',
+          padding: '16px 24px',
           borderBottom: '1px solid var(--border-light)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          backgroundColor: 'rgba(255,255,255,0.02)'
+          backgroundColor: 'rgba(255,255,255,0.02)',
+          gap: '12px',
+          flexWrap: 'wrap'
         }}>
           <div>
-            <h2 style={{ fontSize: '19px', fontWeight: '600', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Shield size={22} color="var(--accent-primary)" />
-              {claim?.id ? 'Claims Event & Payout Reconciliation' : 'Initiate New Claims Event'}
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <Shield size={20} color="var(--accent-primary)" />
+              <h2 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>
+                {claim?.id ? 'Claims Event & Payout Reconciliation' : 'Initiate New Claims Event'}
+              </h2>
+              {/* Prominent Archetype Badge */}
+              <span style={{
+                padding: '3px 10px',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: '600',
+                backgroundColor: currentArchetypeConfig.badgeBg,
+                color: currentArchetypeConfig.accent,
+                border: `1px solid ${currentArchetypeConfig.border}`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}>
+                {formData.claimCategory === 'hospitalisation' ? '🏥 Hospitalisation & Inpatient' : formData.claimCategory === 'accident' ? '🩹 Personal Accident' : '🎗️ Major Claim'}
+              </span>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: 0 }}>
               Client: <strong style={{ color: 'var(--text-primary)' }}>{client?.fullName}</strong> • Status: <span style={{ color: 'var(--accent-secondary)' }}>{formData.status}</span>
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Archetype Quick Switcher */}
+            <div style={{ display: 'flex', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '2px', border: '1px solid var(--border-light)' }}>
+              <button
+                type="button"
+                onClick={() => handleSwitchCategory('hospitalisation')}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  backgroundColor: formData.claimCategory === 'hospitalisation' ? '#38bdf8' : 'transparent',
+                  color: formData.claimCategory === 'hospitalisation' ? '#0f172a' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Switch to Hospitalisation archetype"
+              >
+                🏥 Hosp
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchCategory('accident')}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  backgroundColor: formData.claimCategory === 'accident' ? '#fbbf24' : 'transparent',
+                  color: formData.claimCategory === 'accident' ? '#0f172a' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Switch to Personal Accident archetype"
+              >
+                🩹 Accident
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchCategory('major')}
+                style={{
+                  padding: '4px 9px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  backgroundColor: formData.claimCategory === 'major' ? '#c084fc' : 'transparent',
+                  color: formData.claimCategory === 'major' ? '#0f172a' : 'var(--text-secondary)',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Switch to Major Claims archetype"
+              >
+                🎗️ Major
+              </button>
+            </div>
+
             <button
               type="button"
               className="btn btn-secondary"
@@ -779,11 +1115,24 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
               gap: '6px'
             }}
           >
-            <Receipt size={15} /> 2. Tagged Bills Ledger
-            {formData.billItems.length > 0 && (
-              <span style={{ fontSize: '11px', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.2)', color: 'var(--accent-primary)' }}>
-                {formData.billItems.length}
-              </span>
+            {formData.claimCategory === 'major' ? (
+              <>
+                <Award size={15} /> 2. Benefit & Payout Schedule
+                {formData.settlementEntries.length > 0 && (
+                  <span style={{ fontSize: '11px', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(168, 85, 247, 0.2)', color: '#c084fc' }}>
+                    {formData.settlementEntries.length}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <Receipt size={15} /> 2. Tagged Bills Ledger
+                {formData.billItems.length > 0 && (
+                  <span style={{ fontSize: '11px', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.2)', color: 'var(--accent-primary)' }}>
+                    {formData.billItems.length}
+                  </span>
+                )}
+              </>
             )}
           </button>
 
@@ -804,8 +1153,8 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
               gap: '6px'
             }}
           >
-            <Scale size={15} /> 3. Settlement & Reconciliation
-            {isFullyReconciled && (
+            <Scale size={15} /> {formData.claimCategory === 'major' ? '3. Settlement & Payout Audit' : '3. Settlement & Reconciliation'}
+            {((formData.claimCategory !== 'major' && isFullyReconciled) || (formData.claimCategory === 'major' && Number(formData.approvedAmount) >= Number(formData.sumAssuredClaimed || formData.claimedAmount) && Number(formData.approvedAmount) > 0)) && (
               <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-success)' }}>
                 Reconciled
               </span>
@@ -842,25 +1191,42 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
           {/* STEP 1: CLAIM EVENT & POLICY LINK */}
           {activeTab === 'event' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Archetype Guidance Banner */}
               <div style={{
                 padding: '14px 18px',
                 borderRadius: '10px',
-                backgroundColor: 'rgba(139, 92, 246, 0.08)',
-                border: '1px solid rgba(139, 92, 246, 0.2)',
+                backgroundColor: currentArchetypeConfig.badgeBg,
+                border: `1px solid ${currentArchetypeConfig.border}`,
                 fontSize: '13px',
                 color: 'var(--text-secondary)',
                 lineHeight: '1.5'
               }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Step 1 — Create Claims Event:</strong> Define the overarching incident or medical event (e.g. hospitalization, surgery, CI diagnosis, accident). After creating the event container, you can tag multiple clinic bills and settlement receipts in Step 2 & 3.
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  Step 1 — {formData.claimCategory === 'hospitalisation' ? 'Create Hospitalisation Claim:' : formData.claimCategory === 'accident' ? 'Create Personal Accident Claim:' : 'Create Major Claim Event:'}
+                </strong>{' '}
+                {formData.claimCategory === 'hospitalisation'
+                  ? 'Define inpatient hospital admission, ward class, hospital facility, and link to in-force Integrated Shield Plan and riders.'
+                  : formData.claimCategory === 'accident'
+                  ? 'Define accidental injury details, accident cause, treatment venues, and track TCM/Physiotherapy sub-limits.'
+                  : 'Define the Critical Illness diagnosis, Disability Income occupational claim, or TPD/Death benefit with Sum Assured entitlements.'}
               </div>
 
+              {/* Title & Status */}
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Event Title / Condition / Diagnosis *</label>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    {formData.claimCategory === 'hospitalisation' ? 'Hospitalisation Diagnosis / Condition / Surgery *' : formData.claimCategory === 'accident' ? 'Accident Injury / Trauma Description *' : 'Clinical Diagnosis / Condition *'}
+                  </label>
                   <input
                     required
                     type="text"
-                    placeholder="e.g. Left Knee Arthroscopy & Meniscus Tear or Acute Appendicitis"
+                    placeholder={
+                      formData.claimCategory === 'hospitalisation' 
+                        ? 'e.g. Left Knee Arthroscopy & Meniscus Tear or Acute Appendicitis' 
+                        : formData.claimCategory === 'accident' 
+                        ? 'e.g. Left Ankle Grade 2 Sprain from Football Match' 
+                        : 'e.g. Stage 3 Colorectal Adenocarcinoma or Acute Coronary Syndrome'
+                    }
                     className="input-field"
                     style={{ width: '100%', fontSize: '14px', fontWeight: '500' }}
                     value={formData.title}
@@ -882,36 +1248,52 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+              {/* Policy, Type/Subtype, and Claim Ref */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Linked In-Force Policy *</label>
                   <select
                     className="input-field"
                     style={{ width: '100%' }}
                     value={formData.policyId}
-                    onChange={(e) => setFormData({ ...formData, policyId: e.target.value })}
+                    onChange={(e) => handleSelectPolicy(e.target.value)}
                   >
                     <option value="">-- Select Policy --</option>
                     {policies.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.provider} • {p.policyName} ({p.policyNumber || 'No Policy#'}) {p.insuredType === 'Dependent' ? `[👶 Insured: ${p.insuredName || 'Dependent'} (${p.insuredRelationship || 'Family'})]` : '[👤 Self]'}
+                        {p.provider} • {p.policyName} ({p.policyNumber || 'No Policy#'}) {p.insuredType === 'Dependent' ? `[👶 ${p.insuredName || 'Dependent'}]` : '[👤 Self]'}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Claims Event Type *</label>
-                  <select
-                    className="input-field"
-                    style={{ width: '100%' }}
-                    value={formData.claimType}
-                    onChange={(e) => setFormData({ ...formData, claimType: e.target.value })}
-                  >
-                    {CLAIM_TYPES.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                    {formData.claimCategory === 'major' ? 'Major Claim Subtype *' : 'Claims Event Type *'}
+                  </label>
+                  {formData.claimCategory === 'major' ? (
+                    <select
+                      className="input-field"
+                      style={{ width: '100%', fontWeight: '600', color: '#c084fc' }}
+                      value={formData.majorClaimSubtype}
+                      onChange={(e) => setFormData({ ...formData, majorClaimSubtype: e.target.value, claimType: e.target.value })}
+                    >
+                      {MAJOR_CLAIM_SUBTYPES.map(st => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      className="input-field"
+                      style={{ width: '100%' }}
+                      value={formData.claimType}
+                      onChange={(e) => setFormData({ ...formData, claimType: e.target.value })}
+                    >
+                      {CLAIM_TYPES.map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -927,58 +1309,527 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date of Incident / Diagnosis</label>
-                  <DatePicker
-                    value={formData.incidentDate || ''}
-                    onChange={(e) => setFormData({ ...formData, incidentDate: e.target.value })}
-                  />
-                </div>
+              {/* ARCHETYPE CONDITIONAL SECTION */}
+              {/* CASE 1: HOSPITALISATION & INPATIENT */}
+              {formData.claimCategory === 'hospitalisation' && (
+                <div style={{
+                  padding: '18px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.04)',
+                  border: '1px solid rgba(56, 189, 248, 0.2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Building2 size={15} /> Hospital Inpatient & Admission Details
+                    </span>
+                    {getStayDuration(formData.admissionDate, formData.dischargeDate) && (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontWeight: '600' }}>
+                        ⏱️ {getStayDuration(formData.admissionDate, formData.dischargeDate)}
+                      </span>
+                    )}
+                  </div>
 
-                <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital Admission Date</label>
-                  <DatePicker
-                    value={formData.admissionDate || ''}
-                    onChange={(e) => setFormData({ ...formData, admissionDate: e.target.value })}
-                  />
-                </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date of Symptoms / Onset</label>
+                      <DatePicker
+                        value={formData.incidentDate || ''}
+                        onChange={(e) => setFormData({ ...formData, incidentDate: e.target.value })}
+                      />
+                    </div>
 
-                <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital Discharge Date</label>
-                  <DatePicker
-                    value={formData.dischargeDate || ''}
-                    onChange={(e) => setFormData({ ...formData, dischargeDate: e.target.value })}
-                  />
-                </div>
-              </div>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital Admission Date *</label>
+                      <DatePicker
+                        value={formData.admissionDate || ''}
+                        onChange={(e) => setFormData({ ...formData, admissionDate: e.target.value })}
+                      />
+                    </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital / Specialist Clinic</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Mount Elizabeth Novena Hospital"
-                    className="input-field"
-                    style={{ width: '100%' }}
-                    value={formData.hospitalOrClinic}
-                    onChange={(e) => setFormData({ ...formData, hospitalOrClinic: e.target.value })}
-                  />
-                </div>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital Discharge Date *</label>
+                      <DatePicker
+                        value={formData.dischargeDate || ''}
+                        onChange={(e) => setFormData({ ...formData, dischargeDate: e.target.value })}
+                      />
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Attending Doctor / Surgeon</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Dr. Keith Tan (Orthopaedic Surgeon)"
-                    className="input-field"
-                    style={{ width: '100%' }}
-                    value={formData.doctorName}
-                    onChange={(e) => setFormData({ ...formData, doctorName: e.target.value })}
-                  />
-                </div>
-              </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital / Specialist Medical Centre</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Mount Elizabeth Novena Hospital"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.hospitalOrClinic}
+                        onChange={(e) => setFormData({ ...formData, hospitalOrClinic: e.target.value })}
+                      />
+                    </div>
 
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Ward Class</label>
+                      <select
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.wardClass}
+                        onChange={(e) => setFormData({ ...formData, wardClass: e.target.value })}
+                      >
+                        {WARD_CLASSES.map(w => (
+                          <option key={w} value={w}>{w}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Attending Doctor / Surgeon</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Dr. Keith Tan (Orthopaedic)"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.doctorName}
+                        onChange={(e) => setFormData({ ...formData, doctorName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px', alignItems: 'center' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Letter of Guarantee (LOG) Status</label>
+                      <select
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.logStatus}
+                        onChange={(e) => setFormData({ ...formData, logStatus: e.target.value })}
+                      >
+                        {LOG_STATUSES.map(l => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      marginTop: '22px'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={formData.isPanelDoctor}
+                        onChange={(e) => setFormData({ ...formData, isPanelDoctor: e.target.checked })}
+                      />
+                      <span>Doctor is on Insurer's Panel (Preferred Co-Pay / Higher Cap)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* CASE 2: PERSONAL ACCIDENT */}
+              {formData.claimCategory === 'accident' && (
+                <div style={{
+                  padding: '18px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(245, 158, 11, 0.04)',
+                  border: '1px solid rgba(245, 158, 11, 0.2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Activity size={15} /> Accident Circumstances & Injury Profile
+                    </span>
+                    {tcmBillsTotal > 0 && (
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', fontWeight: '600' }}>
+                        🌿 TCM/Physio Logged: {formatCurrency(tcmBillsTotal)}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Date of Accident *</label>
+                      <DatePicker
+                        value={formData.incidentDate || ''}
+                        onChange={(e) => setFormData({ ...formData, incidentDate: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Time of Incident</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 14:30 or 8:15 PM"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.accidentTime}
+                        onChange={(e) => setFormData({ ...formData, accidentTime: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Cause / Circumstance of Accident *</label>
+                      <select
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.accidentCause}
+                        onChange={(e) => setFormData({ ...formData, accidentCause: e.target.value })}
+                      >
+                        {ACCIDENT_CAUSES.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Nature of Injury *</label>
+                      <select
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.injuryType}
+                        onChange={(e) => setFormData({ ...formData, injuryType: e.target.value })}
+                      >
+                        {INJURY_TYPES.map(i => (
+                          <option key={i} value={i}>{i}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Emergency Hospital / Clinic</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. SGH Emergency Department / Raffles Medical"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.hospitalOrClinic}
+                        onChange={(e) => setFormData({ ...formData, hospitalOrClinic: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Attending Doctor / Physician</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Dr. Sharon Lee"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.doctorName}
+                        onChange={(e) => setFormData({ ...formData, doctorName: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Treatment Venues Chips */}
+                  <div>
+                    <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>
+                      Treatment Venues Visited (Select all that apply)
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {TREATMENT_VENUE_OPTIONS.map(venue => {
+                        const isSelected = (formData.treatmentVenues || []).includes(venue);
+                        return (
+                          <button
+                            key={venue}
+                            type="button"
+                            onClick={() => handleToggleTreatmentVenue(venue)}
+                            style={{
+                              padding: '5px 12px',
+                              borderRadius: '20px',
+                              fontSize: '11.5px',
+                              fontWeight: isSelected ? '600' : '400',
+                              border: isSelected ? '1px solid #fbbf24' : '1px solid var(--border-light)',
+                              backgroundColor: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255,255,255,0.03)',
+                              color: isSelected ? '#fbbf24' : 'var(--text-secondary)',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            {isSelected && <Check size={12} />}
+                            {venue}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', alignItems: 'center' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                        TCM / Alternative Medicine Policy Sub-Limit Cap ($)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="e.g. 500.00"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.tcmSublimitCap}
+                        onChange={(e) => setFormData({ ...formData, tcmSublimitCap: e.target.value })}
+                      />
+                    </div>
+
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      marginTop: '22px'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={formData.hasIncidentReport}
+                        onChange={(e) => setFormData({ ...formData, hasIncidentReport: e.target.checked })}
+                      />
+                      <span>Official Police / Traffic / Workplace Incident Report Filed</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* CASE 3: MAJOR CLAIMS (CI, DI, TPD, DEATH) */}
+              {formData.claimCategory === 'major' && (
+                <div style={{
+                  padding: '18px',
+                  borderRadius: '12px',
+                  backgroundColor: 'rgba(168, 85, 247, 0.04)',
+                  border: '1px solid rgba(168, 85, 247, 0.2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '700', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Award size={15} /> Major Claim & Sum Assured Entitlement Profile
+                    </span>
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', fontWeight: '600' }}>
+                      {formData.majorClaimSubtype || 'Critical Illness'} Benefit
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>
+                        Date of First Diagnosis / Demise / Disability *
+                      </label>
+                      <DatePicker
+                        value={formData.incidentDate || ''}
+                        onChange={(e) => setFormData({ ...formData, incidentDate: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Attending Medical Specialist</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Dr. Raymond Lim (Cardiologist)"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.doctorName}
+                        onChange={(e) => setFormData({ ...formData, doctorName: e.target.value })}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Hospital / Diagnostic Institution</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. National Heart Centre Singapore"
+                        className="input-field"
+                        style={{ width: '100%' }}
+                        value={formData.hospitalOrClinic}
+                        onChange={(e) => setFormData({ ...formData, hospitalOrClinic: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* SUBTYPE SPECIFIC CONFIGS */}
+                  {formData.majorClaimSubtype === 'Critical Illness' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>CI Severity Stage</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={formData.ciStage}
+                          onChange={(e) => setFormData({ ...formData, ciStage: e.target.value })}
+                        >
+                          <option value="Early Stage CI">Early Stage CI</option>
+                          <option value="Intermediate Stage CI">Intermediate Stage CI</option>
+                          <option value="Major / Advanced Stage CI">Major / Advanced Stage CI</option>
+                          <option value="Multi-Pay Relapse">Multi-Pay Relapse</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Sum Assured Claimed ($) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 250000.00"
+                          className="input-field"
+                          style={{ width: '100%', fontWeight: '700', color: '#c084fc' }}
+                          value={formData.sumAssuredClaimed}
+                          onChange={(e) => setFormData({ ...formData, sumAssuredClaimed: e.target.value, claimedAmount: Number(e.target.value) || 0 })}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.majorClaimSubtype === 'Disability Income' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Monthly Income Benefit ($/mo) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 5000.00"
+                          className="input-field"
+                          style={{ width: '100%', fontWeight: '700', color: '#c084fc' }}
+                          value={formData.monthlyBenefitAmount}
+                          onChange={(e) => setFormData({ ...formData, monthlyBenefitAmount: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Policy Deferment Period</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={formData.defermentPeriodDays}
+                          onChange={(e) => setFormData({ ...formData, defermentPeriodDays: e.target.value })}
+                        >
+                          <option value="60 Days">60 Days</option>
+                          <option value="90 Days">90 Days</option>
+                          <option value="180 Days">180 Days</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Disability Effective Date</label>
+                        <DatePicker
+                          value={formData.benefitStartDate || formData.incidentDate || ''}
+                          onChange={(e) => setFormData({ ...formData, benefitStartDate: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.majorClaimSubtype === 'Total Permanent Disability (TPD)' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>TPD Impairment Criteria</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={formData.adlCount}
+                          onChange={(e) => setFormData({ ...formData, adlCount: e.target.value })}
+                        >
+                          <option value="3 or more ADLs">Activities of Daily Living (ADLs) Impairment (≥3 of 6)</option>
+                          <option value="Presumptive TPD">Presumptive TPD (Loss of sight, limbs, speech)</option>
+                          <option value="Occupational TPD">Unable to perform any occupation</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Sum Assured Claimed ($) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 500000.00"
+                          className="input-field"
+                          style={{ width: '100%', fontWeight: '700', color: '#c084fc' }}
+                          value={formData.sumAssuredClaimed}
+                          onChange={(e) => setFormData({ ...formData, sumAssuredClaimed: e.target.value, claimedAmount: Number(e.target.value) || 0 })}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.majorClaimSubtype === 'Death / Terminal Illness' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Beneficiary / Claimant Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Sarah Tan (Spouse)"
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={formData.beneficiaryName}
+                          onChange={(e) => setFormData({ ...formData, beneficiaryName: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Nomination Structure</label>
+                        <select
+                          className="input-field"
+                          style={{ width: '100%' }}
+                          value={formData.nominationType}
+                          onChange={(e) => setFormData({ ...formData, nominationType: e.target.value })}
+                        >
+                          <option value="Trust Nomination (Sec 49L)">Trust Nomination (Sec 49L)</option>
+                          <option value="Revocable Nomination (Sec 49M)">Revocable Nomination (Sec 49M)</option>
+                          <option value="Estate / Grant of Probate">Estate / Grant of Probate</option>
+                          <option value="CPF Nominee">CPF Nominee</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="input-label" style={{ display: 'block', marginBottom: '6px' }}>Sum Assured Claimed ($) *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g. 1000000.00"
+                          className="input-field"
+                          style={{ width: '100%', fontWeight: '700', color: '#c084fc' }}
+                          value={formData.sumAssuredClaimed}
+                          onChange={(e) => setFormData({ ...formData, sumAssuredClaimed: e.target.value, claimedAmount: Number(e.target.value) || 0 })}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Regulatory Checks for CI */}
+                  {formData.majorClaimSubtype === 'Critical Illness' && (
+                    <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', paddingTop: '4px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', color: 'var(--text-primary)' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.waitingPeriodVerified}
+                          onChange={(e) => setFormData({ ...formData, waitingPeriodVerified: e.target.checked })}
+                        />
+                        <span>✓ 90-Day Waiting Period verified from policy inception</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12.5px', color: 'var(--text-primary)' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.survivalPeriodVerified}
+                          onChange={(e) => setFormData({ ...formData, survivalPeriodVerified: e.target.checked })}
+                        />
+                        <span>✓ Survival Period verified (e.g. 14–30 days post-diagnosis)</span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Proceed to Step 2 Button */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
                 <button
                   type="button"
@@ -986,14 +1837,23 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                   style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
                   onClick={() => setActiveTab('bills')}
                 >
-                  Proceed to Step 2: Tag Bills <ArrowRight size={14} />
+                  {formData.claimCategory === 'major' ? 'Proceed to Step 2: Benefit Schedule' : 'Proceed to Step 2: Tag Bills'}{' '}
+                  <ArrowRight size={14} />
                 </button>
               </div>
             </div>
           )}
 
-          {/* STEP 2: TAGGED BILLS & RECEIPTS LEDGER */}
+          {/* STEP 2: TAGGED BILLS & RECEIPTS LEDGER OR BENEFIT SCHEDULE */}
           {activeTab === 'bills' && (
+            formData.claimCategory === 'major' ? (
+              <MajorClaimBenefitSchedule
+                formData={formData}
+                setFormData={setFormData}
+                formatCurrency={formatCurrency}
+                onNext={() => setActiveTab('reconciliation')}
+              />
+            ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{
                 padding: '14px 18px',
@@ -1421,10 +2281,19 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 </button>
               </div>
             </div>
+            )
           )}
 
           {/* STEP 3: SETTLEMENT & PAYOUT RECONCILIATION */}
           {activeTab === 'reconciliation' && (
+            formData.claimCategory === 'major' ? (
+              <MajorClaimReconciliation
+                formData={formData}
+                formatCurrency={formatCurrency}
+                onOpenAiReconciler={onOpenAiReconciler}
+                onNext={() => setActiveTab('vault')}
+              />
+            ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={{
                 padding: '14px 18px',
@@ -1689,6 +2558,7 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 )}
               </div>
             </div>
+            )
           )}
 
           {/* STEP 4: DOCUMENT VAULT & CASE NOTES */}
@@ -1705,30 +2575,46 @@ export default function ClaimModal({ client, policies = [], claim, isOpen, onClo
                 </div>
 
                 {/* Template Preset Buttons */}
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     className="btn"
-                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(255,255,255,0.05)' }}
+                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8' }}
                     onClick={() => handleApplyTemplate('Hospitalisation / Shield')}
                   >
-                    + Shield Preset
+                    + 🏥 Shield Preset
                   </button>
                   <button
                     type="button"
                     className="btn"
-                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(255,255,255,0.05)' }}
-                    onClick={() => handleApplyTemplate('Critical Illness')}
-                  >
-                    + CI Preset
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(255,255,255,0.05)' }}
+                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#fbbf24' }}
                     onClick={() => handleApplyTemplate('Accident & Medical')}
                   >
-                    + Accident Preset
+                    + 🩹 Accident Preset
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(168, 85, 247, 0.1)', color: '#c084fc' }}
+                    onClick={() => handleApplyTemplate('Critical Illness')}
+                  >
+                    + 🎗️ CI Preset
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(168, 85, 247, 0.1)', color: '#c084fc' }}
+                    onClick={() => handleApplyTemplate('Disability Income')}
+                  >
+                    + 💼 DI Preset
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ fontSize: '11px', padding: '6px 10px', backgroundColor: 'rgba(168, 85, 247, 0.1)', color: '#c084fc' }}
+                    onClick={() => handleApplyTemplate('Death / TPD')}
+                  >
+                    + 🕊️ Death/TPD Preset
                   </button>
                 </div>
               </div>

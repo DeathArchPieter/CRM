@@ -339,14 +339,30 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       if (eventTime < startTime || eventTime > endTime) return;
 
       const summaryLower = (e.summary || '').toLowerCase();
+      const descLower = (e.description || '').toLowerCase();
+      const locLower = (e.location || '').toLowerCase();
+      const fullGoogleText = `${summaryLower} ${descLower} ${locLower}`.trim();
+
       const isAllDay = !e.start?.dateTime;
       if (isAllDay && (summaryLower.includes('holiday') || summaryLower.includes('leave') || summaryLower.includes('flight') || summaryLower.includes('birthday'))) {
         return;
       }
 
+      // Early detection for Medical & Personal/Maintenance: NEVER match a sales client or prospect!
+      const isMedEvent = 
+        /\b(medical|medicine|doctor|dr\b|dentist|dental|clinic|clinics|hospital|hospitals|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|vaccine|vaccination|surgery|surgical|pharmacy|med appt|specialist appt|polyclinic|cardio|cardiovascular|cardiology|oncology|radiology|imaging|orthopaedic|orthopedic|dermatology|dermatologist|ophthalmology|optometrist|optical|pediatric|paediatric|ent clinic|mri|ct scan|x-ray|ultrasound|laboratory|pathology|consultant clinic|specialist centre|specialist center|ward|inpatient|outpatient)\b/i.test(`${summaryLower} ${descLower}`) ||
+        /\b(heart centre|heart center|national heart centre|nhcs|mount elizabeth|gleneagles|raffles medical|raffles hospital|tan tock seng|ttsh|sgh|singapore general hospital|national university hospital|nuh|kkh|cgh|ktph|skh|ntfgh|singhealth|nucohs|polyclinic|novena specialist|camden medical|paragon medical|farrer park)\b/i.test(fullGoogleText);
+
+      const isPersonalOrMaintenance = 
+        /\b(air-con|aircon|air conditioning|air-conditioning|aircond|air condition|servicing|aircon servicing|chemical wash|compressor|blower)\b/i.test(`${summaryLower} ${descLower}`) ||
+        /\b(plumber|plumbing|electrician|electrical|handyman|contractor|renovation|cleaning|cleaner|housekeeping|laundry|delivery|parcel|inspection|maintenance|pest control|locksmith|repair|repairs|carpenter|painting|water heater)\b/i.test(`${summaryLower} ${descLower}`) ||
+        /\b(car servicing|car inspection|road tax|car wash|workshop|tyre|tire|battery|mechanic|vehicle inspection|vicom|sta inspection)\b/i.test(`${summaryLower} ${descLower}`) ||
+        /\b(leave|flight|gym|workout|fitness|exercise|jog|jogging|run|running|walk|walking|stroll|dog walk|dog walking|hike|hiking|swim|swimming|cycle|cycling|yoga|pilates|badminton|tennis|golf session|driving range|holiday|vacation|birthday|personal block|off day|family day|parent|kids|haircut|salon|barber|errand|errands|grocery|groceries|supermarket|shopping)\b/i.test(fullGoogleText);
+
       // Match client / prospect (supports preferredName, surname tokens, and punctuation cleanup)
+      // Strictly disabled for medical appointments and personal/maintenance events!
       const summaryTokens = summaryLower.split(/[\s\-:,/()]+/).filter(t => t.length >= 3 && !['appt', 'appts', 'meeting', 'catchup', 'catch', 'coffee', 'lunch', 'dinner', 'sync', 'chat', 'call', 'with', 'over'].includes(t));
-      const matchedClient = Array.isArray(clients) ? clients.find(c => {
+      const matchedClient = (isMedEvent || isPersonalOrMaintenance) ? null : (Array.isArray(clients) ? clients.find(c => {
         if (!c || !c.fullName) return false;
         const fn = String(c.fullName).toLowerCase().trim();
         const cleanPn = String(c.preferredName || '').replace(/[^a-zA-Z0-9\s]/g, '').trim().toLowerCase();
@@ -361,7 +377,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           return e.attendees.some(a => a && typeof a.email === 'string' && typeof c.email === 'string' && a.email.toLowerCase() === c.email.toLowerCase());
         }
         return false;
-      }) : null;
+      }) : null);
 
       const gYear = eventStart.getFullYear();
       const gMonth = String(eventStart.getMonth() + 1).padStart(2, '0');
@@ -381,6 +397,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         location: e.location || '',
         attendees: e.attendees || [],
         client: matchedClient || null,
+        isMedical: isMedEvent,
+        isPersonalOrMaintenance: isPersonalOrMaintenance,
         originalData: e
       });
     });
@@ -469,6 +487,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       const matchedG = rawGoogleEvents.find(g => {
         if (consumedGoogleIds.has(g.id)) return false;
         if (g.dateStr !== task.dateStr) return false;
+        // Never merge a medical or personal/maintenance event with a CRM sales task!
+        if (g.isMedical || g.isPersonalOrMaintenance) return false;
 
         // Check time proximity (within 45 minutes)
         if (task.rawTimeMinutes !== null && g.rawTimeMinutes !== null) {
@@ -554,6 +574,9 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         const isAgencyB = /huddle|district|agency|sprint|convention|expo|office|townhall/i.test(bTitleLower);
         if (isAgencyA !== isAgencyB) continue;
 
+        // Never merge medical appointments or personal/maintenance events with other meetings
+        if (itemA.isMedical || itemB.isMedical || itemA.isPersonalOrMaintenance || itemB.isPersonalOrMaintenance) continue;
+
         // Check if both relate to the same client or same person name
         let isSameContact = false;
         if (itemA.client && itemB.client && itemA.client.id === itemB.client.id) {
@@ -627,13 +650,14 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       }
 
       // B. Medical & Healthcare Appointments (CRITICAL: EXCLUDED FROM SALES PACE)
-      const isMedical = 
-        /\b(medical|doctor|dr\b|dentist|dental|clinic|hospital|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|surgery|pharmacy|med appt|specialist appt|polyclinic)\b/i.test(`${titleLower} ${descLower}`) ||
-        /\b(mount elizabeth|gleneagles|raffles medical|tan tock seng|sgh|national university hospital|nuh)\b/i.test(`${titleLower} ${descLower} ${locLower}`);
+      const isMedical = item.isMedical ||
+        /\b(medical|medicine|doctor|dr\b|dentist|dental|clinic|clinics|hospital|hospitals|checkup|check-up|health screening|physio|physiotherapy|blood test|vaccin|vaccine|vaccination|surgery|surgical|pharmacy|med appt|specialist appt|polyclinic|cardio|cardiovascular|cardiology|oncology|radiology|imaging|orthopaedic|orthopedic|dermatology|dermatologist|ophthalmology|optometrist|optical|pediatric|paediatric|ent clinic|mri|ct scan|x-ray|ultrasound|laboratory|pathology|consultant clinic|specialist centre|specialist center|ward|inpatient|outpatient)\b/i.test(`${titleLower} ${descLower}`) ||
+        /\b(heart centre|heart center|national heart centre|nhcs|mount elizabeth|gleneagles|raffles medical|raffles hospital|tan tock seng|ttsh|sgh|singapore general hospital|national university hospital|nuh|kkh|cgh|ktph|skh|ntfgh|singhealth|nucohs|polyclinic|novena specialist|camden medical|paragon medical|farrer park)\b/i.test(fullText);
 
       if (isMedical) {
         return {
           ...item,
+          client: null, // Personal medical appointment: strictly never a sales client
           category: 'personal',
           categoryLabel: 'Medical',
           categoryColor: '#f43f5e',
@@ -644,18 +668,25 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         };
       }
 
-      // C. Other Personal Errands, Leave & Workouts (EXCLUDED FROM SALES PACE)
-      const isPersonal = /leave|flight|gym|workout|fitness|holiday|birthday|personal block|off day|family day|parent|kids|haircut|errand/i.test(fullText);
-      if (isPersonal) {
+      // C. Personal Errands, Home Maintenance, Domestic Servicing & Workouts (CRITICAL: EXCLUDED FROM SALES PACE)
+      const isPersonalOrMaintenance = item.isPersonalOrMaintenance ||
+        /\b(air-con|aircon|air conditioning|air-conditioning|aircond|air condition|servicing|aircon servicing|chemical wash|compressor|blower)\b/i.test(fullText) ||
+        /\b(plumber|plumbing|electrician|electrical|handyman|contractor|renovation|cleaning|cleaner|housekeeping|laundry|delivery|parcel|inspection|maintenance|pest control|locksmith|repair|repairs|carpenter|painting|water heater)\b/i.test(fullText) ||
+        /\b(car servicing|car inspection|road tax|car wash|workshop|tyre|tire|battery|mechanic|vehicle inspection|vicom|sta inspection)\b/i.test(fullText) ||
+        /\b(leave|flight|gym|workout|fitness|exercise|jog|jogging|run|running|walk|walking|stroll|dog walk|dog walking|hike|hiking|swim|swimming|cycle|cycling|yoga|pilates|badminton|tennis|golf session|driving range|holiday|vacation|birthday|personal block|off day|family day|parent|kids|haircut|salon|barber|errand|errands|grocery|groceries|supermarket|shopping)\b/i.test(fullText);
+
+      if (isPersonalOrMaintenance) {
+        const isMaintenance = /\b(air-con|aircon|air conditioning|servicing|plumb|electric|handyman|contractor|renov|clean|repair|mechanic|vicom|sta inspection|car servicing|tyre|battery|parcel|delivery)\b/i.test(fullText);
         return {
           ...item,
+          client: null, // Domestic maintenance / personal errand: never a sales client
           category: 'personal',
-          categoryLabel: 'Personal',
+          categoryLabel: isMaintenance ? 'Home & Maintenance' : 'Personal',
           categoryColor: '#64748b',
           categoryBg: 'rgba(100, 116, 139, 0.15)',
           peopleCount: 0,
           isExternalPace: false,
-          pacingTag: 'Personal Block (Excluded from Pace)'
+          pacingTag: isMaintenance ? 'Home / Maintenance (Excluded from Pace)' : 'Personal Block (Excluded from Pace)'
         };
       }
 
@@ -740,15 +771,23 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         };
       }
 
-      // Default Work Session
+      // Default Work Session (Internal / Solo Focus Session)
+      // Check if external attendees exist (excluding self)
+      const hasExternalAttendees = Array.isArray(item.attendees) && item.attendees.some(a => {
+        if (!a || !a.email) return false;
+        if (a.self) return false;
+        return true;
+      });
+
       return {
         ...item,
         category: 'meeting',
-        categoryLabel: 'Work Session',
+        categoryLabel: hasExternalAttendees ? 'Work Meeting' : 'Work Session',
         categoryColor: '#60a5fa',
         categoryBg: 'rgba(96, 165, 250, 0.15)',
-        peopleCount: 1,
-        isExternalPace: true
+        peopleCount: hasExternalAttendees ? 1 : 0,
+        isExternalPace: hasExternalAttendees,
+        pacingTag: hasExternalAttendees ? 'Work Meeting' : 'Internal Session (Excluded from Pace)'
       };
     });
 
@@ -853,7 +892,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         .trim();
       archieInsight = `${totalPeople} confirmed engagement${totalPeople !== 1 ? 's' : ''}${contactSummary} towards your weekly pace. ${baseInsight ? `${baseInsight} ` : ''}${remaining > 0 ? `Aim to book ${remaining} more to hit your ${paceTarget}-person target!` : 'Target achieved! 🔥'}`;
     } else {
-      archieInsight = `${totalPeople} genuine client/prospect catch-up${totalPeople !== 1 ? 's' : ''} confirmed${contactSummary}. De-duplicated ${mergedCount} overlapping entries and excluded ${internalCount} internal agency sessions. ${remaining > 0 ? `${remaining} more to book to hit your ${paceTarget}-person weekly pace!` : 'Target achieved! 🚀'}`;
+      const exclusions = [];
+      if (internalCount > 0) exclusions.push(`${internalCount} internal agency`);
+      if (personalCount > 0) exclusions.push(`${personalCount} medical/personal`);
+      const exclusionStr = exclusions.length > 0 ? ` and excluded ${exclusions.join(' & ')}` : '';
+      archieInsight = `${totalPeople} genuine client/prospect catch-up${totalPeople !== 1 ? 's' : ''} confirmed${contactSummary}. De-duplicated ${mergedCount} overlapping entries${exclusionStr}. ${remaining > 0 ? `${remaining} more to book to hit your ${paceTarget}-person weekly pace!` : 'Target achieved! 🚀'}`;
     }
 
     // Days strip for 7 days
@@ -1834,10 +1877,12 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
             <span style={{ fontWeight: '700', color: '#38bdf8' }}>{pacemakerData.networkingCount}</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(96, 165, 250, 0.1)', border: '1px solid rgba(96, 165, 250, 0.25)', fontSize: '11px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>🏢 Work Sessions</span>
-            <span style={{ fontWeight: '700', color: '#60a5fa' }}>{pacemakerData.workCount}</span>
-          </div>
+          {pacemakerData.workCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(96, 165, 250, 0.1)', border: '1px solid rgba(96, 165, 250, 0.25)', fontSize: '11px' }} title="External business meetings with invited participants">
+              <span style={{ color: 'var(--text-muted)' }}>🏢 Work Meetings</span>
+              <span style={{ fontWeight: '700', color: '#60a5fa' }}>{pacemakerData.workCount}</span>
+            </div>
+          )}
 
           {pacemakerData.internalCount > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(148, 163, 184, 0.1)', border: '1px solid rgba(148, 163, 184, 0.25)', fontSize: '11px' }} title="Internal agency meetings & training sessions are excluded from external sales pace target">
@@ -1848,8 +1893,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           )}
 
           {pacemakerData.personalCount > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.25)', fontSize: '11px' }} title="Medical appointments & personal blocks are excluded from external sales pace target">
-              <span style={{ color: 'var(--text-muted)' }}>🏥 Medical / Personal</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.25)', fontSize: '11px' }} title="Medical appointments, domestic servicing & personal errands are excluded from external sales pace target">
+              <span style={{ color: 'var(--text-muted)' }}>🏥 Medical & Personal</span>
               <span style={{ fontWeight: '700', color: '#f43f5e' }}>{pacemakerData.personalCount}</span>
               <span style={{ fontSize: '9.5px', color: '#64748b' }}>(Excluded)</span>
             </div>

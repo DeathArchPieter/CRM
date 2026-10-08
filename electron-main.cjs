@@ -771,6 +771,7 @@ function createWindow() {
         additionalPolicyIds: claimData.additionalPolicyIds || [],
         claimNumber: claimData.claimNumber || '',
         claimType: claimData.claimType || 'Hospitalisation / Shield',
+        claimCategory: claimData.claimCategory || 'hospitalisation',
         title: claimData.title || '',
         incidentDate: claimData.incidentDate || null,
         admissionDate: claimData.admissionDate || null,
@@ -779,6 +780,36 @@ function createWindow() {
         doctorName: claimData.doctorName || '',
         status: claimData.status || 'Draft / Gathering Docs',
         
+        // Archetype Specific: Hospitalisation
+        wardClass: claimData.wardClass || 'Private Hospital Single',
+        logStatus: claimData.logStatus || 'Not Required / Direct Claim',
+        isPanelDoctor: claimData.isPanelDoctor !== undefined ? claimData.isPanelDoctor : true,
+
+        // Archetype Specific: Personal Accident
+        accidentTime: claimData.accidentTime || '',
+        accidentCause: claimData.accidentCause || 'Sports & Recreational Injury',
+        injuryType: claimData.injuryType || 'Sprain / Ligament Strain',
+        treatmentVenues: Array.isArray(claimData.treatmentVenues) ? claimData.treatmentVenues : ['A&E / Emergency Dept', 'GP Clinic'],
+        tcmSublimitCap: Number(claimData.tcmSublimitCap) || 0,
+        hasIncidentReport: !!claimData.hasIncidentReport,
+
+        // Archetype Specific: Major Claims (CI, DI, TPD, Death)
+        majorClaimSubtype: claimData.majorClaimSubtype || 'Critical Illness',
+        ciStage: claimData.ciStage || 'Major / Advanced Stage CI',
+        benefitType: claimData.benefitType || 'Lump Sum',
+        sumAssuredClaimed: Number(claimData.sumAssuredClaimed) || (Number(claimData.claimedAmount) || 0),
+        sumAssuredTotal: Number(claimData.sumAssuredTotal) || 0,
+        monthlyBenefitAmount: Number(claimData.monthlyBenefitAmount) || 0,
+        defermentPeriodDays: claimData.defermentPeriodDays || '60 Days',
+        benefitStartDate: claimData.benefitStartDate || null,
+        benefitDurationMonths: Number(claimData.benefitDurationMonths) || 12,
+        monthlyIncomeLedger: Array.isArray(claimData.monthlyIncomeLedger) ? claimData.monthlyIncomeLedger : [],
+        waitingPeriodVerified: claimData.waitingPeriodVerified !== undefined ? claimData.waitingPeriodVerified : true,
+        survivalPeriodVerified: claimData.survivalPeriodVerified !== undefined ? claimData.survivalPeriodVerified : true,
+        adlCount: claimData.adlCount || '3 or more ADLs',
+        nominationType: claimData.nominationType || 'Trust Nomination (Sec 49L)',
+        beneficiaryName: claimData.beneficiaryName || '',
+
         // High-Level Financials
         totalIncurredAmount: Number(claimData.totalIncurredAmount) || 0,
         claimedAmount: Number(claimData.claimedAmount) || 0,
