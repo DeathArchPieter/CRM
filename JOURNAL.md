@@ -1237,4 +1237,24 @@ We implemented a two-step claim flow providing dedicated workspaces for each cla
 - Rebuilt Windows desktop distribution package (`npm run electron:build`), producing `dist/Beetsma-Consultancy-CRM-Setup-0.1.10.exe`, `Beetsma-Consultancy-CRM-Setup-0.1.10.exe.blockmap`, and `latest.yml`.
 - Published GitHub release `v0.1.10` so installed clients on `v0.1.9` automatically download and apply the update via `electron-updater`.
 
+---
+
+## Hotfix: Resolve `CLAIM_STATUSES` ReferenceError in ClaimModal & Auto-Update Release (v0.1.11 - October 2026)
+
+### Root Cause Analysis
+- **ReferenceError on Modal Launch**: In `src/components/ClaimModal.jsx`, line 1244 referenced `CLAIM_STATUSES.map(...)` for the Claim Status selector dropdown, but `CLAIM_STATUSES` was not declared in the component's scope or exports.
+- When selecting an archetype (such as Personal Accident or Hospitalisation) and launching `ClaimModal`, the unhandled `ReferenceError: CLAIM_STATUSES is not defined` crashed the modal render and triggered the `ErrorBoundary`.
+
+### Fix Implemented
+1. **Defined & Exported `CLAIM_STATUSES` (`ClaimModal.jsx`)**:
+   - Added standard Singapore claim statuses: `['Draft / Gathering Bills', 'Submitted to Insurer', 'Under Review', 'Information Required', 'Approved', 'Paid Out', 'Declined']`.
+   - Included fallback `<option>` in the select dropdown for any custom or legacy status string already present on historical records so data is never lost or coerced.
+2. **ESLint AST Validation**:
+   - Executed full-codebase ESLint `no-undef` scan across all `.jsx` and `.js` files, confirming 0 remaining undefined references across `src/`.
+3. **Build & Release**:
+   - Bumped `package.json` to `0.1.11`.
+   - Built production installer `dist/Beetsma-Consultancy-CRM-Setup-0.1.11.exe` and `latest.yml`.
+   - Published release `v0.1.11` to GitHub Releases so client desktop apps automatically update.
+
+
 

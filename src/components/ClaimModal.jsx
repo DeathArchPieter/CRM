@@ -45,6 +45,16 @@ export const ARCHETYPE_CONFIG = {
   }
 };
 
+export const CLAIM_STATUSES = [
+  'Draft / Gathering Bills',
+  'Submitted to Insurer',
+  'Under Review',
+  'Information Required',
+  'Approved',
+  'Paid Out',
+  'Declined'
+];
+
 const CLAIM_TYPES = [
   'Hospitalisation / Shield',
   'Critical Illness',
@@ -1244,6 +1254,9 @@ export default function ClaimModal({
                     {CLAIM_STATUSES.map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
+                    {formData.status && !CLAIM_STATUSES.includes(formData.status) && (
+                      <option value={formData.status}>{formData.status}</option>
+                    )}
                   </select>
                 </div>
               </div>
