@@ -904,9 +904,31 @@ export default function ClaimModal({
     setNewNoteText('');
   };
 
-  const handleFormSubmit = (e) => {
-    e.preventDefault();
-    onSave(formData);
+  const handleSaveClick = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    let finalTitle = (formData.title || '').trim();
+    if (!finalTitle) {
+      if (formData.claimCategory === 'accident') {
+        finalTitle = formData.injuryType || formData.accidentCause || 'Personal Accident Claim';
+      } else if (formData.claimCategory === 'major') {
+        finalTitle = `${formData.majorClaimSubtype || 'Major Claim'} (${formData.ciStage || 'Benefit Claim'})`;
+      } else {
+        finalTitle = formData.hospitalOrClinic 
+          ? `Hospitalisation at ${formData.hospitalOrClinic}` 
+          : 'Hospitalisation & Inpatient Claim';
+      }
+    }
+
+    const payload = {
+      ...formData,
+      title: finalTitle
+    };
+
+    onSave(payload);
   };
 
   // Reconciliation Calculations (Step 3)
@@ -1196,7 +1218,7 @@ export default function ClaimModal({
         </div>
 
         {/* Modal Form Content */}
-        <form onSubmit={handleFormSubmit} style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <form onSubmit={handleSaveClick} style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           {/* STEP 1: CLAIM EVENT & POLICY LINK */}
           {activeTab === 'event' && (
@@ -1228,7 +1250,6 @@ export default function ClaimModal({
                     {formData.claimCategory === 'hospitalisation' ? 'Hospitalisation Diagnosis / Condition / Surgery *' : formData.claimCategory === 'accident' ? 'Accident Injury / Trauma Description *' : 'Clinical Diagnosis / Condition *'}
                   </label>
                   <input
-                    required
                     type="text"
                     placeholder={
                       formData.claimCategory === 'hospitalisation' 
@@ -2830,9 +2851,10 @@ export default function ClaimModal({
                 Cancel
               </button>
               <button
-                type="submit"
+                type="button"
                 className="btn btn-primary"
                 style={{ padding: '8px 24px', fontWeight: '600' }}
+                onClick={handleSaveClick}
               >
                 Save Claim Event
               </button>

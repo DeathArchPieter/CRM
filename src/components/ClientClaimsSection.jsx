@@ -73,15 +73,26 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
 
   const handleSaveClaim = async (claimData) => {
     try {
-      if (claimData.id && !claimData.id.startsWith('temp_')) {
-        await window.electronAPI?.updateClaim(claimData);
+      let res;
+      const isExisting = selectedClaim && selectedClaim.id && claims.some(c => c.id === selectedClaim.id);
+      if (isExisting) {
+        res = await window.electronAPI?.updateClaim(claimData);
       } else {
-        await window.electronAPI?.addClaim(claimData);
+        res = await window.electronAPI?.addClaim(claimData);
       }
+
+      if (res && res.success === false) {
+        console.error("Error saving claim:", res.error);
+        alert(`Failed to save claim: ${res.error || 'Unknown error'}`);
+        return;
+      }
+
       setIsModalOpen(false);
-      if (onRefreshClaims) onRefreshClaims();
+      setSelectedClaim(null);
+      if (onRefreshClaims) await onRefreshClaims();
     } catch (err) {
       console.error("Error saving claim:", err);
+      alert(`Error saving claim: ${err.message}`);
     }
   };
 

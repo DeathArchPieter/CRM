@@ -761,7 +761,7 @@ function createWindow() {
   ipcMain.handle('add-claim', (event, claimData) => {
     try {
       if (!db.claims) db.claims = [];
-      const id = crypto.randomUUID();
+      const id = claimData.id || crypto.randomUUID();
       const now = new Date().toISOString();
 
       const newClaim = {
@@ -843,8 +843,10 @@ function createWindow() {
 
       db.claims.push(newClaim);
       saveDatabase();
+      writeToLogFile(`[IPC] add-claim success: created claim ${id} ("${newClaim.title}") for client ${newClaim.clientId}`);
       return { success: true, id, data: newClaim };
     } catch (error) {
+      writeToLogFile(`[IPC] add-claim error: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
@@ -853,7 +855,21 @@ function createWindow() {
     try {
       if (!db.claims) db.claims = [];
       const index = db.claims.findIndex(c => c.id === claimData.id);
-      if (index === -1) throw new Error("Claim not found");
+      if (index === -1) {
+        // Fallback upsert: if claim record does not exist yet, add it so changes are never lost
+        const id = claimData.id || crypto.randomUUID();
+        const now = new Date().toISOString();
+        const newClaim = {
+          ...claimData,
+          id,
+          createdAt: now,
+          updatedAt: now
+        };
+        db.claims.push(newClaim);
+        saveDatabase();
+        writeToLogFile(`[IPC] update-claim fallback: upserted new claim ${id} ("${newClaim.title}") for client ${newClaim.clientId}`);
+        return { success: true, id, data: newClaim };
+      }
 
       db.claims[index] = {
         ...db.claims[index],
@@ -862,8 +878,10 @@ function createWindow() {
       };
 
       saveDatabase();
+      writeToLogFile(`[IPC] update-claim success: updated claim ${claimData.id} ("${claimData.title}")`);
       return { success: true, data: db.claims[index] };
     } catch (error) {
+      writeToLogFile(`[IPC] update-claim error: ${error.message}`);
       return { success: false, error: error.message };
     }
   });

@@ -1256,5 +1256,31 @@ We implemented a two-step claim flow providing dedicated workspaces for each cla
    - Built production installer `dist/Beetsma-Consultancy-CRM-Setup-0.1.11.exe` and `latest.yml`.
    - Published release `v0.1.11` to GitHub Releases so client desktop apps automatically update.
 
+---
+
+## Hotfix: Robust Claim Event Persistence, Title Auto-Generation & Upsert Fallback (v0.1.12 - October 2026)
+
+### Root Cause Analysis
+1. **Misidentified Existing Claim**: In `ClaimModal.jsx`, opening a new claim assigned an initial UUID (`newClaimId = crypto.randomUUID()`) so uploaded bill attachments had a directory. When saving, `ClientClaimsSection.jsx` checked `claimData.id && !claimData.id.startsWith('temp_')` and called `updateClaim(claimData)` instead of `addClaim(claimData)`.
+2. **Strict `updateClaim` Failure**: In `electron-main.cjs`, `update-claim` searched `db.claims.findIndex(c => c.id === claimData.id)`. Because the new claim didn't exist yet, it threw `"Claim not found"`, resulting in a silent failure where the claim was never saved to `crm_data.json`.
+3. **Form Constraint Validation & Blank Titles**: If a user uploaded receipts in Tab 2 without filling in the title on Tab 1, or submitted via HTML5 submit button, the missing title or hidden field validation prevented submission.
+
+### Fixes Implemented
+1. **Accurate Save Delegation (`ClientClaimsSection.jsx`)**:
+   - Updated `handleSaveClaim` to check `selectedClaim && selectedClaim.id && claims.some(c => c.id === selectedClaim.id)`. Only genuine edits to existing claims call `updateClaim`; new claims always route to `addClaim`.
+   - Added user alerts and console error logging on any IPC failure instead of silent termination.
+2. **Preserve Attachment ID & Upsert Fallback (`electron-main.cjs`)**:
+   - `add-claim`: Accepts `claimData.id || crypto.randomUUID()`, ensuring uploaded document folder paths and database IDs remain perfectly synchronized.
+   - `update-claim`: Added an upsert fallback (`index === -1 -> db.claims.push(newClaim)`), ensuring changes are never dropped even if an ID is updated out of sync.
+   - Added `writeToLogFile` instrumentation for both `add-claim` and `update-claim`.
+3. **Dedicated Save Handler & Title Auto-Generation (`ClaimModal.jsx`)**:
+   - Replaced `<button type="submit">` with `<button type="button" onClick={handleSaveClick}>`.
+   - Automatically synthesizes a title if the advisor leaves it blank (e.g. `"Sports & Recreational Activity"` or `"Hospitalisation at [Hospital]"` or `"Critical Illness"`).
+   - Removed `required` attribute from the title input to avoid hidden field blocking when saving from other tabs.
+4. **Build & Release**:
+   - Bumped `package.json` to `0.1.12`.
+   - Built production installer `dist/Beetsma-Consultancy-CRM-Setup-0.1.12.exe` and `latest.yml`.
+   - Published release `v0.1.12` to GitHub Releases for seamless background auto-update.
+
 
 
