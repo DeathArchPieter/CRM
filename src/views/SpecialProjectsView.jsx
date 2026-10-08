@@ -799,7 +799,7 @@ export default function SpecialProjectsView({ onSelectClient, onNavigateTab }) {
                 <div style={{ marginTop: '12px', padding: '10px 14px', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', border: '1px solid rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <Sparkles size={16} className="animate-spin" style={{ color: '#60a5fa' }} />
                   <div>
-                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa' }}>Scanning Brochure with Gemini 3.7 Flash...</div>
+                    <div style={{ fontSize: '12px', fontWeight: '600', color: '#60a5fa' }}>Scanning Brochure with Gemini 3.5 Flash-Lite...</div>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Extracting product USPs, target Singapore demographics, 3-step scripts & objections...</div>
                   </div>
                 </div>

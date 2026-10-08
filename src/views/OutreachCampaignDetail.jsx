@@ -2031,7 +2031,7 @@ Generated on: ${new Date().toLocaleDateString()}`;
                 <button type="button" className="btn btn-secondary" onClick={() => setIsReScanModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={isReScanning} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Sparkles size={14} className={isReScanning ? 'animate-spin' : ''} />
-                  {isReScanning ? 'Synthesizing with Gemini 3.7 Flash...' : (reScanMode === 'refine' ? '✨ Refine Playbook' : '⚡ Overhaul Playbook')}
+                  {isReScanning ? 'Synthesizing with Gemini 3.5 Flash-Lite...' : (reScanMode === 'refine' ? '✨ Refine Playbook' : '⚡ Overhaul Playbook')}
                 </button>
               </div>
             </form>

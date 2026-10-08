@@ -118,7 +118,7 @@ function initAutoUpdater() {
   });
 }
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 function getGeminiApiKey() {
   // Priority 1: User-configured API key in app settings / database
@@ -133,7 +133,10 @@ function getGeminiApiKey() {
 }
 
 function getGeminiModel() {
-  return db.appSettings?.geminiModel || DEFAULT_GEMINI_MODEL;
+  if (db.appSettings?.geminiModel && db.appSettings.geminiModel !== 'gemini-2.5-flash') {
+    return db.appSettings.geminiModel;
+  }
+  return DEFAULT_GEMINI_MODEL;
 }
 
 function getGeminiUrl() {

@@ -1316,6 +1316,27 @@ Implemented **Option A: Intelligent Triage & Multi-Stream Auto-Routing** across 
    - Bumped `package.json` to `0.1.13`.
    - Verified bundling with `npm run build` and built production installer package via `npm run electron:build`.
 
+---
+
+## Performance: Upgrade Core AI Engine to Google Gemini 3.5 Flash-Lite (v0.1.14 - October 2026)
+
+### Context & Rationale
+Migrated the core AI model powering Beetsma Consultancy CRM across all features (multimodal medical bill/brochure vision scanning, claims triage, Daily Briefing, lifetime net worth stress-testing, social profile dossiers, and weekly pacemaker deduplication) to **`gemini-3.5-flash-lite`**.
+- Provides significantly lower inference latency and higher throughput token processing.
+- Features Google's latest multimodal document understanding capabilities with 1M token context window.
+
+### Changes Implemented
+1. **Default Model Definition (`electron-main.cjs`)**:
+   - Updated `DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'`.
+   - Updated `getGeminiModel()` with automatic migration logic for legacy databases holding the old `gemini-2.5-flash` string.
+2. **Settings & UI Alignment (`src/views/`)**:
+   - Updated `SettingsView.jsx`: Test key connection now reports `gemini-3.5-flash-lite`, and the badge indicates `Gemini 3.5 Flash-Lite Active`.
+   - Updated `SpecialProjectsView.jsx` & `OutreachCampaignDetail.jsx` brochure scanning labels.
+3. **Packaging & Release**:
+   - Bumped `package.json` to `0.1.14`.
+   - Rebuilt Windows desktop installer package (`npm run electron:build`).
+
+
 
 
 

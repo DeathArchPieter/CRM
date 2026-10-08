@@ -87,7 +87,7 @@ export default function SettingsView() {
       if (window.electronAPI?.testGeminiKey) {
         const res = await window.electronAPI.testGeminiKey(settings.geminiApiKey);
         if (res.success) {
-          const modelName = res.model || 'gemini-2.5-flash';
+          const modelName = res.model || 'gemini-3.5-flash-lite';
           setTestKeyResult({
             success: true,
             message: res.isBuiltIn
@@ -855,7 +855,7 @@ export default function SettingsView() {
                   </span>
                 )}
                 <span style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#c084fc', fontSize: '11px', fontWeight: '700', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-                  Gemini 2.5 Flash Active
+                  Gemini 3.5 Flash-Lite Active
                 </span>
               </div>
             </div>
