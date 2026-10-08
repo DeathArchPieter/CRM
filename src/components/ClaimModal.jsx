@@ -652,7 +652,7 @@ export default function ClaimModal({
     });
 
     if (validFiles.length === 0) {
-      alert("Please upload medical bills in PDF, PNG, JPG, or WEBP format.");
+      alert("Please upload claim documents in PDF, PNG, JPG, or WEBP format.");
       return;
     }
 
@@ -669,7 +669,13 @@ export default function ClaimModal({
       successCount: 0
     });
 
-    let successCount = 0;
+    const triageResults = {
+      bills: [],
+      settlements: [],
+      memos: [],
+      incidents: [],
+      others: []
+    };
 
     for (let i = 0; i < validFiles.length; i++) {
       const file = validFiles[i];
@@ -693,31 +699,162 @@ export default function ClaimModal({
             fileBase64: base64
           });
 
-          if (res?.success && res.billItem) {
-            successCount++;
-            setFormData(prev => ({
-              ...prev,
-              id: currentClaimId,
-              billItems: [...prev.billItems, res.billItem]
-            }));
+          if (res?.success) {
+            const cat = res.category || (res.billItem ? 'medical_bill' : 'other');
+
+            if (cat === 'medical_bill' && res.billItem) {
+              triageResults.bills.push(res.billItem);
+              setFormData(prev => ({
+                ...prev,
+                id: currentClaimId,
+                billItems: [...prev.billItems, res.billItem]
+              }));
+            } else if (cat === 'settlement_letter' && res.settlementEntry) {
+              triageResults.settlements.push(res.settlementEntry);
+              setFormData(prev => {
+                const hasSettlementDoc = prev.documentChecklist.some(d => /settlement|eob|voucher/i.test(d.label));
+                let updatedChecklist = prev.documentChecklist;
+                if (!hasSettlementDoc) {
+                  updatedChecklist = [
+                    ...prev.documentChecklist,
+                    {
+                      id: crypto.randomUUID(),
+                      label: 'Insurer Settlement Statement / EOB Letter',
+                      required: false,
+                      status: 'Uploaded / Received',
+                      filePath: res.settlementEntry.settlementLetterFilePath,
+                      fileName: res.settlementEntry.settlementFileName,
+                      fileSize: res.settlementEntry.fileSize
+                    }
+                  ];
+                }
+                const newApproved = (Number(prev.approvedAmount) || 0) + (Number(res.settlementEntry.totalPaid) || 0);
+                const newClaimNumber = (!prev.claimNumber && res.settlementEntry.insurerRef) ? res.settlementEntry.insurerRef : prev.claimNumber;
+                return {
+                  ...prev,
+                  id: currentClaimId,
+                  settlementEntries: [...prev.settlementEntries, res.settlementEntry],
+                  approvedAmount: newApproved,
+                  claimNumber: newClaimNumber,
+                  documentChecklist: updatedChecklist
+                };
+              });
+            } else if (cat === 'medical_memo' && res.memoItem) {
+              triageResults.memos.push(res.memoItem);
+              setFormData(prev => {
+                let docUpdated = false;
+                const updatedChecklist = prev.documentChecklist.map(d => {
+                  if (!docUpdated && !d.filePath && /doctor|medical report|memo|discharge|clinical/i.test(d.label)) {
+                    docUpdated = true;
+                    return {
+                      ...d,
+                      status: 'Uploaded / Received',
+                      filePath: res.memoItem.filePath,
+                      fileName: res.memoItem.fileName,
+                      fileSize: res.memoItem.fileSize
+                    };
+                  }
+                  return d;
+                });
+                if (!docUpdated) {
+                  updatedChecklist.push({
+                    id: crypto.randomUUID(),
+                    label: res.memoItem.documentTypeTag || 'Doctor Medical Report / Clinical Memo',
+                    required: true,
+                    status: 'Uploaded / Received',
+                    filePath: res.memoItem.filePath,
+                    fileName: res.memoItem.fileName,
+                    fileSize: res.memoItem.fileSize
+                  });
+                }
+
+                const updates = {
+                  ...prev,
+                  id: currentClaimId,
+                  documentChecklist: updatedChecklist
+                };
+                if (!prev.doctorName && res.memoItem.doctorName) updates.doctorName = res.memoItem.doctorName;
+                if (!prev.hospitalOrClinic && res.memoItem.hospitalOrClinic) updates.hospitalOrClinic = res.memoItem.hospitalOrClinic;
+                if (!prev.title && res.memoItem.diagnosis) updates.title = res.memoItem.diagnosis;
+                if (!prev.admissionDate && res.memoItem.admissionDate) updates.admissionDate = res.memoItem.admissionDate;
+                if (!prev.dischargeDate && res.memoItem.dischargeDate) updates.dischargeDate = res.memoItem.dischargeDate;
+                if (!prev.incidentDate && res.memoItem.memoDate) updates.incidentDate = res.memoItem.memoDate;
+                return updates;
+              });
+            } else if (cat === 'incident_report' && res.incidentItem) {
+              triageResults.incidents.push(res.incidentItem);
+              setFormData(prev => {
+                const hasIncidentDoc = prev.documentChecklist.some(d => /incident|police/i.test(d.label));
+                let updatedChecklist = prev.documentChecklist;
+                if (!hasIncidentDoc) {
+                  updatedChecklist = [
+                    ...prev.documentChecklist,
+                    {
+                      id: crypto.randomUUID(),
+                      label: 'Official Police / Accident Incident Report',
+                      required: false,
+                      status: 'Uploaded / Received',
+                      filePath: res.incidentItem.filePath,
+                      fileName: res.incidentItem.fileName,
+                      fileSize: res.incidentItem.fileSize
+                    }
+                  ];
+                }
+                const updates = {
+                  ...prev,
+                  id: currentClaimId,
+                  hasIncidentReport: true,
+                  documentChecklist: updatedChecklist
+                };
+                if (!prev.incidentDate && res.incidentItem.incidentDate) updates.incidentDate = res.incidentItem.incidentDate;
+                return updates;
+              });
+            } else {
+              if (res.file) {
+                triageResults.others.push(res.file);
+                setFormData(prev => ({
+                  ...prev,
+                  id: currentClaimId,
+                  documentChecklist: [
+                    ...prev.documentChecklist,
+                    {
+                      id: crypto.randomUUID(),
+                      label: res.summary || res.file.fileName,
+                      required: false,
+                      status: 'Uploaded / Received',
+                      filePath: res.file.filePath,
+                      fileName: res.file.fileName,
+                      fileSize: res.file.fileSize
+                    }
+                  ]
+                }));
+              }
+            }
           }
         }
       } catch (err) {
-        console.error("Error auto-tagging bill:", file.name, err);
+        console.error("Error auto-tagging document:", file.name, err);
       }
     }
 
     setIsAutoTagging(false);
     setTaggingProgress({ total: 0, current: 0, currentFileName: '', successCount: 0 });
 
-    if (successCount > 0) {
+    const totalIngested = triageResults.bills.length + triageResults.settlements.length + triageResults.memos.length + triageResults.incidents.length + triageResults.others.length;
+    if (totalIngested > 0) {
       setAutoTagNotification({
-        message: `Successfully auto-tagged & vaulted ${successCount} ${successCount === 1 ? 'bill' : 'bills'}!`,
-        count: successCount
+        totalCount: totalIngested,
+        billsCount: triageResults.bills.length,
+        billsTotal: triageResults.bills.reduce((sum, b) => sum + (Number(b.incurredAmount) || 0), 0),
+        settlementsCount: triageResults.settlements.length,
+        settlementsTotal: triageResults.settlements.reduce((sum, s) => sum + (Number(s.totalPaid) || 0), 0),
+        memosCount: triageResults.memos.length,
+        incidentsCount: triageResults.incidents.length,
+        othersCount: triageResults.others.length
       });
       setTimeout(() => {
         setAutoTagNotification(null);
-      }, 6000);
+      }, 12000);
     }
   };
 
@@ -848,6 +985,50 @@ export default function ClaimModal({
     setFormData(prev => ({
       ...prev,
       billItems: prev.billItems.filter(b => b.id !== billId)
+    }));
+  };
+
+  const handleMoveBillToSettlement = (billId) => {
+    const bill = formData.billItems.find(b => b.id === billId);
+    if (!bill) return;
+    const newSettlementEntry = {
+      id: crypto.randomUUID(),
+      settlementDate: bill.billDate || new Date().toISOString().split('T')[0],
+      insurerRef: bill.billNumber || '',
+      totalPaid: Number(bill.incurredAmount) || 0,
+      coPayDeductible: 0,
+      nonPayableAmount: 0,
+      paymentMethod: 'Direct Bank Credit / PayNow',
+      notes: `Re-routed from bill: ${bill.provider || 'Provider'} - ${bill.description || 'Treatment'}`,
+      settlementLetterFilePath: bill.receiptFilePath || '',
+      settlementFileName: bill.receiptFileName || '',
+      fileSize: bill.fileSize || 0,
+      uploadedAt: new Date().toISOString()
+    };
+    setFormData(prev => ({
+      ...prev,
+      billItems: prev.billItems.filter(b => b.id !== billId),
+      settlementEntries: [...prev.settlementEntries, newSettlementEntry],
+      approvedAmount: (Number(prev.approvedAmount) || 0) + (Number(bill.incurredAmount) || 0)
+    }));
+  };
+
+  const handleMoveBillToVault = (billId) => {
+    const bill = formData.billItems.find(b => b.id === billId);
+    if (!bill) return;
+    const newDocItem = {
+      id: crypto.randomUUID(),
+      label: bill.description || `${bill.provider || 'Medical'} Document`,
+      required: false,
+      status: 'Uploaded / Received',
+      filePath: bill.receiptFilePath || '',
+      fileName: bill.receiptFileName || '',
+      fileSize: bill.fileSize || 0
+    };
+    setFormData(prev => ({
+      ...prev,
+      billItems: prev.billItems.filter(b => b.id !== billId),
+      documentChecklist: [...prev.documentChecklist, newDocItem]
     }));
   };
 
@@ -1972,11 +2153,11 @@ export default function ClaimModal({
                 </div>
 
                 <div style={{ fontSize: '14.5px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                  {isDraggingOver ? 'Drop bills here to auto-tag with AI!' : 'Drag & Drop Medical Bills or Clinic Invoices Here'}
+                  {isDraggingOver ? 'Drop claim documents here to auto-triage with Archie AI!' : 'Drag & Drop Claim Documents (Bills, Memos, Settlement Letters)'}
                 </div>
 
                 <p style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '580px', margin: 0, lineHeight: '1.4' }}>
-                  Drag one or a bunch of bills (PDF, PNG, JPG, WEBP). Archie AI extracts provider, procedure, invoice #, and amounts automatically.
+                  Drop any batch of files (PDF, PNG, JPG, WEBP). Archie AI auto-classifies medical invoices, doctor clinical memos, and insurer settlement statements, routing each directly to its corresponding tab!
                 </p>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px' }}>
@@ -1984,7 +2165,7 @@ export default function ClaimModal({
                     <Upload size={13} /> Or Click to Browse Files
                   </span>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    • Multi-file batch tagging supported
+                    • Multi-file batch triage • Bills → Tab 2 • Settlements → Tab 3 • Memos → Tab 4
                   </span>
                 </div>
               </div>
@@ -2006,7 +2187,7 @@ export default function ClaimModal({
                         <Loader2 size={18} />
                       </div>
                       <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                        ⚡ Archie AI Auto-Tagging in Progress... ({taggingProgress.current} of {taggingProgress.total} completed)
+                        ⚡ Archie AI Auto-Triage in Progress... ({taggingProgress.current} of {taggingProgress.total} completed)
                       </span>
                     </div>
                     <span style={{ fontSize: '12px', color: 'var(--accent-primary)', fontWeight: '700' }}>
@@ -2034,27 +2215,82 @@ export default function ClaimModal({
               {/* Success Notification Alert */}
               {autoTagNotification && (
                 <div className="animate-fade-in" style={{
-                  padding: '10px 16px',
-                  borderRadius: '8px',
-                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  padding: '14px 18px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
                   border: '1px solid rgba(16, 185, 129, 0.35)',
-                  color: 'var(--accent-success)',
-                  fontSize: '12.5px',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between'
+                  flexDirection: 'column',
+                  gap: '10px'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <CheckCircle2 size={16} />
-                    <span>{autoTagNotification.message}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Sparkles size={18} color="var(--accent-success)" />
+                      <span style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--accent-success)' }}>
+                        Archie AI Smart Triage Complete ({autoTagNotification.totalCount || 1} {(autoTagNotification.totalCount || 1) === 1 ? 'file' : 'files'} processed)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAutoTagNotification(null)}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', opacity: 0.7 }}
+                    >
+                      <X size={15} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setAutoTagNotification(null)}
-                    style={{ background: 'none', border: 'none', color: 'var(--accent-success)', cursor: 'pointer', opacity: 0.7 }}
-                  >
-                    <X size={14} />
-                  </button>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '12px' }}>
+                    {autoTagNotification.billsCount > 0 && (
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.06)', color: 'var(--text-primary)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        🧾 <strong>{autoTagNotification.billsCount}</strong> Bills Tagged ({formatCurrency(autoTagNotification.billsTotal)})
+                      </span>
+                    )}
+                    {autoTagNotification.settlementsCount > 0 && (
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', backgroundColor: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-success)', border: '1px solid rgba(16, 185, 129, 0.4)' }}>
+                        💳 <strong>{autoTagNotification.settlementsCount}</strong> Insurer Settlement ({formatCurrency(autoTagNotification.settlementsTotal)}) → Step 3
+                      </span>
+                    )}
+                    {autoTagNotification.memosCount > 0 && (
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', backgroundColor: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                        📋 <strong>{autoTagNotification.memosCount}</strong> Medical Memo/Report → Step 4 Vault
+                      </span>
+                    )}
+                    {autoTagNotification.incidentsCount > 0 && (
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', backgroundColor: 'rgba(245, 158, 11, 0.15)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                        🚔 <strong>{autoTagNotification.incidentsCount}</strong> Incident Report → Step 4 Vault
+                      </span>
+                    )}
+                    {autoTagNotification.othersCount > 0 && (
+                      <span style={{ padding: '3px 10px', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                        📎 <strong>{autoTagNotification.othersCount}</strong> Other File(s) → Step 4 Vault
+                      </span>
+                    )}
+                  </div>
+
+                  {(autoTagNotification.settlementsCount > 0 || autoTagNotification.memosCount > 0) && (
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '2px' }}>
+                      {autoTagNotification.settlementsCount > 0 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ fontSize: '11.5px', padding: '4px 10px', backgroundColor: 'rgba(16, 185, 129, 0.25)', color: 'var(--accent-success)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => setActiveTab('reconciliation')}
+                        >
+                          Review Step 3: Reconciliation <ArrowRight size={12} />
+                        </button>
+                      )}
+                      {autoTagNotification.memosCount > 0 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ fontSize: '11.5px', padding: '4px 10px', backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => setActiveTab('vault')}
+                        >
+                          Review Step 4: Document Vault <ArrowRight size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2279,6 +2515,22 @@ export default function ClaimModal({
                           </td>
                           <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveBillToSettlement(item.id)}
+                                style={{ background: 'none', border: 'none', color: '#10b981', cursor: 'pointer', opacity: 0.75 }}
+                                title="Re-route this bill to Step 3: Insurer Settlement Statement"
+                              >
+                                <DollarSign size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveBillToVault(item.id)}
+                                style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', opacity: 0.75 }}
+                                title="Move this document to Step 4: Document Vault"
+                              >
+                                <Layers size={13} />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleEditBill(item)}

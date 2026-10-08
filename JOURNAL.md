@@ -1282,5 +1282,40 @@ We implemented a two-step claim flow providing dedicated workspaces for each cla
    - Built production installer `dist/Beetsma-Consultancy-CRM-Setup-0.1.12.exe` and `latest.yml`.
    - Published release `v0.1.12` to GitHub Releases for seamless background auto-update.
 
+---
+
+## Feature: Archie AI Intelligent Claim Document Triage & Multi-Stream Auto-Routing (v0.1.13 - October 2026)
+
+### Problem Statement & Context
+When users/advisors drag a batch of mixed claim files (such as hospital invoices, clinic consultation receipts, doctor medical memos, inpatient discharge summaries, and insurer settlement statements) directly into the Bills tab dropzone, a rigid bill-only parser causes multiple issues:
+1. Medical memos and discharge summaries get treated as $0 dummy invoices, cluttering the billing ledger.
+2. Insurer settlement disbursement letters get parsed as bills instead of payout credits, skewing the claim reconciliation ledger.
+3. Documents that belong in the Document Vault (Tab 4) or Settlement Schedule (Tab 3) fail to be stored in their proper tabs, forcing the user into repetitive manual uploads.
+
+### Architecture & Solution Implemented
+Implemented **Option A: Intelligent Triage & Multi-Stream Auto-Routing** across backend IPC and frontend workflow:
+
+1. **Gemini AI Document Classifier & Extractor (`electron-main.cjs` - `auto-tag-claim-bill`)**:
+   - Upgraded Google Gemini prompt schema to classify each incoming document into 4 distinct Singapore claim archetypes:
+     - `medical_bill`: Extracts provider, procedure/item description, bill number, incurred amount, and claimed amount.
+     - `settlement_letter`: Extracts settlement date, insurer reference, net approved payout, deductible/co-pay, payment method (PayNow/bank credit), and assessment notes.
+     - `medical_memo`: Extracts attending doctor name, medical institution/hospital, clinical diagnosis, surgical procedure, admission & discharge dates, and document classification tag.
+     - `incident_report`: Extracts incident date, location, report reference number, and accident mechanism.
+   - Built-in heuristic fallbacks for offline or un-keyed document processing based on filename regex and Singapore healthcare keywords (Mount Elizabeth, Gleneagles, Raffles, SGH, etc.).
+
+2. **Frontend Multi-Stream Triage & Auto-Routing (`src/components/ClaimModal.jsx`)**:
+   - `handleProcessBills`: Loops through dropped batches and routes documents based on classified archetype:
+     - **Bills**: Appended directly to `formData.billItems`.
+     - **Settlements**: Appended to `formData.settlementEntries`, auto-increments `formData.approvedAmount`, links settlement PDF, and automatically synchronizes into `formData.documentChecklist`.
+     - **Memos / Reports**: Vaulted in `formData.documentChecklist` under matching slots (e.g. *"Doctor Medical Report / Memo"* or *"Inpatient Discharge Summary"*). Auto-populates `formData.doctorName`, `formData.hospitalOrClinic`, `formData.title` (diagnosis), and admission/discharge dates if currently blank.
+     - **Incident Reports**: Vaulted in `formData.documentChecklist` and auto-enables `formData.hasIncidentReport = true`.
+   - **Rich Ingestion Summary Card**: Displays itemized counts and sums (`🧾 Bills Tagged`, `💳 Settlement Routed`, `📋 Memos Vaulted`) with 1-click navigation buttons (`Review Step 3: Reconciliation →`, `Review Step 4: Vault →`).
+   - **Manual Reclassification Fallback**: Added action buttons on each bill row (`$ Re-route to Settlement`, `Layers Move to Vault`) granting users total control over document placement.
+
+3. **Desktop Distribution & Release**:
+   - Bumped `package.json` to `0.1.13`.
+   - Verified bundling with `npm run build` and built production installer package via `npm run electron:build`.
+
+
 
 

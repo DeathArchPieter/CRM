@@ -1027,17 +1027,64 @@ function createWindow() {
       const apiKey = getGeminiApiKey();
       if (apiKey && ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(finalMimeType)) {
         try {
-          const systemInstruction = `You are an expert Singapore medical claims auditor and healthcare invoice analyst at Beetsma Consultancy.
-Analyze the attached medical bill, clinic receipt, hospital tax invoice, or pharmacy statement and extract the key billing parameters.
+          const systemInstruction = `You are an expert Singapore medical claims auditor and healthcare document intake specialist at Beetsma Consultancy.
+Analyze the attached document from a Singapore insurance claim case. The document may be:
+1. "medical_bill": Hospital tax invoice, clinic consultation receipt, pharmacy bill, diagnostic lab/imaging receipt, TCM/physiotherapy bill.
+2. "settlement_letter": Insurer settlement statement, claims voucher, Explanation of Benefits (EOB), claims approval letter, payment advice disbursement statement.
+3. "medical_memo": Attending doctor's clinical memo, medical report, hospital inpatient discharge summary, histology/biopsy report, specialist referral letter.
+4. "incident_report": Official police report, traffic accident statement, workplace injury incident report.
+5. "other": Other policy or claim document.
+
+First, identify the "documentCategory" (one of: "medical_bill", "settlement_letter", "medical_memo", "incident_report", "other").
+Second, write a concise 1-line human readable "summary" (e.g. 'Mount Elizabeth Inpatient Tax Invoice - S$14,500.00', 'AIA Shield Settlement Letter - S$13,200.00 Approved', 'Dr. Raymond Lim Specialist Memo - Left Knee Meniscus Tear').
 
 Extract the following into a strict JSON object:
-- "billDate": Date of service, consultation, admission, or invoice in "YYYY-MM-DD" format. Default to the date printed on the invoice.
-- "provider": Name of healthcare provider, specialist center, hospital, or clinic (e.g., Mount Elizabeth Novena, Gleneagles, Raffles Hospital, Singapore General Hospital, Thomson Medical, Novena Specialist Clinic, etc.).
-- "description": Concise description of medical treatment, surgery, diagnostic test, or consultation (e.g., 'Pre-op MRI Knee Scan', 'Emergency Appendectomy & 3-Day Inpatient Ward', 'Orthopaedic Specialist Consultation & Medication', 'Physiotherapy Treatment').
-- "billNumber": Invoice number, tax invoice #, receipt #, or statement reference (e.g. 'INV-2026-0812').
-- "incurredAmount": Total final payable / incurred billed amount as a number (e.g. 1850.50). Search for "Total Payable", "Total Charges (incl. GST)", "Net Total Due", or "Final Bill Amount".
-- "claimedAmount": Eligible claimed amount as a number (defaults to same as incurredAmount).
-- "notes": Concise note of notable itemized charges (e.g., 'Surgeon Fee S$2,500, Ward & Room S$850, Pharmacy S$120, GST 9% included').
+- "documentCategory": string ("medical_bill" | "settlement_letter" | "medical_memo" | "incident_report" | "other")
+- "summary": string (concise 1-line description)
+
+If "medical_bill":
+- "billData": {
+    "billDate": Date of invoice/service in "YYYY-MM-DD",
+    "provider": Name of hospital, specialist center, clinic, or pharmacy (e.g. Mount Elizabeth Novena, Gleneagles, Raffles Hospital, SGH, Thomson Medical),
+    "description": Concise description of medical treatment, surgery, or consultation (e.g. 'Pre-op MRI Knee Scan', 'Emergency Appendectomy & 3-Day Inpatient Ward', 'Orthopaedic Specialist Consultation & Medication'),
+    "billNumber": Invoice number, tax invoice #, or receipt #,
+    "incurredAmount": Total final payable / incurred billed amount as a number (e.g. 1850.50). Search for "Total Charges (incl. GST)", "Total Payable", "Net Total Due", or "Final Bill Amount",
+    "claimedAmount": Eligible claimed amount as a number (defaults to same as incurredAmount),
+    "notes": Notable itemized charges
+  }
+
+If "settlement_letter":
+- "settlementData": {
+    "settlementDate": Settlement / payout approval date in "YYYY-MM-DD",
+    "insurerRef": Insurer claim reference number or voucher ID (e.g. 'AIA-CLM-2026-8942'),
+    "totalPaid": Net insurer reimbursement / payout amount as a number (e.g. 13200.00). Search for "Total Amount Approved", "Net Payout", "Benefit Paid", or "Payment by Insurer",
+    "coPayDeductible": Client co-pay / deductible / co-insurance amount as a number (e.g. 1300.00),
+    "nonPayableAmount": Non-claimable / ineligible expenses as a number (e.g. 0.00),
+    "paymentMethod": Disbursement channel (e.g. 'Direct Bank Credit / PayNow', 'Cheque', 'Direct Hospital Offset'),
+    "notes": Summary of settlement assessment and deduction rationale
+  }
+
+If "medical_memo":
+- "memoData": {
+    "doctorName": Name of attending specialist or doctor (e.g. 'Dr. Raymond Lim'),
+    "hospitalOrClinic": Name of medical institution or clinic (e.g. 'Mount Elizabeth Novena Hospital'),
+    "diagnosis": Primary clinical diagnosis or condition (e.g. 'Left Knee Anterior Cruciate Ligament (ACL) & Meniscus Tear'),
+    "procedureOrTreatment": Medical procedure, surgery, or treatment performed,
+    "memoDate": Date of report or memo in "YYYY-MM-DD",
+    "admissionDate": Inpatient admission date in "YYYY-MM-DD" if stated,
+    "dischargeDate": Inpatient discharge date in "YYYY-MM-DD" if stated,
+    "documentTypeTag": Specific label (e.g. 'Doctor Medical Report / Memo', 'Inpatient Discharge Summary', 'Histology / Biopsy Report'),
+    "notes": Concise diagnostic summary
+  }
+
+If "incident_report":
+- "incidentData": {
+    "incidentDate": Date of incident/accident in "YYYY-MM-DD",
+    "incidentLocation": Place or venue of accident,
+    "reportNumber": Police report or workplace incident reference number,
+    "description": Description of accident or trauma mechanism,
+    "notes": Summary findings
+  }
 
 Respond ONLY with the raw JSON object. Do not include markdown code block syntax (no \`\`\`json).`;
 
@@ -1056,7 +1103,7 @@ Respond ONLY with the raw JSON object. Do not include markdown code block syntax
                     }
                   },
                   {
-                    text: 'Extract the medical bill particulars from this document into the required JSON schema.'
+                    text: 'Classify and extract this claim document into the required JSON schema.'
                   }
                 ]
               }],
@@ -1083,104 +1130,221 @@ Respond ONLY with the raw JSON object. Do not include markdown code block syntax
         }
       }
 
+      // Determine Category
+      const cleanNameLower = origBase.toLowerCase();
+      let detectedCategory = parsedData?.documentCategory;
+      if (!detectedCategory || !['medical_bill', 'settlement_letter', 'medical_memo', 'incident_report', 'other'].includes(detectedCategory)) {
+        if (/settlement|voucher|eob|approval|payout|disbursement/i.test(cleanNameLower)) {
+          detectedCategory = 'settlement_letter';
+        } else if (/memo|report|discharge|summary|clinical|referral|histology|biopsy|diagnosis/i.test(cleanNameLower)) {
+          detectedCategory = 'medical_memo';
+        } else if (/police|incident|traffic|accident_report/i.test(cleanNameLower)) {
+          detectedCategory = 'incident_report';
+        } else {
+          detectedCategory = 'medical_bill';
+        }
+      }
+
       // Fallback heuristics if AI failed or was unavailable
-      if (!isAiSuccess || !parsedData) {
-        // 1. Extract Date from filename
-        let extractedDate = new Date().toISOString().split('T')[0];
-        const dateMatch = origBase.match(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/);
-        if (dateMatch) {
-          extractedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      let extractedDate = new Date().toISOString().split('T')[0];
+      const dateMatch = origBase.match(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/);
+      if (dateMatch) {
+        extractedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      } else {
+        const reverseDateMatch = origBase.match(/(?:^|[\s_])(0[1-9]|[12]\d|3[01])[-_/.](0[1-9]|1[0-2])[-_/.](20\d{2})(?:$|[\s_])/);
+        if (reverseDateMatch) {
+          extractedDate = `${reverseDateMatch[3]}-${reverseDateMatch[2]}-${reverseDateMatch[1]}`;
+        }
+      }
+
+      let textWithoutDate = origBase;
+      if (dateMatch) {
+        textWithoutDate = textWithoutDate.replace(dateMatch[0], ' ');
+      }
+
+      let extractedAmount = 0;
+      const explicitAmountMatch = textWithoutDate.match(/(?:\$|SGD|S\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
+      if (explicitAmountMatch) {
+        extractedAmount = parseFloat(explicitAmountMatch[1].replace(/,/g, '')) || 0;
+      } else {
+        const decimalMatch = textWithoutDate.match(/(?:^|[\s_])([0-9]+(?:\.[0-9]{2}))(?:$|[\s_])/);
+        if (decimalMatch) {
+          extractedAmount = parseFloat(decimalMatch[1]) || 0;
         } else {
-          const reverseDateMatch = origBase.match(/(?:^|[\s_])(0[1-9]|[12]\d|3[01])[-_/.](0[1-9]|1[0-2])[-_/.](20\d{2})(?:$|[\s_])/);
-          if (reverseDateMatch) {
-            extractedDate = `${reverseDateMatch[3]}-${reverseDateMatch[2]}-${reverseDateMatch[1]}`;
+          const numberMatch = textWithoutDate.match(/(?:^|[\s_])([1-9][0-9]{1,5})(?:$|[\s_])/);
+          if (numberMatch) {
+            extractedAmount = parseFloat(numberMatch[1]) || 0;
           }
         }
+      }
 
-        // 2. Extract Amount from filename
-        let textWithoutDate = origBase;
-        if (dateMatch) {
-          textWithoutDate = textWithoutDate.replace(dateMatch[0], ' ');
-        }
+      let providerGuess = 'Clinic / Hospital';
+      if (cleanNameLower.includes('mount elizabeth') || cleanNameLower.includes('mte') || cleanNameLower.includes('novena')) providerGuess = 'Mount Elizabeth Hospital';
+      else if (cleanNameLower.includes('raffles')) providerGuess = 'Raffles Medical Group';
+      else if (cleanNameLower.includes('gleneagles')) providerGuess = 'Gleneagles Hospital';
+      else if (cleanNameLower.includes('thomson')) providerGuess = 'Thomson Medical Centre';
+      else if (cleanNameLower.includes('sgh') || cleanNameLower.includes('singapore general')) providerGuess = 'Singapore General Hospital';
+      else if (cleanNameLower.includes('nuh') || cleanNameLower.includes('national university')) providerGuess = 'National University Hospital';
+      else if (cleanNameLower.includes('ttsh') || cleanNameLower.includes('tan tock seng')) providerGuess = 'Tan Tock Seng Hospital';
+      else if (cleanNameLower.includes('clinic')) providerGuess = 'Specialist Medical Clinic';
 
-        let extractedAmount = 0;
-        const explicitAmountMatch = textWithoutDate.match(/(?:\$|SGD|S\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i);
-        if (explicitAmountMatch) {
-          extractedAmount = parseFloat(explicitAmountMatch[1].replace(/,/g, '')) || 0;
-        } else {
-          const decimalMatch = textWithoutDate.match(/(?:^|[\s_])([0-9]+(?:\.[0-9]{2}))(?:$|[\s_])/);
-          if (decimalMatch) {
-            extractedAmount = parseFloat(decimalMatch[1]) || 0;
-          } else {
-            const numberMatch = textWithoutDate.match(/(?:^|[\s_])([1-9][0-9]{1,5})(?:$|[\s_])/);
-            if (numberMatch) {
-              extractedAmount = parseFloat(numberMatch[1]) || 0;
-            }
-          }
-        }
+      const descriptionReadable = origBase
+        .replace(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/g, ' ')
+        .replace(/(?:\$|SGD|S\$)\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?/gi, ' ')
+        .replace(/(?:^|[\s_])[0-9]+(?:\.[0-9]{2})(?:$|[\s_])/g, ' ')
+        .replace(/(?:^|[\s_])[1-9][0-9]{1,5}(?:$|[\s_])/g, ' ')
+        .replace(/[-_]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-        // 3. Healthcare Provider Guess
-        let providerGuess = 'Clinic / Hospital';
-        const cleanNameLower = origBase.toLowerCase();
-        if (cleanNameLower.includes('mount elizabeth') || cleanNameLower.includes('mte') || cleanNameLower.includes('novena')) providerGuess = 'Mount Elizabeth Hospital';
-        else if (cleanNameLower.includes('raffles')) providerGuess = 'Raffles Medical Group';
-        else if (cleanNameLower.includes('gleneagles')) providerGuess = 'Gleneagles Hospital';
-        else if (cleanNameLower.includes('thomson')) providerGuess = 'Thomson Medical Centre';
-        else if (cleanNameLower.includes('sgh') || cleanNameLower.includes('singapore general')) providerGuess = 'Singapore General Hospital';
-        else if (cleanNameLower.includes('nuh') || cleanNameLower.includes('national university')) providerGuess = 'National University Hospital';
-        else if (cleanNameLower.includes('ttsh') || cleanNameLower.includes('tan tock seng')) providerGuess = 'Tan Tock Seng Hospital';
-        else if (cleanNameLower.includes('clinic')) providerGuess = 'Specialist Medical Clinic';
+      const bData = parsedData?.billData || (detectedCategory === 'medical_bill' ? {
+        billDate: extractedDate,
+        provider: providerGuess,
+        description: descriptionReadable || 'Medical Consultation & Bill',
+        billNumber: '',
+        incurredAmount: extractedAmount,
+        claimedAmount: extractedAmount,
+        notes: 'Auto-tagged from file.'
+      } : null);
 
-        // 4. Clean description
-        const descriptionReadable = origBase
-          .replace(/(?:^|[\s_])(20\d{2})[-_/.](0[1-9]|1[0-2])[-_/.](0[1-9]|[12]\d|3[01])(?:$|[\s_])/g, ' ')
-          .replace(/(?:\$|SGD|S\$)\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?/gi, ' ')
-          .replace(/(?:^|[\s_])[0-9]+(?:\.[0-9]{2})(?:$|[\s_])/g, ' ')
-          .replace(/(?:^|[\s_])[1-9][0-9]{1,5}(?:$|[\s_])/g, ' ')
-          .replace(/[-_]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+      const sData = parsedData?.settlementData || (detectedCategory === 'settlement_letter' ? {
+        settlementDate: extractedDate,
+        insurerRef: '',
+        totalPaid: extractedAmount,
+        coPayDeductible: 0,
+        nonPayableAmount: 0,
+        paymentMethod: 'Direct Bank Credit / PayNow',
+        notes: 'Auto-tagged settlement letter.'
+      } : null);
 
-        parsedData = {
-          billDate: extractedDate,
-          provider: providerGuess,
-          description: descriptionReadable || 'Medical Consultation & Bill',
-          billNumber: '',
-          incurredAmount: extractedAmount,
-          claimedAmount: extractedAmount,
-          notes: 'Auto-tagged from document file. Please verify details.'
+      const mData = parsedData?.memoData || (detectedCategory === 'medical_memo' ? {
+        doctorName: '',
+        hospitalOrClinic: providerGuess,
+        diagnosis: descriptionReadable || 'Medical Diagnosis / Condition',
+        procedureOrTreatment: '',
+        memoDate: extractedDate,
+        admissionDate: '',
+        dischargeDate: '',
+        documentTypeTag: cleanNameLower.includes('discharge') ? 'Inpatient Discharge Summary' : 'Doctor Medical Report / Memo',
+        notes: 'Auto-tagged clinical document.'
+      } : null);
+
+      const iData = parsedData?.incidentData || (detectedCategory === 'incident_report' ? {
+        incidentDate: extractedDate,
+        incidentLocation: '',
+        reportNumber: '',
+        description: descriptionReadable || 'Official Incident Report',
+        notes: 'Auto-tagged incident statement.'
+      } : null);
+
+      // Construct typed models
+      let billItem = null;
+      if (detectedCategory === 'medical_bill' || (!isAiSuccess && detectedCategory === 'medical_bill')) {
+        const incurredVal = Number(bData?.incurredAmount) || extractedAmount;
+        const claimedVal = Number(bData?.claimedAmount) || incurredVal;
+        billItem = {
+          id: crypto.randomUUID(),
+          billDate: bData?.billDate || extractedDate,
+          provider: bData?.provider || providerGuess,
+          description: bData?.description || descriptionReadable || 'Medical Bill',
+          billNumber: bData?.billNumber || '',
+          incurredAmount: Math.round(incurredVal * 100) / 100,
+          claimedAmount: Math.round(claimedVal * 100) / 100,
+          insurerPaidAmount: 0,
+          deductibleOrCoPay: 0,
+          medisaveOffset: 0,
+          status: 'Pending Insurer Payout',
+          notes: bData?.notes || '',
+          receiptFilePath: destPath,
+          receiptFileName: path.basename(destPath),
+          fileSize: stat.size,
+          aiTagged: isAiSuccess,
+          uploadedAt: new Date().toISOString()
         };
       }
 
-      // Sanitize numeric and string values
-      const incurredVal = Number(parsedData.incurredAmount) || 0;
-      const claimedVal = Number(parsedData.claimedAmount) || incurredVal;
+      let settlementEntry = null;
+      if (detectedCategory === 'settlement_letter') {
+        const totalPaidVal = Number(sData?.totalPaid) || extractedAmount;
+        const coPayVal = Number(sData?.coPayDeductible) || 0;
+        const nonPayableVal = Number(sData?.nonPayableAmount) || 0;
+        settlementEntry = {
+          id: crypto.randomUUID(),
+          settlementDate: sData?.settlementDate || extractedDate,
+          insurerRef: sData?.insurerRef || '',
+          totalPaid: Math.round(totalPaidVal * 100) / 100,
+          coPayDeductible: Math.round(coPayVal * 100) / 100,
+          nonPayableAmount: Math.round(nonPayableVal * 100) / 100,
+          paymentMethod: sData?.paymentMethod || 'Direct Bank Credit / PayNow',
+          notes: sData?.notes || 'Insurer Settlement Statement',
+          settlementLetterFilePath: destPath,
+          settlementFileName: path.basename(destPath),
+          fileSize: stat.size,
+          aiTagged: isAiSuccess,
+          uploadedAt: new Date().toISOString()
+        };
+      }
 
-      const billItem = {
-        id: crypto.randomUUID(),
-        billDate: parsedData.billDate || new Date().toISOString().split('T')[0],
-        provider: parsedData.provider || 'Clinic / Hospital',
-        description: parsedData.description || 'Medical Bill',
-        billNumber: parsedData.billNumber || '',
-        incurredAmount: Math.round(incurredVal * 100) / 100,
-        claimedAmount: Math.round(claimedVal * 100) / 100,
-        insurerPaidAmount: 0,
-        deductibleOrCoPay: 0,
-        medisaveOffset: 0,
-        status: 'Pending Insurer Payout',
-        notes: parsedData.notes || '',
-        receiptFilePath: destPath,
-        receiptFileName: path.basename(destPath),
-        fileSize: stat.size,
-        aiTagged: isAiSuccess,
-        uploadedAt: new Date().toISOString()
-      };
+      let memoItem = null;
+      if (detectedCategory === 'medical_memo') {
+        memoItem = {
+          id: crypto.randomUUID(),
+          doctorName: mData?.doctorName || '',
+          hospitalOrClinic: mData?.hospitalOrClinic || providerGuess,
+          diagnosis: mData?.diagnosis || descriptionReadable || '',
+          procedureOrTreatment: mData?.procedureOrTreatment || '',
+          memoDate: mData?.memoDate || extractedDate,
+          admissionDate: mData?.admissionDate || '',
+          dischargeDate: mData?.dischargeDate || '',
+          documentTypeTag: mData?.documentTypeTag || 'Doctor Medical Report / Memo',
+          filePath: destPath,
+          fileName: path.basename(destPath),
+          fileSize: stat.size,
+          notes: mData?.notes || '',
+          aiTagged: isAiSuccess,
+          uploadedAt: new Date().toISOString()
+        };
+      }
 
-      writeToLogFile(`[IPC] auto-tag-claim-bill success: ${billItem.description} ($${billItem.incurredAmount}) [AI: ${isAiSuccess}]`);
+      let incidentItem = null;
+      if (detectedCategory === 'incident_report') {
+        incidentItem = {
+          id: crypto.randomUUID(),
+          incidentDate: iData?.incidentDate || extractedDate,
+          incidentLocation: iData?.incidentLocation || '',
+          reportNumber: iData?.reportNumber || '',
+          description: iData?.description || descriptionReadable || 'Incident Report',
+          filePath: destPath,
+          fileName: path.basename(destPath),
+          fileSize: stat.size,
+          notes: iData?.notes || '',
+          aiTagged: isAiSuccess,
+          uploadedAt: new Date().toISOString()
+        };
+      }
+
+      const summaryText = parsedData?.summary || (
+        detectedCategory === 'settlement_letter' ? `Insurer Settlement: $${settlementEntry?.totalPaid || 0}` :
+        detectedCategory === 'medical_memo' ? `Medical Memo: ${memoItem?.diagnosis || path.basename(destPath)}` :
+        detectedCategory === 'incident_report' ? `Incident Report: ${path.basename(destPath)}` :
+        `Medical Bill: ${billItem?.provider || 'Healthcare'} ($${billItem?.incurredAmount || 0})`
+      );
+
+      writeToLogFile(`[IPC] auto-tag-claim-bill [${detectedCategory}]: ${summaryText} [AI: ${isAiSuccess}]`);
 
       return {
         success: true,
+        category: detectedCategory,
+        summary: summaryText,
+        file: {
+          filePath: destPath,
+          fileName: path.basename(destPath),
+          fileSize: stat.size
+        },
         billItem,
+        settlementEntry,
+        memoItem,
+        incidentItem,
         isAiSuccess
       };
     } catch (error) {
