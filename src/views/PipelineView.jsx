@@ -404,6 +404,7 @@ export default function PipelineView({ onSelectClient }) {
                     name="expectedCloseDate" 
                     value={formData.expectedCloseDate || ''} 
                     onChange={handleChange} 
+                    align="right"
                   />
                 </div>
               </div>

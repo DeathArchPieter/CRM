@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, Clock, Check } from 'lucide-react';
 
 const MONTH_NAMES = [
@@ -30,47 +31,79 @@ export default function DatePicker({
   min,
   max,
   required = false,
-  placement = 'auto'
+  placement = 'auto',
+  align = 'auto'
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownPlacement, setDropdownPlacement] = useState({
+  const [coords, setCoords] = useState({
+    top: 0,
+    left: 0,
     vertical: 'bottom',
     horizontal: 'left'
   });
   const containerRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   const updatePosition = () => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const dropdownHeight = 390;
+    const dropdownHeight = 395;
     const dropdownWidth = 320;
-    
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // If trigger has scrolled completely out of the viewport, close dropdown
+    if (rect.bottom < 0 || rect.top > viewportHeight) {
+      setIsOpen(false);
+      return;
+    }
+
     // Check available space above vs below
-    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
-    
+
     let vertical = 'bottom';
+    let top = rect.bottom + 6;
+
     if (placement === 'top') {
       vertical = 'top';
+      top = Math.max(12, rect.top - dropdownHeight - 6);
     } else if (placement === 'bottom') {
       vertical = 'bottom';
+      top = Math.min(viewportHeight - dropdownHeight - 12, rect.bottom + 6);
     } else {
       // Auto: if not enough space below, and more space above, open upwards
       if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
         vertical = 'top';
+        top = Math.max(12, rect.top - dropdownHeight - 6);
       } else {
         vertical = 'bottom';
+        top = Math.min(viewportHeight - dropdownHeight - 12, rect.bottom + 6);
       }
     }
-    
-    // Check horizontal space
-    const spaceRight = window.innerWidth - rect.left;
-    let horizontal = 'left';
-    if (spaceRight < dropdownWidth && rect.right >= dropdownWidth) {
-      horizontal = 'right';
+
+    // Check horizontal alignment
+    let shouldAlignRight = align === 'right';
+    if (align === 'auto') {
+      if (rect.left + dropdownWidth > viewportWidth - 16) {
+        shouldAlignRight = true;
+      } else {
+        // Check if inside a modal or panel where left-aligning overflows the container
+        const parentModal = containerRef.current.closest('.glass-panel, [role="dialog"], .modal');
+        if (parentModal) {
+          const pRect = parentModal.getBoundingClientRect();
+          if (rect.left + dropdownWidth > pRect.right - 16 && rect.right - dropdownWidth >= pRect.left + 16) {
+            shouldAlignRight = true;
+          }
+        }
+      }
     }
-    
-    setDropdownPlacement({ vertical, horizontal });
+
+    let left = shouldAlignRight
+      ? Math.max(16, rect.right - dropdownWidth)
+      : Math.min(viewportWidth - dropdownWidth - 16, Math.max(16, rect.left));
+
+    setCoords({ top, left, vertical, horizontal: shouldAlignRight ? 'right' : 'left' });
   };
 
   // Keep dropdown placement updated on open, resize, or scroll
@@ -85,7 +118,7 @@ export default function DatePicker({
         window.removeEventListener('scroll', handleReposition, true);
       };
     }
-  }, [isOpen, placement]);
+  }, [isOpen, placement, align]);
 
   // Parse initial date or default to current date
   const parseValueToDate = (val) => {
@@ -118,7 +151,11 @@ export default function DatePicker({
   // Click outside listener
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (
+        containerRef.current && 
+        !containerRef.current.contains(e.target) &&
+        (!dropdownRef.current || !dropdownRef.current.contains(e.target))
+      ) {
         setIsOpen(false);
       }
     };
@@ -292,7 +329,15 @@ export default function DatePicker({
 
       {/* Input Trigger Box */}
       <div
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={() => {
+          if (disabled) return;
+          if (!isOpen) {
+            updatePosition();
+            setIsOpen(true);
+          } else {
+            setIsOpen(false);
+          }
+        }}
         className={className}
         style={{
           display: 'flex',
@@ -348,11 +393,14 @@ export default function DatePicker({
       </div>
 
       {/* Dropdown Calendar Popup */}
-      {isOpen && (
+      {isOpen && typeof document !== 'undefined' && createPortal(
         <div
+          ref={dropdownRef}
           style={{
-            position: 'absolute',
-            zIndex: 9999,
+            position: 'fixed',
+            top: `${coords.top}px`,
+            left: `${coords.left}px`,
+            zIndex: 999999,
             width: '320px',
             maxWidth: 'calc(100vw - 32px)',
             maxHeight: 'min(420px, calc(100vh - 32px))',
@@ -362,15 +410,9 @@ export default function DatePicker({
             border: '1px solid rgba(139, 92, 246, 0.3)',
             borderRadius: '12px',
             padding: '16px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5), 0 0 15px rgba(139, 92, 246, 0.15)',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.6), 0 0 20px rgba(139, 92, 246, 0.25)',
             backdropFilter: 'blur(16px)',
-            animation: 'fadeIn 0.15s ease-out',
-            ...(dropdownPlacement.vertical === 'top'
-              ? { bottom: 'calc(100% + 6px)', top: 'auto' }
-              : { top: 'calc(100% + 6px)', bottom: 'auto' }),
-            ...(dropdownPlacement.horizontal === 'right'
-              ? { right: 0, left: 'auto' }
-              : { left: 0, right: 'auto' })
+            animation: 'fadeIn 0.15s ease-out'
           }}
         >
           {/* Header with Fast Year Navigation & Direct Month/Year Selectors */}
@@ -664,7 +706,8 @@ export default function DatePicker({
               +1 Yr
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -1389,6 +1389,34 @@ An in-depth architecture audit of the Claims section identified critical areas f
 - Version bumped to `0.1.15` in `package.json`.
 - Windows desktop installer and update manifest compiled via `npm run electron:build`.
 
+---
+
+## UI Fix: Universal DatePicker Viewport Portal & Pipeline Alignment (v0.1.16 - October 2026)
+
+### Context & Root Cause Analysis
+When editing deals in the Sales Pipeline (`PipelineView.jsx`), clicking the "Expected Close Date" input opened the calendar dropdown partially cut off:
+1. **Horizontal Clipping**: The modal form is laid out in a 2-column grid. The right column ended near the right boundary of the modal. Because the dropdown defaulted to opening left-to-right (`left: 0`) and was 320px wide, ~40px of the calendar (including the Saturday column) bled past the right edge of the modal.
+2. **Container Overflow Trap**: The modal container had `overflowY: 'auto'`. Under the CSS standard, any element with `overflow-y` set to `auto`, `scroll`, or `hidden` automatically causes `overflow-x` to compute to `auto` as well. As a result, the overflowing dropdown was clipped on the right and at the bottom, creating ugly modal scrollbars.
+
+### Fixes Implemented
+1. **React Portal Architecture (`src/components/DatePicker.jsx`)**:
+   - Upgraded the DatePicker dropdown to render directly into `document.body` via `createPortal(..., document.body)` with `position: fixed` and `zIndex: 999999`.
+   - The calendar is completely decoupled from any ancestor container clipping (`overflow: auto`, `overflow: hidden`, `maxHeight`).
+2. **Smart Boundary & Alignment Calculations**:
+   - Added an `align` prop (`'auto'` | `'left'` | `'right'`).
+   - In `'auto'` mode, automatically detects if aligning left overflows the viewport or parent modal/panel, and dynamically switches to right-aligned mode (`left = rect.right - dropdownWidth`).
+   - Added vertical auto-flipping (`placement === 'top'` when viewport space below is insufficient) and bounded clamping (`Math.max(12, ...)` and `Math.min(viewport - 12, ...)`).
+   - Automatically closes the dropdown if the parent trigger scrolls out of view.
+3. **Outside-Click Detection**:
+   - Enhanced `handleClickOutside` to check both the trigger container and the portal-rendered dropdown ref, preventing clicks on calendar controls from prematurely dismissing the popover.
+4. **PipelineView Integration (`src/views/PipelineView.jsx`)**:
+   - Added `align="right"` to the `expectedCloseDate` DatePicker in the Edit Case modal.
+5. **Release & Packaging**:
+   - Bumped `package.json` to `0.1.16`.
+   - Rebuilt Windows desktop installer package (`npm run electron:build`).
+   - Automatically committed, pushed to `origin master`, tagged `v0.1.16`, and published to GitHub Releases for background auto-updates.
+
+
 
 
 
