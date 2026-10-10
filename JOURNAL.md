@@ -1416,6 +1416,51 @@ When editing deals in the Sales Pipeline (`PipelineView.jsx`), clicking the "Exp
    - Rebuilt Windows desktop installer package (`npm run electron:build`).
    - Automatically committed, pushed to `origin master`, tagged `v0.1.16`, and published to GitHub Releases for background auto-updates.
 
+---
+
+## Feature: Schedule Contact Radar & Intelligent Unmatched Meeting Triage (v0.1.17 - October 2026)
+
+### Context & Advisor Problem Statement
+When advisors sync their Google Calendar, they regularly schedule coffee chats, referral intros, and fact-finding consultations with people who do not yet exist in the CRM database. Previously, these appointments sat as isolated calendar events with no easy way to capture the contacts, causing warm prospects and new client relationships to fall through the cracks.
+
+### Architecture & Implementation Details
+
+#### 1. Cross-Referencing Contact Radar Engine (`src/utils/calendarContactRadar.js`)
+- **Multi-Source Extraction**:
+  - Analyzes Google event `attendees` (emails and display names), ignoring the advisor's self email and calendar resources.
+  - Extracts candidate personal names from meeting summaries using intelligent regex patterns (`"Coffee with Amanda Teo"`, `"Lunch w/ Marcus"`, `"Intro - Wei Ming"`, `"Chloe Seah / Policy Review"`).
+- **Automated Noise Filter**:
+  - Automatically filters out internal agency meetings (`"Unit Meeting"`, `"Agency Training"`, `"Townhall"`), administrative events (`"CPF"`, `"IRAS"`), medical appointments, flights, gym sessions, and personal leave.
+- **Cross-Database Verification**:
+  - Compares candidates against all 4 CRM repositories:
+    1. `db.clients` (by normalized email, full name, preferred name, substring matching)
+    2. `db.project100Contacts` (by email and name)
+    3. `db.pipeline` (by client name)
+    4. `db.initiatives` (by campaign lead email/name)
+    5. `db.tasks` (verifying if the Google event is already explicitly linked to a known client/prospect)
+  - Identifies genuine new leads and aggregates multiple meetings with the same contact.
+
+#### 2. Interactive Triage Modal (`src/components/ContactRadarModal.jsx`)
+- Sleek glassmorphism modal listing detected unmatched contacts with meeting dates, times, locations, and titles.
+- Inline editable contact names so advisors can adjust or complete names before saving.
+- **One-Click Triage Destinations**:
+  - **`+ Project 100`**: Inserts a warm prospect with stage *"Meeting Scheduled"* and automatically schedules a linked CRM meeting task.
+  - **`+ Client`**: Creates a formal client record with status *"Prospect"* and creates a linked CRM meeting task.
+  - **`+ Pipeline`**: Creates an active deal in the Sales Pipeline at *"Prospect"* stage.
+  - **`Ignore / Whitelist`**: Silences the contact permanently across all future syncs.
+
+#### 3. Schedule Integration (`src/views/ScheduleView.jsx`)
+- **Top Radar Banner**: Appears above the calendar when unmatched contacts are detected with real-time count badge and 1-click review button.
+- **In-Context Agenda Tags**: Highlights unmatched events directly inside the Day Agenda details with a `"New: [Name]"` pill and direct `"Capture"` shortcut.
+- **Permanent Whitelist Storage**: Persists ignored contacts in `appSettings.ignoredCalendarContacts` and browser storage.
+
+### Build & Release
+- Verified production bundle via `npm run build` (1,785 modules transformed).
+- Bumped `package.json` to `0.1.17`.
+- Built Windows desktop installer via `npm run electron:build`.
+- Automatically committed, pushed to `origin master`, tagged `v0.1.17`, and published to GitHub Releases for auto-updating.
+
+
 
 
 

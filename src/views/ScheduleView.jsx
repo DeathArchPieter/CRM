@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, RefreshCw, 
   Settings, CheckCircle2, Circle, AlertCircle, Plus, Info, 
-  Trash2, ExternalLink, ShieldCheck, Link2Off, Edit, Coffee, UserPlus 
+  Trash2, ExternalLink, ShieldCheck, Link2Off, Edit, Coffee, UserPlus, Sparkles 
 } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import { useAdvisorContext } from '../context/AdvisorContext';
 import { useToast } from '../components/Toast';
+import ContactRadarModal from '../components/ContactRadarModal';
+import { detectUnmatchedContacts } from '../utils/calendarContactRadar';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTHS = [
@@ -28,6 +30,9 @@ export default function ScheduleView() {
   const [clients, setClients] = useState([]);
   const [project100Contacts, setProject100Contacts] = useState([]);
   const [pipelineCases, setPipelineCases] = useState([]);
+  const [initiatives, setInitiatives] = useState([]);
+  const [ignoredContacts, setIgnoredContacts] = useState([]);
+  const [isRadarModalOpen, setIsRadarModalOpen] = useState(false);
   const [convertingProspect, setConvertingProspect] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -108,7 +113,9 @@ export default function ScheduleView() {
         clients: window.electronAPI?.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: false }),
         project100: window.electronAPI?.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: false }),
         settings: window.electronAPI?.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
-        pipeline: window.electronAPI?.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false })
+        pipeline: window.electronAPI?.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false }),
+        initiatives: window.electronAPI?.getInitiatives ? window.electronAPI.getInitiatives() : Promise.resolve({ success: false }),
+        appSettings: window.electronAPI?.getAppSettings ? window.electronAPI.getAppSettings() : Promise.resolve({ success: false })
       };
 
       const keys = Object.keys(promises);
@@ -121,6 +128,7 @@ export default function ScheduleView() {
       if (results.tasks?.success) setCrmTasks(results.tasks.data);
       if (results.clients?.success) setClients(results.clients.data);
       if (results.project100?.success) setProject100Contacts(results.project100.data || []);
+      if (results.initiatives?.success) setInitiatives(results.initiatives.data || []);
       if (results.settings?.success) {
         setGoogleSettings(results.settings.data);
         setFormClientId(results.settings.data.clientId || '');
@@ -130,6 +138,14 @@ export default function ScheduleView() {
         }
       }
       if (results.pipeline?.success) setPipelineCases(results.pipeline.data);
+      if (results.appSettings?.success && results.appSettings.settings?.ignoredCalendarContacts) {
+        setIgnoredContacts(results.appSettings.settings.ignoredCalendarContacts);
+      } else {
+        try {
+          const cached = JSON.parse(localStorage.getItem('crm_ignored_calendar_contacts') || '[]');
+          if (Array.isArray(cached)) setIgnoredContacts(cached);
+        } catch (e) {}
+      }
 
       // Fetch Google Calendar events if connected
       if (results.settings?.success && results.settings.data.connected) {
@@ -844,10 +860,151 @@ export default function ScheduleView() {
         }
       }
     } catch (err) {
-      alert(err.message || 'An error occurred during quick add.');
     } finally {
       setAddingTask(false);
     }
+  };
+
+  // Contact Radar: Detect unmatched contacts from calendar events
+  const unmatchedContacts = useMemo(() => {
+    if (!googleEvents.length) return [];
+    return detectUnmatchedContacts({
+      googleEvents,
+      crmTasks,
+      clients,
+      project100Contacts,
+      pipelineCases,
+      initiatives,
+      ignoredList: ignoredContacts,
+      advisorEmail: googleSettings.email
+    });
+  }, [googleEvents, crmTasks, clients, project100Contacts, pipelineCases, initiatives, ignoredContacts, googleSettings.email]);
+
+  const handleAddToProject100FromRadar = async (contact) => {
+    if (!window.electronAPI?.addProject100Contact) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addProject100Contact({
+        fullName: contact.name,
+        preferredName: contact.name.split(' ')[0],
+        email: contact.email || '',
+        phone: '',
+        company: '',
+        category: 'Personal / Referral',
+        stage: 'Meeting Scheduled',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success && res.id) {
+        if (primaryEv.date && window.electronAPI?.addTask) {
+          await window.electronAPI.addTask({
+            prospectId: res.id,
+            prospectName: contact.name,
+            type: 'meeting',
+            description: `Meeting: ${primaryEv.summary || contact.name}`,
+            dueDate: primaryEv.date,
+            dueTime: primaryEv.time || null,
+            dueEndTime: primaryEv.endTime || null,
+            location: primaryEv.location || ''
+          });
+        }
+        addToast(`Added "${contact.name}" to Project 100 as warm prospect!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to add to Project 100: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error adding to Project 100: ' + err.message, 'error');
+    }
+  };
+
+  const handleAddToClientsFromRadar = async (contact) => {
+    if (!window.electronAPI?.addClient) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addClient({
+        fullName: contact.name,
+        preferredName: contact.name.split(' ')[0],
+        email: contact.email || '',
+        phone: '',
+        clientStatus: 'Prospect',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success && res.id) {
+        if (primaryEv.date && window.electronAPI?.addTask) {
+          await window.electronAPI.addTask({
+            clientId: res.id,
+            type: 'meeting',
+            description: `Meeting: ${primaryEv.summary || contact.name}`,
+            dueDate: primaryEv.date,
+            dueTime: primaryEv.time || null,
+            dueEndTime: primaryEv.endTime || null,
+            location: primaryEv.location || ''
+          });
+        }
+        addToast(`Created Client Profile for "${contact.name}"!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to create client: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error creating client: ' + err.message, 'error');
+    }
+  };
+
+  const handleAddToPipelineFromRadar = async (contact) => {
+    if (!window.electronAPI?.addPipelineCase) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addPipelineCase({
+        clientName: contact.name,
+        policyName: 'Financial Needs Analysis',
+        policyType: 'Life',
+        stage: 'Prospect',
+        estimatedPremium: 0,
+        estimatedFYC: 0,
+        expectedCloseDate: primaryEv.date || '',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success) {
+        addToast(`Added "${contact.name}" to Sales Pipeline!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to add to Pipeline: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error adding to Pipeline: ' + err.message, 'error');
+    }
+  };
+
+  const handleIgnoreContactFromRadar = async (contact) => {
+    const identifier = (contact.email || contact.name).trim();
+    if (!identifier) return;
+    const nextList = Array.from(new Set([...ignoredContacts, identifier]));
+    setIgnoredContacts(nextList);
+    try {
+      localStorage.setItem('crm_ignored_calendar_contacts', JSON.stringify(nextList));
+      if (window.electronAPI?.saveAppSettings) {
+        await window.electronAPI.saveAppSettings({ ignoredCalendarContacts: nextList });
+      }
+    } catch (e) {}
+    addToast(`"${contact.name}" ignored & whitelisted.`, 'info');
+  };
+
+  const handleIgnoreAllFromRadar = async () => {
+    const toIgnore = unmatchedContacts.map(c => (c.email || c.name).trim()).filter(Boolean);
+    const nextList = Array.from(new Set([...ignoredContacts, ...toIgnore]));
+    setIgnoredContacts(nextList);
+    try {
+      localStorage.setItem('crm_ignored_calendar_contacts', JSON.stringify(nextList));
+      if (window.electronAPI?.saveAppSettings) {
+        await window.electronAPI.saveAppSettings({ ignoredCalendarContacts: nextList });
+      }
+    } catch (e) {}
+    setIsRadarModalOpen(false);
+    addToast(`Ignored ${toIgnore.length} detected contacts.`, 'info');
   };
 
   return (
@@ -975,6 +1132,64 @@ export default function ScheduleView() {
               onClick={() => loadGoogleEvents(currentYear, currentMonth)}
             >
               <RefreshCw size={12} /> Retry Sync
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Radar Banner */}
+      {unmatchedContacts.length > 0 && (
+        <div 
+          className="glass-panel animate-fade-in" 
+          style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            padding: '14px 20px', 
+            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%)', 
+            border: '1px solid rgba(139, 92, 246, 0.3)', 
+            borderRadius: '12px', 
+            marginBottom: '20px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(139, 92, 246, 0.2)',
+              border: '1px solid rgba(139, 92, 246, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#c084fc'
+            }}>
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '13.5px', fontWeight: '700', color: '#f8fafc' }}>
+                  Contact Radar: {unmatchedContacts.length} Unmatched Meeting Contact{unmatchedContacts.length > 1 ? 's' : ''} Detected
+                </span>
+                <span style={{ fontSize: '10px', padding: '2px 7px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.25)', color: '#c084fc', fontWeight: '700' }}>
+                  Opportunity
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                Your calendar has upcoming or recent meetings with people not yet recorded in your Clients, Project 100, or Pipeline.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button 
+              type="button"
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 16px', fontSize: '12.5px' }}
+              onClick={() => setIsRadarModalOpen(true)}
+            >
+              <UserPlus size={14} /> Review & Capture ({unmatchedContacts.length})
             </button>
           </div>
         </div>
@@ -1124,38 +1339,79 @@ export default function ScheduleView() {
                     Google Events
                   </h3>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {selectedDayData.events.map(event => (
-                      <div 
-                        key={event.id} 
-                        style={{ 
-                          padding: '10px 12px', 
-                          backgroundColor: 'rgba(6,182,212,0.04)', 
-                          borderLeft: '3px solid var(--accent-secondary)', 
-                          borderRadius: '6px',
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          justifyContent: 'space-between',
-                          gap: '10px'
-                        }}
-                      >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                          <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)', wordBreak: 'break-word' }}>
-                            {event.summary || '(No Title)'}
-                          </span>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Time: {formatTime(event.start?.dateTime || event.start?.date)}{event.end?.dateTime ? ` - ${new Date(event.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-                          </span>
-                        </div>
-                        <button 
-                          onClick={() => handleOpenEdit('google', event)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5, padding: 0 }}
-                          onMouseEnter={e => e.currentTarget.style.color = 'var(--accent-secondary)'}
-                          onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                    {selectedDayData.events.map(event => {
+                      const matchedUnmatched = unmatchedContacts.find(u => 
+                        (u.events || []).some(e => e.eventId === event.id)
+                      );
+                      return (
+                        <div 
+                          key={event.id} 
+                          style={{ 
+                            padding: '10px 12px', 
+                            backgroundColor: matchedUnmatched ? 'rgba(139, 92, 246, 0.05)' : 'rgba(6,182,212,0.04)', 
+                            borderLeft: `3px solid ${matchedUnmatched ? '#a855f7' : 'var(--accent-secondary)'}`, 
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            justifyContent: 'space-between',
+                            gap: '10px'
+                          }}
                         >
-                          <Edit size={13} />
-                        </button>
-                      </div>
-                    ))}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)', wordBreak: 'break-word' }}>
+                              {event.summary || '(No Title)'}
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              Time: {formatTime(event.start?.dateTime || event.start?.date)}{event.end?.dateTime ? ` - ${new Date(event.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                            </span>
+                            {matchedUnmatched && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                <span style={{
+                                  fontSize: '9.5px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'rgba(139, 92, 246, 0.18)',
+                                  color: '#c084fc',
+                                  fontWeight: '600',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px'
+                                }}>
+                                  <Sparkles size={9} /> Unmatched: {matchedUnmatched.name}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsRadarModalOpen(true);
+                                  }}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#60a5fa',
+                                    fontSize: '10.5px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    padding: '0 2px',
+                                    textDecoration: 'underline'
+                                  }}
+                                >
+                                  Capture
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => handleOpenEdit('google', event)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', opacity: 0.5, padding: 0 }}
+                            onMouseEnter={e => e.currentTarget.style.color = 'var(--accent-secondary)'}
+                            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                          >
+                            <Edit size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2115,6 +2371,18 @@ export default function ScheduleView() {
           </div>
         </div>
       )}
+
+      {/* Contact Radar Triage Modal */}
+      <ContactRadarModal
+        isOpen={isRadarModalOpen}
+        onClose={() => setIsRadarModalOpen(false)}
+        unmatchedContacts={unmatchedContacts}
+        onAddToProject100={handleAddToProject100FromRadar}
+        onAddToClients={handleAddToClientsFromRadar}
+        onAddToPipeline={handleAddToPipelineFromRadar}
+        onIgnoreContact={handleIgnoreContactFromRadar}
+        onIgnoreAll={handleIgnoreAllFromRadar}
+      />
 
     </div>
   );
