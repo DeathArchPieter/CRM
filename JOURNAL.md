@@ -1460,6 +1460,40 @@ When advisors sync their Google Calendar, they regularly schedule coffee chats, 
 - Built Windows desktop installer via `npm run electron:build`.
 - Automatically committed, pushed to `origin master`, tagged `v0.1.17`, and published to GitHub Releases for auto-updating.
 
+---
+
+## Feature: Dashboard Weekly Activity Pacemaker Contact Radar Activation (v0.1.18 - October 2026)
+
+### Context & Advisor Problem Statement
+The Weekly Activity Pacemaker on the Dashboard is the advisor's primary cockpit for monitoring their weekly 15-contact pace (client catch-ups, coffee chats, prospect introductions, and networking sessions). While Archie AI scans the calendar to classify and count genuine engagements, meetings with new contacts (e.g. Janice, Jerome) previously required manually checking or navigating to other tabs to record them. The advisor requested activating the Contact Radar directly where Archie AI scans weekly activity on the dashboard.
+
+### Architecture & Implementation Details
+
+#### 1. Repository Synchronization in DashboardView (`src/views/DashboardView.jsx`)
+- Upgraded `loadData()` in `DashboardView.jsx` to load `project100Contacts` (`window.electronAPI.getProject100Contacts`), `initiatives` (`window.electronAPI.getInitiatives`), and `ignoredCalendarContacts` (`window.electronAPI.getAppSettings`).
+- Derived `unmatchedRadarContacts` via `detectUnmatchedContacts()`, continuously cross-referencing all 4 CRM repositories against upcoming Google Calendar events and CRM tasks.
+
+#### 2. Weekly Activity Pacemaker Card UI Enhancements
+- **Archie AI Status Bar Badge**: Added a dynamic `✨ X on Radar` pill next to `✨ Archie AI Verified` in the Pacemaker card header, providing immediate visual awareness of uncaptured meeting contacts.
+- **Dedicated Contact Radar Alert Strip**: Positioned directly beneath Archie Copilot's pacing insight banner. Displays the exact number of detected unregistered contacts and previews their names (e.g., `Janice, Jerome +1 more`) with a direct `[Review & Capture (X)]` button.
+- **In-Roster Meeting Item Badges**: Inside the expanded 7-day schedule roster, every meeting row associated with an uncaptured contact displays an inline badge: `✨ [Name] not in CRM` alongside a `+ Capture` shortcut button.
+
+#### 3. Modal Upgrades & Focused Triage (`src/components/ContactRadarModal.jsx`)
+- Upgraded `ContactRadarModal` with `initialSearchQuery` support.
+- When clicking `+ Capture` on an individual meeting row, the modal opens pre-focused on that specific contact, while keeping all other contacts accessible via the search bar.
+- Supported 1-click triage actions:
+  - `+ Project 100`: Creates a warm prospect with stage *"Meeting Scheduled"* and automatically links the meeting as a CRM task.
+  - `+ Client`: Creates a formal client record with status *"Prospect"* and creates a linked CRM task.
+  - `+ Pipeline`: Adds a new deal in the Sales Pipeline at *"Prospect"* stage.
+  - `Ignore / Whitelist`: Persists to `ignoredCalendarContacts` and immediately updates the radar across the app.
+
+### Build & Release
+- Verified production build via `npm run build` (1,785 modules transformed, 0 errors).
+- Bumped `package.json` to `0.1.18`.
+- Rebuilt Windows desktop installer package (`npm run electron:build`).
+- Automatically committed, pushed to `origin master`, tagged `v0.1.18`, and published to GitHub Releases for background auto-updating.
+
+
 
 
 

@@ -3,9 +3,12 @@ import {
   Users, GitBranch, TrendingUp, DollarSign, CheckCircle2, Clock, 
   AlertCircle, Sparkles, RefreshCw, Circle, Trash2, Calendar, 
   Cake, Shield, ChevronRight, Plus, ArrowUpRight, MessageCircle, AlertTriangle,
-  Bell, ChevronDown, ChevronUp, Check, Target, Flame, Coffee, Briefcase, MapPin, Edit3, X, Info
+  Bell, ChevronDown, ChevronUp, Check, Target, Flame, Coffee, Briefcase, MapPin, Edit3, X, Info,
+  UserPlus
 } from 'lucide-react';
 import { useToast } from '../components/Toast';
+import ContactRadarModal from '../components/ContactRadarModal';
+import { detectUnmatchedContacts } from '../utils/calendarContactRadar';
 
 const fmt = (v) => v ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v) : '$0';
 
@@ -71,6 +74,11 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const [isPacemakerExpanded, setIsPacemakerExpanded] = useState(false);
   const [aiReconciliation, setAiReconciliation] = useState(null); // { weekKey, items, archieInsight, isAiVerified }
   const [isAiReconciling, setIsAiReconciling] = useState(false);
+  const [project100Contacts, setProject100Contacts] = useState([]);
+  const [initiatives, setInitiatives] = useState([]);
+  const [ignoredContacts, setIgnoredContacts] = useState([]);
+  const [isRadarModalOpen, setIsRadarModalOpen] = useState(false);
+  const [radarFilterContact, setRadarFilterContact] = useState(null);
 
   // Quick Arrange Meeting Modal state
   const [isAddMeetingModalOpen, setIsAddMeetingModalOpen] = useState(false);
@@ -150,7 +158,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const loadData = async () => {
     if (!window.electronAPI) { setLoading(false); return; }
     try {
-      const [cRes, pRes, polRes, tRes, ctRes, gsRes, clmRes] = await Promise.all([
+      const [cRes, pRes, polRes, tRes, ctRes, gsRes, clmRes, p100Res, initRes, appSetRes] = await Promise.all([
         window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: false }),
         window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false }),
         window.electronAPI.getAllPolicies ? window.electronAPI.getAllPolicies() : Promise.resolve({ success: false }),
@@ -158,6 +166,9 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
         window.electronAPI.getCalendarTasks ? window.electronAPI.getCalendarTasks() : Promise.resolve({ success: false }),
         window.electronAPI.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
         window.electronAPI.getAllClaims ? window.electronAPI.getAllClaims() : Promise.resolve({ success: false }),
+        window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: false }),
+        window.electronAPI.getInitiatives ? window.electronAPI.getInitiatives() : Promise.resolve({ success: false }),
+        window.electronAPI.getAppSettings ? window.electronAPI.getAppSettings() : Promise.resolve({ success: false }),
       ]);
       
       if (cRes?.success) setClients(cRes.data || []);
@@ -166,6 +177,16 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       if (tRes?.success) setPendingTasks(tRes.data || []);
       if (ctRes?.success) setCalendarTasks(ctRes.data || []);
       if (clmRes?.success) setAllClaims(clmRes.data || []);
+      if (p100Res?.success) setProject100Contacts(p100Res.data || []);
+      if (initRes?.success) setInitiatives(initRes.data || []);
+      if (appSetRes?.success && appSetRes.settings?.ignoredCalendarContacts) {
+        setIgnoredContacts(appSetRes.settings.ignoredCalendarContacts);
+      } else {
+        try {
+          const cached = JSON.parse(localStorage.getItem('crm_ignored_calendar_contacts') || '[]');
+          if (Array.isArray(cached)) setIgnoredContacts(cached);
+        } catch (e) {}
+      }
       
       if (gsRes?.success && gsRes.data?.connected) {
         setGoogleSettings(gsRes.data);
@@ -1096,6 +1117,168 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     } finally {
       setIsSubmittingMeeting(false);
     }
+  };
+
+  // ── Contact Radar: Detect Unmatched Contacts from Calendar Activity ──
+  const unmatchedRadarContacts = useMemo(() => {
+    if (!googleEvents.length) return [];
+    return detectUnmatchedContacts({
+      googleEvents,
+      crmTasks: calendarTasks,
+      clients,
+      project100Contacts,
+      pipelineCases: pipeline,
+      initiatives,
+      ignoredList: ignoredContacts,
+      advisorEmail: googleSettings?.email
+    });
+  }, [googleEvents, calendarTasks, clients, project100Contacts, pipeline, initiatives, ignoredContacts, googleSettings?.email]);
+
+  const getRadarContactForItem = useCallback((item) => {
+    if (!unmatchedRadarContacts.length || !item) return null;
+    for (const contact of unmatchedRadarContacts) {
+      if (Array.isArray(contact.events)) {
+        if (contact.events.some(ev => ev.eventId === item.rawId || ev.eventId === item.id)) {
+          return contact;
+        }
+      }
+      if (Array.isArray(item.attendees) && contact.email) {
+        if (item.attendees.some(a => (typeof a === 'string' ? a : a.email || '').toLowerCase() === contact.email.toLowerCase())) {
+          return contact;
+        }
+      }
+      if (contact.name && item.title && item.title.toLowerCase().includes(contact.name.toLowerCase())) {
+        return contact;
+      }
+    }
+    return null;
+  }, [unmatchedRadarContacts]);
+
+  const handleAddToProject100FromRadar = async (contact) => {
+    if (!window.electronAPI?.addProject100Contact) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addProject100Contact({
+        fullName: contact.name,
+        preferredName: contact.name.split(' ')[0],
+        email: contact.email || '',
+        phone: '',
+        company: '',
+        category: 'Personal / Referral',
+        stage: 'Meeting Scheduled',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success && res.id) {
+        if (primaryEv.date && window.electronAPI?.addTask) {
+          await window.electronAPI.addTask({
+            prospectId: res.id,
+            prospectName: contact.name,
+            type: 'meeting',
+            description: `Meeting: ${primaryEv.summary || contact.name}`,
+            dueDate: primaryEv.date,
+            dueTime: primaryEv.time || null,
+            dueEndTime: primaryEv.endTime || null,
+            location: primaryEv.location || ''
+          });
+        }
+        addToast(`Added "${contact.name}" to Project 100 as warm prospect!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to add to Project 100: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error adding to Project 100: ' + err.message, 'error');
+    }
+  };
+
+  const handleAddToClientsFromRadar = async (contact) => {
+    if (!window.electronAPI?.addClient) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addClient({
+        fullName: contact.name,
+        preferredName: contact.name.split(' ')[0],
+        email: contact.email || '',
+        phone: '',
+        clientStatus: 'Prospect',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success && res.id) {
+        if (primaryEv.date && window.electronAPI?.addTask) {
+          await window.electronAPI.addTask({
+            clientId: res.id,
+            type: 'meeting',
+            description: `Meeting: ${primaryEv.summary || contact.name}`,
+            dueDate: primaryEv.date,
+            dueTime: primaryEv.time || null,
+            dueEndTime: primaryEv.endTime || null,
+            location: primaryEv.location || ''
+          });
+        }
+        addToast(`Created Client Profile for "${contact.name}"!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to create client: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error creating client: ' + err.message, 'error');
+    }
+  };
+
+  const handleAddToPipelineFromRadar = async (contact) => {
+    if (!window.electronAPI?.addPipelineCase) return;
+    try {
+      const primaryEv = (contact.events && contact.events[0]) || {};
+      const res = await window.electronAPI.addPipelineCase({
+        clientName: contact.name,
+        policyName: 'Financial Needs Analysis',
+        policyType: 'Life',
+        stage: 'Prospect',
+        estimatedPremium: 0,
+        estimatedFYC: 0,
+        expectedCloseDate: primaryEv.date || '',
+        notes: `[Captured via Contact Radar from meeting "${primaryEv.summary || ''}" on ${primaryEv.date || ''}]`
+      });
+
+      if (res.success) {
+        addToast(`Added "${contact.name}" to Sales Pipeline!`, 'success');
+        await loadData();
+      } else {
+        addToast('Failed to add to Pipeline: ' + (res?.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      addToast('Error adding to Pipeline: ' + err.message, 'error');
+    }
+  };
+
+  const handleIgnoreContactFromRadar = async (contact) => {
+    const identifier = (contact.email || contact.name).trim();
+    if (!identifier) return;
+    const nextList = Array.from(new Set([...ignoredContacts, identifier]));
+    setIgnoredContacts(nextList);
+    try {
+      localStorage.setItem('crm_ignored_calendar_contacts', JSON.stringify(nextList));
+      if (window.electronAPI?.saveAppSettings) {
+        await window.electronAPI.saveAppSettings({ ignoredCalendarContacts: nextList });
+      }
+    } catch (e) {}
+    addToast(`"${contact.name}" ignored & whitelisted.`, 'info');
+  };
+
+  const handleIgnoreAllFromRadar = async () => {
+    const toIgnore = unmatchedRadarContacts.map(c => (c.email || c.name).trim()).filter(Boolean);
+    const nextList = Array.from(new Set([...ignoredContacts, ...toIgnore]));
+    setIgnoredContacts(nextList);
+    try {
+      localStorage.setItem('crm_ignored_calendar_contacts', JSON.stringify(nextList));
+      if (window.electronAPI?.saveAppSettings) {
+        await window.electronAPI.saveAppSettings({ ignoredCalendarContacts: nextList });
+      }
+    } catch (e) {}
+    setIsRadarModalOpen(false);
+    addToast(`Ignored ${toIgnore.length} contacts from Radar.`, 'info');
   };
 
   /* ── Upcoming Client Milestones (Birthdays & Policy Anniversaries) ── */
@@ -2046,6 +2229,32 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
               {pacemakerData.isAiVerified ? '✨ Archie AI Verified' : '⚡ Smart Reconciled'}
             </span>
 
+            {unmatchedRadarContacts.length > 0 && (
+              <button
+                onClick={() => {
+                  setRadarFilterContact(null);
+                  setIsRadarModalOpen(true);
+                }}
+                style={{
+                  fontSize: '10px',
+                  fontWeight: '600',
+                  padding: '2px 8px',
+                  borderRadius: '10px',
+                  backgroundColor: 'rgba(139, 92, 246, 0.18)',
+                  color: '#c084fc',
+                  border: '1px solid rgba(139, 92, 246, 0.35)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Review unmatched contacts detected in scheduled activity"
+              >
+                <Sparkles size={10} /> {unmatchedRadarContacts.length} on Radar
+              </button>
+            )}
+
             {window.electronAPI?.reconcilePacemakerWithAi && (
               <button
                 onClick={() => runAiReconciliation(true)}
@@ -2071,6 +2280,71 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
             )}
           </div>
         </div>
+
+        {/* Contact Radar Intelligence Alert */}
+        {unmatchedRadarContacts.length > 0 && (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%)',
+            border: '1px solid rgba(139, 92, 246, 0.3)',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '240px' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '24px',
+                height: '24px',
+                borderRadius: '6px',
+                background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
+                color: '#ffffff',
+                boxShadow: '0 2px 6px rgba(139, 92, 246, 0.3)',
+                flexShrink: 0
+              }}>
+                <Sparkles size={13} />
+              </div>
+              <div style={{ fontSize: '11.5px', color: 'var(--text-primary)', lineHeight: '1.4' }}>
+                <span style={{ fontWeight: '700', color: '#c084fc', marginRight: '6px' }}>
+                  Contact Radar:
+                </span>
+                <span>
+                  AI activity scan detected <strong>{unmatchedRadarContacts.length} new contact{unmatchedRadarContacts.length !== 1 ? 's' : ''}</strong> not yet in your CRM{' '}
+                  <span style={{ color: '#e2e8f0' }}>
+                    ({unmatchedRadarContacts.slice(0, 3).map(c => c.name).join(', ')}{unmatchedRadarContacts.length > 3 ? ` +${unmatchedRadarContacts.length - 3} more` : ''})
+                  </span>.
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setRadarFilterContact(null);
+                setIsRadarModalOpen(true);
+              }}
+              className="btn btn-primary"
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
+                border: 'none',
+                fontWeight: '600',
+                boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)',
+                cursor: 'pointer'
+              }}
+            >
+              <UserPlus size={11} /> Review & Capture ({unmatchedRadarContacts.length})
+            </button>
+          </div>
+        )}
 
         {/* Category Breakdown Chips Row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', paddingTop: '2px' }}>
@@ -2405,6 +2679,51 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                               </div>
                             )}
                           </div>
+
+                          {(() => {
+                            const radarContact = getRadarContactForItem(item);
+                            if (!radarContact) return null;
+                            return (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                backgroundColor: 'rgba(139, 92, 246, 0.12)',
+                                border: '1px solid rgba(139, 92, 246, 0.3)',
+                                borderRadius: '6px',
+                                padding: '4px 8px',
+                                marginTop: '2px',
+                                fontSize: '10.5px'
+                              }}>
+                                <span style={{ color: '#c084fc', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '500' }}>
+                                  <Sparkles size={11} /> <strong>{radarContact.name}</strong> not in CRM
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRadarFilterContact(radarContact);
+                                    setIsRadarModalOpen(true);
+                                  }}
+                                  style={{
+                                    background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    color: '#ffffff',
+                                    padding: '2px 8px',
+                                    fontSize: '10px',
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    boxShadow: '0 2px 6px rgba(139, 92, 246, 0.3)'
+                                  }}
+                                >
+                                  <UserPlus size={10} /> + Capture
+                                </button>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -3036,6 +3355,22 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
           </div>
         </div>
       )}
+
+      {/* ── Modal: Contact Radar ─────────────────────────────────────── */}
+      <ContactRadarModal
+        isOpen={isRadarModalOpen}
+        onClose={() => {
+          setIsRadarModalOpen(false);
+          setRadarFilterContact(null);
+        }}
+        unmatchedContacts={unmatchedRadarContacts}
+        initialSearchQuery={radarFilterContact ? radarFilterContact.name : ''}
+        onAddToProject100={handleAddToProject100FromRadar}
+        onAddToClients={handleAddToClientsFromRadar}
+        onAddToPipeline={handleAddToPipelineFromRadar}
+        onIgnoreContact={handleIgnoreContactFromRadar}
+        onIgnoreAll={handleIgnoreAllFromRadar}
+      />
 
     </div>
   );

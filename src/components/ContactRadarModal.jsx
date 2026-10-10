@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sparkles, X, UserPlus, Users, Briefcase, TrendingUp, 
   Calendar, MapPin, Mail, CheckCircle2, EyeOff, Search, 
@@ -9,15 +9,22 @@ export default function ContactRadarModal({
   isOpen,
   onClose,
   unmatchedContacts = [],
+  initialSearchQuery = '',
   onAddToProject100,
   onAddToClients,
   onAddToPipeline,
   onIgnoreContact,
   onIgnoreAll
 }) {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [editingNames, setEditingNames] = useState({});
   const [actionLoadingId, setActionLoadingId] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSearchQuery(initialSearchQuery || '');
+    }
+  }, [isOpen, initialSearchQuery]);
 
   if (!isOpen) return null;
 
