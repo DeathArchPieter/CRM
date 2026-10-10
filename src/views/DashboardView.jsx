@@ -52,6 +52,8 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const [loading, setLoading] = useState(true);
   const [activeDashboardSnoozeId, setActiveDashboardSnoozeId] = useState(null);
   const [isActionCenterCollapsed, setIsActionCenterCollapsed] = useState(false);
+  const [allClaims, setAllClaims] = useState([]);
+  const [isClaimsCenterCollapsed, setIsClaimsCenterCollapsed] = useState(false);
 
   // Weekly Activity Pacemaker state (Target pace default: 15)
   const [paceTarget, setPaceTarget] = useState(() => {
@@ -105,6 +107,30 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     });
   }, [overduePendingTasks, todayPendingTasks]);
 
+  const activeAgencyClaims = useMemo(() => {
+    return allClaims.filter(c => !['Paid Out', 'Declined'].includes(c.status));
+  }, [allClaims]);
+
+  const urgentClaimsRequiringAction = useMemo(() => {
+    return allClaims.filter(c => {
+      if (c.status === 'Information Required') return true;
+      const cat = (c.claimCategory || c.claimType || '').toLowerCase();
+      if (!cat.includes('critical') && !cat.includes('disability') && !cat.includes('death') && !cat.includes('tpd')) {
+        const incurred = Number(c.totalIncurredAmount) || 0;
+        const paid = Number(c.approvedAmount) || 0;
+        const coPay = Number(c.deductibleOrCoPay) || 0;
+        const medisave = Number(c.medisaveOffset) || 0;
+        const variance = incurred - (paid + coPay + medisave);
+        if (incurred > 0 && variance > 0 && !['Paid Out', 'Declined'].includes(c.status)) return true;
+      }
+      return false;
+    });
+  }, [allClaims]);
+
+  const totalAgencyReimbursed = useMemo(() => {
+    return allClaims.reduce((sum, c) => sum + (Number(c.approvedAmount) || 0), 0);
+  }, [allClaims]);
+
   const handleSnoozeTask = async (taskId, option) => {
     if (window.electronAPI?.snoozeTask) {
       const res = await window.electronAPI.snoozeTask({ taskId, option });
@@ -124,13 +150,14 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
   const loadData = async () => {
     if (!window.electronAPI) { setLoading(false); return; }
     try {
-      const [cRes, pRes, polRes, tRes, ctRes, gsRes] = await Promise.all([
+      const [cRes, pRes, polRes, tRes, ctRes, gsRes, clmRes] = await Promise.all([
         window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: false }),
         window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: false }),
         window.electronAPI.getAllPolicies ? window.electronAPI.getAllPolicies() : Promise.resolve({ success: false }),
         window.electronAPI.getAllTasks ? window.electronAPI.getAllTasks() : Promise.resolve({ success: false }),
         window.electronAPI.getCalendarTasks ? window.electronAPI.getCalendarTasks() : Promise.resolve({ success: false }),
         window.electronAPI.getGoogleSettings ? window.electronAPI.getGoogleSettings() : Promise.resolve({ success: false }),
+        window.electronAPI.getAllClaims ? window.electronAPI.getAllClaims() : Promise.resolve({ success: false }),
       ]);
       
       if (cRes?.success) setClients(cRes.data || []);
@@ -138,6 +165,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
       if (polRes?.success) setPolicies(polRes.data || []);
       if (tRes?.success) setPendingTasks(tRes.data || []);
       if (ctRes?.success) setCalendarTasks(ctRes.data || []);
+      if (clmRes?.success) setAllClaims(clmRes.data || []);
       
       if (gsRes?.success && gsRes.data?.connected) {
         setGoogleSettings(gsRes.data);
@@ -1557,6 +1585,197 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                         >
                           <MessageCircle size={11} /> WhatsApp
                         </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Active Claims & Service Watch Banner ── */}
+      {activeAgencyClaims.length > 0 && (
+        <div style={{
+          background: urgentClaimsRequiringAction.length > 0
+            ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(245, 158, 11, 0.04) 50%, rgba(139, 92, 246, 0.04) 100%)'
+            : 'linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(139, 92, 246, 0.04) 100%)',
+          border: urgentClaimsRequiringAction.length > 0
+            ? '1px solid rgba(239, 68, 68, 0.3)'
+            : '1px solid rgba(56, 189, 248, 0.25)',
+          borderRadius: '14px',
+          padding: '14px 18px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+          flexShrink: 0
+        }}>
+          {/* Banner Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+              <div style={{
+                padding: '6px',
+                borderRadius: '8px',
+                backgroundColor: urgentClaimsRequiringAction.length > 0 ? 'rgba(239, 68, 68, 0.2)' : 'rgba(56, 189, 248, 0.15)',
+                color: urgentClaimsRequiringAction.length > 0 ? '#f87171' : '#38bdf8',
+                display: 'flex'
+              }}>
+                <Shield size={16} />
+              </div>
+              <div>
+                <div style={{ fontSize: '13.5px', fontWeight: '700', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Practice Claims & Settlement Watch</span>
+                  <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
+                    {activeAgencyClaims.length} Active {activeAgencyClaims.length === 1 ? 'Claim' : 'Claims'}
+                  </span>
+                  {urgentClaimsRequiringAction.length > 0 && (
+                    <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                      {urgentClaimsRequiringAction.length} Attention Needed
+                    </span>
+                  )}
+                  {totalAgencyReimbursed > 0 && (
+                    <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '10px', backgroundColor: 'rgba(16, 185, 129, 0.12)', color: 'var(--accent-success)' }}>
+                      {fmt(totalAgencyReimbursed)} Total Disbursed
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Inpatient hospital stays, personal accident clinic receipts & major benefit payouts across all clients
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => onNavigateTab && onNavigateTab('clients')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--accent-primary)',
+                  fontSize: '11.5px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                Clients Hub <ChevronRight size={12} />
+              </button>
+              <button
+                onClick={() => setIsClaimsCenterCollapsed(prev => !prev)}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '6px',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  fontSize: '11px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                {isClaimsCenterCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                <span>{isClaimsCenterCollapsed ? 'Expand' : 'Collapse'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Banner Item Cards Grid */}
+          {!isClaimsCenterCollapsed && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '10px'
+            }}>
+              {activeAgencyClaims.slice(0, 4).map(claim => {
+                const matchedClient = clients.find(c => c.id === claim.clientId);
+                const clientName = matchedClient ? (matchedClient.preferredName || matchedClient.fullName) : 'Client';
+                const cat = (claim.claimCategory || claim.claimType || '').toLowerCase();
+                const isMajor = cat.includes('critical') || cat.includes('disability') || cat.includes('death') || cat.includes('tpd');
+                const isAccident = cat.includes('accident');
+                const isActionReq = claim.status === 'Information Required';
+
+                // Variance check
+                const incurred = Number(claim.totalIncurredAmount) || 0;
+                const paid = Number(claim.approvedAmount) || 0;
+                const coPay = Number(claim.deductibleOrCoPay) || 0;
+                const medisave = Number(claim.medisaveOffset) || 0;
+                const variance = incurred - (paid + coPay + medisave);
+
+                return (
+                  <div
+                    key={claim.id}
+                    style={{
+                      background: 'rgba(18, 18, 24, 0.7)',
+                      border: isActionReq ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-light)',
+                      borderLeft: `3px solid ${isActionReq ? '#f87171' : isMajor ? '#c084fc' : isAccident ? '#fbbf24' : '#38bdf8'}`,
+                      borderRadius: '10px',
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '7px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onClick={() => matchedClient && handleOpenClient(matchedClient)}
+                    title="Click to open client profile & claim details"
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{
+                          fontSize: '9.5px',
+                          fontWeight: '700',
+                          padding: '1px 5px',
+                          borderRadius: '3px',
+                          backgroundColor: isMajor ? 'rgba(168, 85, 247, 0.2)' : isAccident ? 'rgba(245, 158, 11, 0.2)' : 'rgba(56, 189, 248, 0.2)',
+                          color: isMajor ? '#c084fc' : isAccident ? '#fbbf24' : '#38bdf8'
+                        }}>
+                          {isMajor ? 'Major Claim' : isAccident ? 'Personal Accident' : 'Hospitalisation'}
+                        </span>
+                        {claim.insuredType === 'Dependent' && (
+                          <span style={{ fontSize: '9px', padding: '1px 4px', borderRadius: '3px', backgroundColor: 'rgba(168, 85, 247, 0.15)', color: '#c084fc' }}>
+                            👶 {claim.insuredName || 'Dependent'}
+                          </span>
+                        )}
+                      </div>
+
+                      <span style={{
+                        fontSize: '9.5px',
+                        fontWeight: '600',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: isActionReq ? 'rgba(239, 68, 68, 0.2)' : claim.status === 'Approved' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                        color: isActionReq ? '#f87171' : claim.status === 'Approved' ? 'var(--accent-success)' : 'var(--text-secondary)'
+                      }}>
+                        {claim.status}
+                      </span>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '12.5px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {claim.title || 'Medical Claim Event'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--accent-primary)', fontWeight: '600', marginTop: '1px' }}>
+                        👤 {clientName}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-muted)', borderTop: '1px solid rgba(255, 255, 255, 0.04)', paddingTop: '6px' }}>
+                      {isMajor ? (
+                        <span>Sum Assured: <strong style={{ color: '#c084fc' }}>{fmt(claim.sumAssuredClaimed || claim.claimedAmount)}</strong></span>
+                      ) : (
+                        <span>Bills: <strong style={{ color: 'var(--text-primary)' }}>{fmt(incurred)}</strong> • Paid: <strong style={{ color: 'var(--accent-success)' }}>{fmt(paid)}</strong></span>
+                      )}
+
+                      {!isMajor && variance > 0 && (
+                        <span style={{ color: '#fbbf24', fontWeight: '600', fontSize: '10.5px' }}>
+                          ⚠️ {fmt(variance)} Unaccounted
+                        </span>
                       )}
                     </div>
                   </div>

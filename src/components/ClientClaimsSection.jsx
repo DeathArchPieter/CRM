@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   Shield, Plus, FileText, Sparkles, CheckCircle2, Clock, AlertTriangle, 
   DollarSign, Layers, Edit2, Trash2, ExternalLink, ChevronRight, ArrowRight,
-  TrendingUp, Check, Building, FileCheck, Baby, Building2, Activity, Award
+  TrendingUp, Check, Building, FileCheck, Baby, Building2, Activity, Award, User
 } from 'lucide-react';
 import ClaimModal from './ClaimModal';
 import ClaimArchetypeModal from './ClaimArchetypeModal';
@@ -15,6 +15,7 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
   const [isArchetypeModalOpen, setIsArchetypeModalOpen] = useState(false);
   const [selectedArchetype, setSelectedArchetype] = useState('hospitalisation');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [insuredFilter, setInsuredFilter] = useState('all'); // 'all' | 'self' | 'dependents' | dep.id
   const [aiClaim, setAiClaim] = useState(null);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
@@ -126,6 +127,31 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
     }
   };
 
+  // Helper to resolve Insured Person / Patient details
+  const getClaimInsured = (claimObj) => {
+    if (!claimObj) return { type: 'Self', name: client?.fullName || 'Self', personId: '' };
+    if (claimObj.insuredType) {
+      return {
+        type: claimObj.insuredType,
+        name: claimObj.insuredName || (claimObj.insuredType === 'Dependent' ? 'Dependent' : (client?.fullName || 'Self')),
+        personId: claimObj.insuredPersonId || ''
+      };
+    }
+    const p = policies.find(pol => pol.id === claimObj.policyId);
+    if (p && p.insuredType === 'Dependent') {
+      return {
+        type: 'Dependent',
+        name: p.insuredName || 'Dependent',
+        personId: p.insuredPersonId || ''
+      };
+    }
+    return {
+      type: 'Self',
+      name: client?.fullName || 'Self',
+      personId: ''
+    };
+  };
+
   // Aggregate Metrics & Archetype Groupings
   const totalClaimsCount = claims.length;
   const activeClaims = claims.filter(c => !['Paid Out', 'Declined'].includes(c.status));
@@ -135,9 +161,20 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
   const accClaims = claims.filter(c => inferCategory(c) === 'accident');
   const majorClaims = claims.filter(c => inferCategory(c) === 'major');
 
-  const filteredClaims = categoryFilter === 'all'
-    ? claims
-    : claims.filter(c => inferCategory(c) === categoryFilter);
+  const selfClaims = claims.filter(c => getClaimInsured(c).type === 'Self');
+  const depClaims = claims.filter(c => getClaimInsured(c).type === 'Dependent');
+  const dependents = client?.dependents || [];
+
+  const filteredClaims = claims.filter(c => {
+    const matchesCat = categoryFilter === 'all' || inferCategory(c) === categoryFilter;
+    if (!matchesCat) return false;
+
+    if (insuredFilter === 'all') return true;
+    const insuredInfo = getClaimInsured(c);
+    if (insuredFilter === 'self') return insuredInfo.type === 'Self';
+    if (insuredFilter === 'dependents') return insuredInfo.type === 'Dependent';
+    return insuredInfo.personId === insuredFilter || insuredInfo.name.toLowerCase() === insuredFilter.toLowerCase();
+  });
 
   // Detect Warnings for Indemnity / Hospital claims
   const unreconciledClaims = claims.filter(c => {
@@ -232,109 +269,214 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* Archetype Filter Tabs & New Claim Button */}
+          {/* Archetype & Insured Person Filter Bar */}
           {totalClaimsCount > 0 && (
             <div style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '10px',
-              flexWrap: 'wrap',
-              padding: '6px 10px',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '8px 12px',
               borderRadius: '10px',
               backgroundColor: 'rgba(255, 255, 255, 0.02)',
               border: '1px solid var(--border-light)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setCategoryFilter('all')}
-                  style={{
-                    padding: '5px 12px',
-                    fontSize: '12px',
-                    fontWeight: categoryFilter === 'all' ? '600' : '400',
-                    borderRadius: '7px',
-                    backgroundColor: categoryFilter === 'all' ? 'var(--accent-primary)' : 'transparent',
-                    color: categoryFilter === 'all' ? '#fff' : 'var(--text-secondary)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  All ({claims.length})
-                </button>
+              {/* Row 1: Archetype Filters */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCategoryFilter('all')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: categoryFilter === 'all' ? '600' : '400',
+                      borderRadius: '7px',
+                      backgroundColor: categoryFilter === 'all' ? 'var(--accent-primary)' : 'transparent',
+                      color: categoryFilter === 'all' ? '#fff' : 'var(--text-secondary)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    All ({claims.length})
+                  </button>
 
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setCategoryFilter('hospitalisation')}
-                  style={{
-                    padding: '5px 12px',
-                    fontSize: '12px',
-                    fontWeight: categoryFilter === 'hospitalisation' ? '600' : '400',
-                    borderRadius: '7px',
-                    backgroundColor: categoryFilter === 'hospitalisation' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
-                    color: categoryFilter === 'hospitalisation' ? '#38bdf8' : 'var(--text-secondary)',
-                    border: categoryFilter === 'hospitalisation' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Building2 size={13} /> Hospitalisation ({hospClaims.length})
-                </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCategoryFilter('hospitalisation')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: categoryFilter === 'hospitalisation' ? '600' : '400',
+                      borderRadius: '7px',
+                      backgroundColor: categoryFilter === 'hospitalisation' ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                      color: categoryFilter === 'hospitalisation' ? '#38bdf8' : 'var(--text-secondary)',
+                      border: categoryFilter === 'hospitalisation' ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Building2 size={13} /> Hospitalisation ({hospClaims.length})
+                  </button>
 
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setCategoryFilter('accident')}
-                  style={{
-                    padding: '5px 12px',
-                    fontSize: '12px',
-                    fontWeight: categoryFilter === 'accident' ? '600' : '400',
-                    borderRadius: '7px',
-                    backgroundColor: categoryFilter === 'accident' ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
-                    color: categoryFilter === 'accident' ? '#fbbf24' : 'var(--text-secondary)',
-                    border: categoryFilter === 'accident' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Activity size={13} /> Personal Accident ({accClaims.length})
-                </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCategoryFilter('accident')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: categoryFilter === 'accident' ? '600' : '400',
+                      borderRadius: '7px',
+                      backgroundColor: categoryFilter === 'accident' ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                      color: categoryFilter === 'accident' ? '#fbbf24' : 'var(--text-secondary)',
+                      border: categoryFilter === 'accident' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Activity size={13} /> Personal Accident ({accClaims.length})
+                  </button>
 
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => setCategoryFilter('major')}
-                  style={{
-                    padding: '5px 12px',
-                    fontSize: '12px',
-                    fontWeight: categoryFilter === 'major' ? '600' : '400',
-                    borderRadius: '7px',
-                    backgroundColor: categoryFilter === 'major' ? 'rgba(168, 85, 247, 0.2)' : 'transparent',
-                    color: categoryFilter === 'major' ? '#c084fc' : 'var(--text-secondary)',
-                    border: categoryFilter === 'major' ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid transparent',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Award size={13} /> Major Claims ({majorClaims.length})
-                </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCategoryFilter('major')}
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: '12px',
+                      fontWeight: categoryFilter === 'major' ? '600' : '400',
+                      borderRadius: '7px',
+                      backgroundColor: categoryFilter === 'major' ? 'rgba(168, 85, 247, 0.2)' : 'transparent',
+                      color: categoryFilter === 'major' ? '#c084fc' : 'var(--text-secondary)',
+                      border: categoryFilter === 'major' ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Award size={13} /> Major Claims ({majorClaims.length})
+                  </button>
+                </div>
+
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  Showing <strong>{filteredClaims.length}</strong> of {totalClaimsCount} events
+                </div>
               </div>
 
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Showing <strong>{filteredClaims.length}</strong> of {totalClaimsCount} events
-              </div>
+              {/* Row 2: Patient / Insured Person Filter */}
+              {(depClaims.length > 0 || dependents.length > 0) && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexWrap: 'wrap',
+                  paddingTop: '6px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.04)'
+                }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginRight: '4px' }}>Patient:</span>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setInsuredFilter('all')}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: insuredFilter === 'all' ? '600' : '400',
+                      borderRadius: '5px',
+                      backgroundColor: insuredFilter === 'all' ? 'rgba(255,255,255,0.1)' : 'transparent',
+                      color: insuredFilter === 'all' ? 'var(--text-primary)' : 'var(--text-muted)',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    All ({claims.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setInsuredFilter('self')}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: insuredFilter === 'self' ? '600' : '400',
+                      borderRadius: '5px',
+                      backgroundColor: insuredFilter === 'self' ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      color: insuredFilter === 'self' ? '#60a5fa' : 'var(--text-muted)',
+                      border: insuredFilter === 'self' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <User size={11} /> Self ({selfClaims.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setInsuredFilter('dependents')}
+                    style={{
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      fontWeight: insuredFilter === 'dependents' ? '600' : '400',
+                      borderRadius: '5px',
+                      backgroundColor: insuredFilter === 'dependents' ? 'rgba(168, 85, 247, 0.2)' : 'transparent',
+                      color: insuredFilter === 'dependents' ? '#c084fc' : 'var(--text-muted)',
+                      border: insuredFilter === 'dependents' ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid transparent',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <Baby size={11} /> Dependents ({depClaims.length})
+                  </button>
+                  {dependents.map(dep => {
+                    const depCount = claims.filter(c => {
+                      const ins = getClaimInsured(c);
+                      return ins.personId === dep.id || ins.name.toLowerCase() === dep.fullName.toLowerCase();
+                    }).length;
+                    const isSelected = insuredFilter === dep.id;
+                    return (
+                      <button
+                        key={dep.id}
+                        type="button"
+                        className="btn"
+                        onClick={() => setInsuredFilter(dep.id)}
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: '10.5px',
+                          fontWeight: isSelected ? '600' : '400',
+                          borderRadius: '5px',
+                          backgroundColor: isSelected ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
+                          color: isSelected ? '#c084fc' : 'var(--text-muted)',
+                          border: isSelected ? '1px solid rgba(168, 85, 247, 0.5)' : '1px solid transparent',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {dep.fullName} ({depCount})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -464,6 +606,7 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
 
                 const billsCount = (claim.billItems || []).length;
                 const docsCount = (claim.documentChecklist || []).filter(d => d.status === 'Uploaded / Received').length;
+                const insuredInfo = getClaimInsured(claim);
 
                 return (
                   <div
@@ -559,7 +702,7 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
                             {policy ? `${policy.provider} • ${policy.policyType}` : claim.claimType}
                           </span>
 
-                          {policy && policy.insuredType === 'Dependent' && (
+                          {insuredInfo.type === 'Dependent' && (
                             <span style={{
                               padding: '3px 8px',
                               borderRadius: '4px',
@@ -571,7 +714,26 @@ export default function ClientClaimsSection({ client, policies = [], claims = []
                               alignItems: 'center',
                               gap: '4px'
                             }}>
-                              <Baby size={11} /> Patient: {policy.insuredName || 'Dependent'} ({policy.insuredRelationship || 'Family'})
+                              <Baby size={11} /> Patient: {insuredInfo.name}
+                            </span>
+                          )}
+
+                          {Array.isArray(claim.additionalPolicyIds) && claim.additionalPolicyIds.length > 0 && (
+                            <span 
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: '600',
+                                backgroundColor: 'rgba(139, 92, 246, 0.12)',
+                                color: 'var(--accent-primary)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                              title={`Additional Linked Policies: ${claim.additionalPolicyIds.map(id => getPolicy(id)?.provider || id).join(', ')}`}
+                            >
+                              <Layers size={11} /> +{claim.additionalPolicyIds.length} Linked Rider
                             </span>
                           )}
 

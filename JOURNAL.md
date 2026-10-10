@@ -1336,6 +1336,60 @@ Migrated the core AI model powering Beetsma Consultancy CRM across all features 
    - Bumped `package.json` to `0.1.14`.
    - Rebuilt Windows desktop installer package (`npm run electron:build`).
 
+---
+
+## Architectural Refactoring: Modular Claims Suite, Multi-Policy Linking, Patient Attribution & Practice Claims Watch (v0.1.15 - October 2026)
+
+### Context & Goals
+An in-depth architecture audit of the Claims section identified critical areas for modernization:
+1. **Monolithic Form Debt**: `ClaimModal.jsx` had grown to over 3,120 lines, bundling Event Details, Bills Ledger, Settlement Reconciliation, and Document Vault checklist logic into a single file with severe re-render bottlenecks.
+2. **Calculations Stale State**: Deleting all itemized bills left the previous totals stale because the recalculation effect guarded on `billItems.length > 0`.
+3. **Orphaned Disk Folders**: Deleting a claim removed the record from `crm_data.json` but left its physical attachments in `claims_documents/<clientId>/<claimId>/` forever.
+4. **Single-Policy Limitation**: Claims could only be linked to a single base policy even when hospitalization and accident claims cross-claimed against multiple integrated shield riders, personal accident riders, and corporate group plans.
+5. **Dependent Patient Attribution**: Claims lacked clear attribution when filed on behalf of family members (spouses, children) under a policyholder's portfolio.
+6. **No Agency Dashboard Visibility**: Active claims with pending bills, information requests, or outstanding settlements were isolated inside individual client pages with no practice-wide executive overview.
+
+### Implementation Details
+
+#### 1. Modular Architecture Decomposition (`src/components/claims/`)
+- Decomposed `ClaimModal.jsx` from 3,120 lines down to ~540 lines by extracting focused, single-responsibility step subcomponents:
+  - `claimConstants.js`: Centralized claim categories, Singapore archetypes, status tags, ward classes, injury mechanisms, and document checklist templates.
+  - `ClaimEventStep.jsx` (Step 1): Event incident details, admission/discharge scheduling, hospital/clinic metadata, and dual-mode layout for Indemnity vs Major Illness claims.
+  - `IndemnityBillsLedger.jsx` (Step 2): Drag-and-drop batch ingestion with Archie AI multi-stream triage, manual bill line entry, interactive table with image/PDF preview, and instant document re-routing actions.
+  - `IndemnityReconciliation.jsx` (Step 3): Real-time financial audit balance (Incurred vs Claimed vs Insurer Paid vs Client Out-of-Pocket), settlement tranche log, and EOB disbursement attachment linking.
+  - `ClaimVaultStep.jsx` (Step 4): Singapore checklist preset management with one-click upload slots, document tagging, advisor timeline audit notes, and custom checklist builder.
+
+#### 2. Calculation Integrity & Major Claim Sum Assured Handling
+- Refactored the financial balance synchronization in `ClaimModal.jsx`:
+  - Removed the `formData.billItems.length > 0` condition that prevented totals from resetting when bills were removed.
+  - Formulated dedicated branching for Major Illness claims vs Indemnity claims so that entering an agreed Sum Assured or logging settlement tranches does not overwrite manual claim values.
+
+#### 3. Multi-Policy & Rider Cross-Claiming
+- **Step 1 UI (`ClaimEventStep.jsx`)**: Added interactive Multi-Policy Rider Linker allowing advisors to select multiple secondary or rider policies (`additionalPolicyIds`) alongside the primary base plan.
+- **Backend Persistence (`electron-main.cjs`)**: Updated `add-claim` IPC handler to safely persist `additionalPolicyIds` array.
+- **Client Claims UI (`ClientClaimsSection.jsx`)**: Badges on claim cards dynamically show `+N Linked Riders` for transparent multi-contract traceability.
+
+#### 4. Insured Person & Dependent Attribution
+- **Step 1 UI (`ClaimEventStep.jsx`)**: Added Insured Person selector allowing claims to be attributed directly to the client (`Self`) or any declared dependent family member with automatic age and relationship display.
+- **Backend Persistence (`electron-main.cjs`)**: Updated `add-claim` to store `insuredType`, `insuredPersonId`, and `insuredName`.
+- **Claims Section Filter Bar (`ClientClaimsSection.jsx`)**: Added a 3-way patient filter (`All`, `Self Only`, `Dependents`) alongside category tabs (`All`, `Hospital & Surgical`, `Accident`, `Major Illness`) and visual avatar badges on each claim card.
+
+#### 5. Physical Folder Deletion Cleanup (`electron-main.cjs`)
+- Updated `delete-claim` IPC handler to sanitize client and claim UUIDs and automatically purge `claims_documents/<safeClientId>/<safeClaimId>` recursively via `fs.rmSync(claimDir, { recursive: true, force: true })`.
+- Added safety assertions ensuring paths remain strictly within `userData/claims_documents` to prevent unauthorized file deletion.
+
+#### 6. Practice Claims & Settlement Watch (`DashboardView.jsx`)
+- Leveraged pre-existing `window.electronAPI.getAllClaims()` to load practice-wide claims into `DashboardView`.
+- Created an executive **Practice Claims & Settlement Watch** summary banner featuring:
+  - Metric counters: Active in-progress claims, urgent action required (information needed, insurer queries), and year-to-date practice reimbursement totals.
+  - Interactive urgency chips displaying client name, claim title, category, and status with direct navigation links to open the client profile.
+
+### Verification & Desktop Build
+- Full Vite production build validation (`npm run build`) succeeded with 0 errors.
+- Version bumped to `0.1.15` in `package.json`.
+- Windows desktop installer and update manifest compiled via `npm run electron:build`.
+
+
 
 
 

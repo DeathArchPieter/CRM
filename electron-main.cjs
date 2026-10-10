@@ -771,7 +771,10 @@ function createWindow() {
         id,
         clientId: claimData.clientId,
         policyId: claimData.policyId || '',
-        additionalPolicyIds: claimData.additionalPolicyIds || [],
+        additionalPolicyIds: Array.isArray(claimData.additionalPolicyIds) ? claimData.additionalPolicyIds : [],
+        insuredType: claimData.insuredType || 'Self',
+        insuredPersonId: claimData.insuredPersonId || '',
+        insuredName: claimData.insuredName || '',
         claimNumber: claimData.claimNumber || '',
         claimType: claimData.claimType || 'Hospitalisation / Shield',
         claimCategory: claimData.claimCategory || 'hospitalisation',
@@ -892,14 +895,30 @@ function createWindow() {
   ipcMain.handle('delete-claim', (event, claimId) => {
     try {
       if (!db.claims) db.claims = [];
-      const initialLen = db.claims.length;
+      const claimToDelete = db.claims.find(c => c.id === claimId);
+      if (!claimToDelete) throw new Error("Claim not found");
+
       db.claims = db.claims.filter(c => c.id !== claimId);
-      if (db.claims.length !== initialLen) {
-        saveDatabase();
-        return { success: true };
+      saveDatabase();
+      writeToLogFile(`[IPC] delete-claim success: deleted claim ${claimId}`);
+
+      // Purge physical claim documents folder on disk
+      try {
+        const userData = app.getPath('userData');
+        const safeClientId = String(claimToDelete.clientId || 'general').replace(/[^a-zA-Z0-9_\-]/g, '_');
+        const safeClaimId = String(claimId || 'temp').replace(/[^a-zA-Z0-9_\-]/g, '_');
+        const targetDir = path.join(userData, 'claims_documents', safeClientId, safeClaimId);
+        if (fs.existsSync(targetDir)) {
+          fs.rmSync(targetDir, { recursive: true, force: true });
+          writeToLogFile(`[IPC] delete-claim: purged documents directory at ${targetDir}`);
+        }
+      } catch (diskErr) {
+        writeToLogFile(`[IPC] delete-claim disk cleanup warning: ${diskErr.message}`);
       }
-      throw new Error("Claim not found");
+
+      return { success: true };
     } catch (error) {
+      writeToLogFile(`[IPC] delete-claim error: ${error.message}`);
       return { success: false, error: error.message };
     }
   });
