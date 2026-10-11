@@ -249,11 +249,15 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     }
   };
 
-  const handleDeleteTask = async (taskId) => {
+  const handleDeleteTask = async (taskId, taskType = 'task') => {
     if (window.electronAPI?.deleteTask) {
-      await window.electronAPI.deleteTask(taskId);
-      addToast('Task removed', 'info');
-      loadData();
+      const res = await window.electronAPI.deleteTask(taskId);
+      if (res && res.success === false) {
+        addToast(res.error || 'Failed to remove item', 'error');
+      } else {
+        addToast(`${taskType === 'meeting' ? 'Meeting' : 'Task'} cancelled & removed`, 'info');
+        loadData();
+      }
     }
   };
 
@@ -1747,6 +1751,39 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
                             </div>
                           )}
                         </div>
+
+                        <button
+                          onClick={() => {
+                            const itemType = task.type === 'meeting' ? 'meeting' : 'task';
+                            if (window.confirm(`Cancel and remove this ${itemType}?`)) {
+                              handleDeleteTask(task.id, task.type);
+                            }
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            fontSize: '10.5px',
+                            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239, 68, 68, 0.25)',
+                            padding: '3px 7px',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                          }}
+                          title={`Cancel and remove this ${task.type === 'meeting' ? 'meeting' : 'task'}`}
+                        >
+                          <Trash2 size={10} /> Delete
+                        </button>
                       </div>
 
                       {clientPhone && (

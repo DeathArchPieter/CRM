@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bell, X, CheckCircle2, Clock, Calendar, AlertTriangle, 
   MessageCircle, Phone, ArrowUpRight, ChevronDown, Sparkles, 
-  ExternalLink, Check, Volume2, ShieldAlert
+  ExternalLink, Check, Volume2, ShieldAlert, Trash2
 } from 'lucide-react';
 import { useToast } from './Toast';
 
@@ -195,6 +195,28 @@ export default function RemindersDrawer({ isOpen, onClose, onSelectClient, onNav
     } catch (err) {
       console.error('Failed to snooze task:', err);
       addToast('Failed to snooze task', 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDelete = async (task) => {
+    const itemLabel = task.type === 'meeting' ? 'meeting' : 'task';
+    if (!window.confirm(`Cancel and remove this ${itemLabel}?`)) return;
+    setActionLoadingId(task.id);
+    try {
+      if (window.electronAPI?.deleteTask) {
+        const res = await window.electronAPI.deleteTask(task.id);
+        if (res && res.success === false) {
+          addToast(res.error || 'Failed to remove item', 'error');
+        } else {
+          addToast(`${task.type === 'meeting' ? 'Meeting' : 'Task'} cancelled & removed`, 'info');
+          await loadTasks();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+      addToast('Failed to delete task', 'error');
     } finally {
       setActionLoadingId(null);
     }
@@ -666,6 +688,38 @@ export default function RemindersDrawer({ isOpen, onClose, onSelectClient, onNav
                         </div>
                       )}
                     </div>
+
+                    {/* Quick Delete / Cancel Button */}
+                    <button
+                      onClick={() => handleDelete(task)}
+                      disabled={isOperating}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '11px',
+                        fontWeight: '500',
+                        backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                        color: '#f87171',
+                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+                        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                      }}
+                      title={`Cancel and remove this ${task.type === 'meeting' ? 'meeting' : 'task'}`}
+                    >
+                      <Trash2 size={11} />
+                      Delete
+                    </button>
                   </div>
 
                   {/* Right side contact links */}

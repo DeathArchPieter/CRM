@@ -1493,6 +1493,35 @@ The Weekly Activity Pacemaker on the Dashboard is the advisor's primary cockpit 
 - Rebuilt Windows desktop installer package (`npm run electron:build`).
 - Automatically committed, pushed to `origin master`, tagged `v0.1.18`, and published to GitHub Releases for background auto-updating.
 
+---
+
+## Feature: Quick Delete & Cancellation for Action Centre & Reminders (v0.1.19 - October 2026)
+
+### Context & Advisor Problem Statement
+In the **Action Centre: Priorities & Due Items** banner on the Dashboard, advisors could mark items done or snooze/postpone them to later times or dates. However, if a scheduled meeting was called off or cancelled by a client/prospect, the advisor had to navigate to the full calendar or client profile to delete it. The advisor requested a quick delete/cancel option directly on the Action Centre cards so cancelled meetings can be cleared instantly.
+
+### Architecture & Implementation Details
+
+#### 1. Action Centre Quick Delete Action (`src/views/DashboardView.jsx`)
+- Added a quick **Delete** action button (`<Trash2 size={10} /> Delete`) directly inside the Action Row of every Action Centre priority card, adjacent to `Done` and `Snooze`.
+- Configured one-click native confirmation (`window.confirm`) to guard against accidental misclicks while ensuring rapid dismissal.
+- Upgraded `handleDeleteTask(taskId, taskType)`:
+  - Invokes `window.electronAPI.deleteTask(taskId)`.
+  - Removes the item from `db.tasks` and purges any linked Google Calendar event in the background via `callGoogleCalendarAPI`.
+  - Automatically invalidates cached client AI insights and refreshes dashboard state (`loadData()`).
+  - Displays context-sensitive toast feedback: `"Meeting cancelled & removed"` or `"Task cancelled & removed"`.
+
+#### 2. Reminders Drawer Synchronization (`src/components/RemindersDrawer.jsx`)
+- Added matching **Delete** action button (`<Trash2 size={11} /> Delete`) next to the `Snooze` preset dropdown trigger on every reminder item card.
+- Implemented `handleDelete(task)` in `RemindersDrawer.jsx` with native confirmation, task deletion, and drawer list refresh.
+
+### Build & Release
+- Verified build via `npm run build`.
+- Bumped `package.json` to `v0.1.19`.
+- Built desktop installer package via `npm run electron:build`.
+- Committed, pushed to `origin master`, and published release `v0.1.19` to GitHub Releases for automatic desktop updates.
+
+
 
 
 
