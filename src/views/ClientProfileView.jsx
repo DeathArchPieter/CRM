@@ -4,7 +4,8 @@ import {
   Clock, AlertTriangle, Link, FileText, Users, Heart, ExternalLink, Calendar, Check,
   Globe, Sparkles, Copy, Compass, TrendingUp, Target, MessageSquare, Share2, Search, Newspaper,
   ChevronDown, ChevronUp, Image, LayoutGrid, List, LayoutDashboard, Layers, Folder, Phone, Mail,
-  Maximize2, Minimize2, Eye, Coffee, MapPin, Flag, CalendarDays, CheckSquare, MessageCircle, Baby
+  Maximize2, Minimize2, Eye, Coffee, MapPin, Flag, CalendarDays, CheckSquare, MessageCircle, Baby,
+  Download
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -2665,7 +2666,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
               >
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)', fontWeight: '600' }}>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)', fontWeight: '600', wordBreak: 'break-word', lineHeight: '1.35', flex: 1 }}>
                       {prop.proposalTitle || `${prop.clientName} - Portfolio Suggestion`}
                     </h4>
                     <span style={{
@@ -2673,6 +2674,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                       padding: '2px 7px',
                       borderRadius: '10px',
                       fontWeight: '600',
+                      flexShrink: 0,
                       backgroundColor: prop.status === 'Accepted' ? 'rgba(16, 185, 129, 0.15)' : (prop.status === 'Presented' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)'),
                       color: prop.status === 'Accepted' ? '#34d399' : (prop.status === 'Presented' ? '#fbbf24' : 'var(--text-secondary)')
                     }}>
@@ -3224,7 +3226,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
 
       {/* Sub-Tab Navigation Bar (When in Tabbed Mode) */}
       {viewLayoutMode === 'tabs' && (
-        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', marginBottom: '20px', overflowX: 'auto' }}>
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
           {profileTabs.map(tab => {
             const isActive = activeProfileTab === tab.id;
             return (

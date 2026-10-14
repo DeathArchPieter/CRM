@@ -5165,20 +5165,28 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       color: #1E3A8A; /* distinctive blue text as seen in original */
     }
     .col-planning {
-      width: 17%;
-      font-weight: 500;
+      width: 18%;
+      font-weight: 600;
       text-align: center;
+      font-size: 8.5px;
+      line-height: 1.35;
+      padding: 8px 5px;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      hyphens: auto;
     }
     .col-coverage {
-      width: 17%;
+      width: 18%;
       text-align: center;
+      word-break: break-word;
     }
     .col-plan {
-      width: 19%;
+      width: 18%;
       text-align: center;
+      word-break: break-word;
     }
     .col-sum {
-      width: 16%;
+      width: 15%;
       text-align: center;
     }
     .col-premium {
@@ -5190,6 +5198,7 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       text-align: center;
       font-size: 8px;
       line-height: 1.3;
+      word-break: break-word;
     }
     .col-custom-note {
       text-align: center;
@@ -5237,10 +5246,10 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
     <table class="proposal-table">
       <thead>
         <tr>
-          <th style="width: 17%;">Planning Level</th>
-          <th style="width: 17%;">Coverage</th>
-          <th style="width: 19%;">Plan Name</th>
-          <th style="width: 16%;">Sum Assured</th>
+          <th style="width: 18%;">Planning Level</th>
+          <th style="width: 18%;">Coverage</th>
+          <th style="width: 18%;">Plan Name</th>
+          <th style="width: 15%;">Sum Assured</th>
           <th style="width: 12%;">Annual Premium</th>
           <th style="width: 19%;">Remarks</th>
         </tr>

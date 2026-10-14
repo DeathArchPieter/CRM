@@ -7,6 +7,8 @@ export default function CollapsibleSection({
   subtitle,
   icon,
   badge,
+  badgeColor,
+  badgeTextColor,
   actions,
   defaultOpen = true,
   isOpen: controlledIsOpen,
@@ -67,6 +69,8 @@ export default function CollapsibleSection({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: '12px',
+          flexWrap: 'wrap',
           padding: '16px 20px',
           cursor: 'pointer',
           userSelect: 'none',
@@ -82,27 +86,36 @@ export default function CollapsibleSection({
         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)'}
         onMouseLeave={(e) => e.currentTarget.style.backgroundColor = isOpen ? 'rgba(255, 255, 255, 0.02)' : 'rgba(255, 255, 255, 0.01)'}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
           {icon && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {icon}
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', minWidth: 0 }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', margin: 0 }}>
+            <h2 style={{ 
+              fontSize: '16px', 
+              fontWeight: '600', 
+              color: 'var(--text-primary)', 
+              margin: 0,
+              lineHeight: '1.4',
+              wordBreak: 'break-word',
+              overflowWrap: 'break-word'
+            }}>
               {title}
             </h2>
             {badge && (
-              <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                 {typeof badge === 'string' || typeof badge === 'number' ? (
                   <span style={{
                     fontSize: '11px',
                     fontWeight: '600',
                     padding: '2px 8px',
                     borderRadius: '10px',
-                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                    color: 'var(--text-secondary)',
-                    border: '1px solid var(--border-light)'
+                    backgroundColor: badgeColor || 'rgba(255, 255, 255, 0.08)',
+                    color: badgeTextColor || 'var(--text-secondary)',
+                    border: '1px solid var(--border-light)',
+                    whiteSpace: 'nowrap'
                   }}>
                     {badge}
                   </span>
@@ -113,7 +126,7 @@ export default function CollapsibleSection({
             )}
           </div>
           {subtitle && (
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '4px', wordBreak: 'break-word' }}>
               {subtitle}
             </span>
           )}

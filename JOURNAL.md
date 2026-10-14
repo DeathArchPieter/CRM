@@ -1586,6 +1586,35 @@ Advisors frequently prepare consolidated "Portfolio Suggestions" or "Insurance P
 - Built desktop installer package via `npm run electron:build`.
 - Automatically committed, pushed to `origin master`, tagged `v0.1.20`, and published to GitHub Releases for background auto-updating.
 
+---
+
+## 2026-10-14 — v0.1.21 Hotfix: Download Icon Import & Section Title Display Fixes
+
+### Issues Resolved
+1. **ReferenceError: Download is not defined**:
+   - **Root Cause**: In `src/views/ClientProfileView.jsx`, `<Download size={12} />` was used inside `renderProposalsCard` without importing `Download` from `lucide-react`. When opening a client profile with proposal cards rendered, the React view threw an uncaught reference error.
+   - **Resolution**: Added `Download` to the `lucide-react` import statement at the top of `src/views/ClientProfileView.jsx`.
+
+2. **Section Titles Cropping & Layout Resilience**:
+   - **Proposal Table Section Titles**:
+     - In `ProposalBuilderModal.jsx` (Document Preview) and `electron-main.cjs` (`generateProposalReportHtml`), column widths were recalibrated (`Planning Level: 18%`, `Coverage: 18%`, `Plan Name: 18%`, `Sum Assured: 15%`, `Annual Premium: 12%`, `Remarks: 19%`).
+     - Added explicit `word-break: break-word`, `overflow-wrap: break-word`, `hyphens: auto`, `font-size: 8.5px`, and `line-height: 1.35` on all planning level cells to ensure long category titles (e.g. *"Risk Management - Hospitalization & Emergency Evacuation"*, *"Risk Management - Death & Total Permanent Disability"*) wrap gracefully without clipping.
+   - **Proposal Builder Category Header Input**:
+     - Updated section header layout in `ProposalBuilderModal.jsx` to wrap cleanly (`flexWrap: 'wrap'`) and allocated `flex: '1 1 340px'` to the Planning Level input field, preventing text clipping on narrower screens.
+   - **Collapsible Section Header Headings**:
+     - In `CollapsibleSection.jsx`, added `gap: '12px'`, `flexWrap: 'wrap'`, `lineHeight: '1.4'`, and `wordBreak: 'break-word'` to the `h2` title container.
+     - Added native support for `badgeColor` and `badgeTextColor` props so custom colored badges display cleanly.
+   - **Client Profile Sub-Tabs**:
+     - Added `flexWrap: 'wrap'` to the sub-tab navigation bar in `ClientProfileView.jsx` so tabs with badges wrap cleanly instead of overflowing.
+
+### Build & Release
+- Verified frontend build via `npm run build` (1,786 modules transformed, 0 errors).
+- Verified `node -c electron-main.cjs`.
+- Bumped `package.json` to `v0.1.21`.
+- Built desktop installer package via `npm run electron:build`.
+- Published `v0.1.21` to GitHub Releases for desktop auto-updater.
+
+
 
 
 

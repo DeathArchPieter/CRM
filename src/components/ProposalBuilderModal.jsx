@@ -970,8 +970,11 @@ export default function ProposalBuilderModal({
                     }}
                   >
                     {/* Section Top Header Bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-                      <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                      <div style={{ flex: '1 1 340px', minWidth: '280px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Category / Planning Level (Section {sIdx + 1})
+                        </div>
                         <input 
                           type="text"
                           className="input-field"
@@ -982,12 +985,13 @@ export default function ProposalBuilderModal({
                             fontSize: '13px',
                             fontWeight: '600',
                             color: '#60a5fa',
-                            backgroundColor: 'rgba(0, 0, 0, 0.3)'
+                            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                            width: '100%'
                           }}
                         />
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                         {/* Placeholder Toggle */}
                         <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
                           <input 
@@ -1217,10 +1221,10 @@ export default function ProposalBuilderModal({
                   }}>
                     <thead>
                       <tr style={{ backgroundColor: '#C00000', color: '#FFFFFF' }}>
-                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '17%', textAlign: 'center', fontWeight: 'bold' }}>Planning Level</th>
-                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '17%', textAlign: 'center', fontWeight: 'bold' }}>Coverage</th>
-                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '19%', textAlign: 'center', fontWeight: 'bold' }}>Plan Name</th>
-                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '16%', textAlign: 'center', fontWeight: 'bold' }}>Sum Assured</th>
+                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '18%', textAlign: 'center', fontWeight: 'bold' }}>Planning Level</th>
+                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '18%', textAlign: 'center', fontWeight: 'bold' }}>Coverage</th>
+                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '18%', textAlign: 'center', fontWeight: 'bold' }}>Plan Name</th>
+                        <th style={{ border: '1px solid #111', padding: '9px 4px', width: '15%', textAlign: 'center', fontWeight: 'bold' }}>Sum Assured</th>
                         <th style={{ border: '1px solid #111', padding: '9px 4px', width: '12%', textAlign: 'center', fontWeight: 'bold' }}>Annual Premium</th>
                         <th style={{ border: '1px solid #111', padding: '9px 4px', width: '19%', textAlign: 'center', fontWeight: 'bold' }}>Remarks</th>
                       </tr>
@@ -1233,7 +1237,17 @@ export default function ProposalBuilderModal({
                         if (sec.customRowNote) {
                           return (
                             <tr key={sIdx}>
-                              <td style={{ border: '1px solid #111', padding: '9px 6px', textAlign: 'center', color: '#1E3A8A' }}>
+                              <td style={{ 
+                                border: '1px solid #111', 
+                                padding: '9px 5px', 
+                                textAlign: 'center', 
+                                color: '#1E3A8A',
+                                fontWeight: '600',
+                                fontSize: '8.5px',
+                                lineHeight: '1.35',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word'
+                              }}>
                                 {sec.planningLevel}
                               </td>
                               <td colSpan={5} style={{ border: '1px solid #111', padding: '12px 6px', textAlign: 'center', fontStyle: 'italic', color: '#2563EB' }}>
@@ -1246,7 +1260,19 @@ export default function ProposalBuilderModal({
                         if (items.length === 0) {
                           return (
                             <tr key={sIdx}>
-                              <td style={{ border: '1px solid #111', padding: '8px 6px', textAlign: 'center', color: '#1E3A8A' }}>{sec.planningLevel}</td>
+                              <td style={{ 
+                                border: '1px solid #111', 
+                                padding: '8px 5px', 
+                                textAlign: 'center', 
+                                color: '#1E3A8A',
+                                fontWeight: '600',
+                                fontSize: '8.5px',
+                                lineHeight: '1.35',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word'
+                              }}>
+                                {sec.planningLevel}
+                              </td>
                               <td style={{ border: '1px solid #111', padding: '8px 6px', textAlign: 'center', color: '#1E3A8A' }}>-</td>
                               <td style={{ border: '1px solid #111', padding: '8px 6px', textAlign: 'center', color: '#1E3A8A' }}>-</td>
                               <td style={{ border: '1px solid #111', padding: '8px 6px', textAlign: 'center', color: '#1E3A8A' }}>-</td>
@@ -1263,7 +1289,18 @@ export default function ProposalBuilderModal({
                               {isFirst && (
                                 <td 
                                   rowSpan={items.length}
-                                  style={{ border: '1px solid #111', padding: '8px 6px', textAlign: 'center', color: '#1E3A8A', verticalAlign: 'middle', fontWeight: '500' }}
+                                  style={{ 
+                                    border: '1px solid #111', 
+                                    padding: '8px 5px', 
+                                    textAlign: 'center', 
+                                    color: '#1E3A8A', 
+                                    verticalAlign: 'middle', 
+                                    fontWeight: '600',
+                                    fontSize: '8.5px',
+                                    lineHeight: '1.35',
+                                    wordBreak: 'break-word',
+                                    overflowWrap: 'break-word'
+                                  }}
                                 >
                                   {sec.planningLevel}
                                 </td>
