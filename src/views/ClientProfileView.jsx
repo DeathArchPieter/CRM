@@ -11,6 +11,7 @@ import AddressAutocomplete from '../components/AddressAutocomplete';
 import ClientSocialIntelligenceSection from '../components/ClientSocialIntelligenceSection';
 import ClientClaimsSection from '../components/ClientClaimsSection';
 import CollapsibleSection from '../components/CollapsibleSection';
+import ProposalBuilderModal from '../components/ProposalBuilderModal';
 import { getEngagementStatus } from './ClientsView';
 import { useAdvisorContext } from '../context/AdvisorContext';
 
@@ -98,6 +99,10 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [claims, setClaims] = useState([]);
   const [allClients, setAllClients] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
+  const [selectedProposal, setSelectedProposal] = useState(null);
+  const [appSettings, setAppSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [eventType, setEventType] = useState('task'); // 'task' | 'meeting' | 'social' | 'followup'
   const [newTaskText, setNewTaskText] = useState('');
@@ -295,6 +300,14 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         const tRes = await window.electronAPI.getTasks(currentClient.id);
         if (tRes.success) setTasks(tRes.data);
       }
+      if (window.electronAPI.getProposals) {
+        const propRes = await window.electronAPI.getProposals(currentClient.id);
+        if (propRes.success) setProposals(propRes.data || []);
+      }
+      if (window.electronAPI.getAppSettings) {
+        const setRes = await window.electronAPI.getAppSettings();
+        if (setRes.success && setRes.settings) setAppSettings(setRes.settings);
+      }
     }
     setLoading(false);
   };
@@ -345,6 +358,29 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         setTimeout(() => setTouchpointSuccess(false), 3000);
       }
     }
+  };
+
+  const handleDeleteProposal = async (proposalId) => {
+    if (!window.confirm('Are you sure you want to delete this portfolio proposal?')) return;
+    if (window.electronAPI?.deleteProposal) {
+      const res = await window.electronAPI.deleteProposal(proposalId);
+      if (res.success) {
+        setProposals(prev => prev.filter(p => p.id !== proposalId));
+      }
+    }
+  };
+
+  const handleProposalSaveSuccess = (savedProposal) => {
+    setProposals(prev => {
+      const idx = prev.findIndex(p => p.id === savedProposal.id);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = savedProposal;
+        return next;
+      }
+      return [savedProposal, ...prev];
+    });
+    setIsProposalModalOpen(false);
   };
 
   const handleSaveSocialLinks = async (e) => {
@@ -889,10 +925,10 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     },
     {
       id: 'policies-claims',
-      label: 'Policies & Claims',
+      label: 'Policies, Proposals & Claims',
       icon: <Shield size={15} />,
       badge: `${policies.length} Policies`,
-      extraBadge: activeClaimsCount > 0 ? `${activeClaimsCount} Claim${activeClaimsCount > 1 ? 's' : ''}` : null
+      extraBadge: proposals.length > 0 ? `${proposals.length} Proposal${proposals.length > 1 ? 's' : ''}` : (activeClaimsCount > 0 ? `${activeClaimsCount} Claim${activeClaimsCount > 1 ? 's' : ''}` : null)
     },
     {
       id: 'ai-social',
@@ -2547,6 +2583,163 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
     );
   };
 
+  // Helper renderer for Proposals & Portfolio Suggestions Card
+  const renderProposalsCard = () => (
+    <CollapsibleSection
+      id="portfolio_proposals"
+      title="Client Proposals & Portfolio Suggestions"
+      icon={<FileText size={18} color="#ef4444" />}
+      badge={proposals.length > 0 ? `${proposals.length} Proposal${proposals.length > 1 ? 's' : ''}` : 'No Proposals'}
+      badgeColor={proposals.length > 0 ? 'rgba(239, 68, 68, 0.15)' : undefined}
+      badgeTextColor={proposals.length > 0 ? '#f87171' : undefined}
+      actions={
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ padding: '4px 12px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: '#dc2626', borderColor: '#ef4444' }}
+          onClick={() => {
+            setSelectedProposal(null);
+            setIsProposalModalOpen(true);
+          }}
+        >
+          <Plus size={12} /> New Proposal / Drop BI
+        </button>
+      }
+    >
+      {proposals.length === 0 ? (
+        <div style={{
+          padding: '28px',
+          textAlign: 'center',
+          backgroundColor: 'rgba(255, 255, 255, 0.02)',
+          border: '1px dashed var(--border-light)',
+          borderRadius: '10px'
+        }}>
+          <div style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#f87171',
+            marginBottom: '10px'
+          }}>
+            <FileText size={20} />
+          </div>
+          <div style={{ fontSize: '13.5px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+            No Insurance Proposals Generated Yet
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', maxWidth: '480px', margin: '0 auto 14px auto', lineHeight: '1.5' }}>
+            Generate institutional A4 client portfolio summaries in seconds. Drag and drop Benefit Illustration (BI) screenshots or quotation PDFs to auto-extract with Gemini Vision.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ padding: '7px 18px', fontSize: '12px', backgroundColor: '#dc2626', borderColor: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => {
+              setSelectedProposal(null);
+              setIsProposalModalOpen(true);
+            }}
+          >
+            <Sparkles size={13} /> Create Proposal with Gemini Vision
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+          {proposals.map((prop) => {
+            const itemCount = (prop.sections || []).reduce((acc, s) => acc + (s.items?.length || 0), 0);
+            return (
+              <div 
+                key={prop.id}
+                className="glass-panel"
+                style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-light)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  gap: '12px'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+                    <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)', fontWeight: '600' }}>
+                      {prop.proposalTitle || `${prop.clientName} - Portfolio Suggestion`}
+                    </h4>
+                    <span style={{
+                      fontSize: '10.5px',
+                      padding: '2px 7px',
+                      borderRadius: '10px',
+                      fontWeight: '600',
+                      backgroundColor: prop.status === 'Accepted' ? 'rgba(16, 185, 129, 0.15)' : (prop.status === 'Presented' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)'),
+                      color: prop.status === 'Accepted' ? '#34d399' : (prop.status === 'Presented' ? '#fbbf24' : 'var(--text-secondary)')
+                    }}>
+                      {prop.status || 'Draft'}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                    Created {new Date(prop.createdAt || Date.now()).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })} • {prop.sections?.length || 0} Sections • {itemCount} Policies
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                    <span style={{ fontSize: '18px', fontWeight: '700', color: '#10b981' }}>
+                      {formatCurrency(prop.totalAnnualPremium || 0)}
+                    </span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      /year (~{formatCurrency((prop.totalAnnualPremium || 0) / 12)}/mo)
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)', paddingTop: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ fontSize: '11px', padding: '4px 10px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.25)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => {
+                      setSelectedProposal(prop);
+                      setIsProposalModalOpen(true);
+                    }}
+                  >
+                    <Edit2 size={12} /> Open & Edit
+                  </button>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ fontSize: '11px', padding: '4px 8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-secondary)' }}
+                      onClick={async () => {
+                        if (window.electronAPI?.exportProposalPdf) {
+                          await window.electronAPI.exportProposalPdf({ proposal: prop, consultantSettings: appSettings });
+                        }
+                      }}
+                      title="Quick Export A4 PDF"
+                    >
+                      <Download size={12} /> PDF
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      style={{ color: 'var(--text-muted)', padding: '4px' }}
+                      onClick={() => handleDeleteProposal(prop.id)}
+                      title="Delete proposal"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </CollapsibleSection>
+  );
+
   // Helper renderer for Children & Dependents Card
   const renderDependentsCard = () => {
     const deps = currentClient.dependents || [];
@@ -2940,6 +3133,29 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             Financial Planning Blueprint
           </button>
 
+          {/* Portfolio Proposal Summary Button */}
+          <button 
+            className="btn" 
+            style={{ 
+              backgroundColor: 'rgba(239, 68, 68, 0.15)', 
+              color: '#f87171', 
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              padding: '8px 16px',
+              fontSize: '13px',
+              fontWeight: '600'
+            }}
+            onClick={() => {
+              setSelectedProposal(null);
+              setIsProposalModalOpen(true);
+            }}
+          >
+            <FileText size={16} color="#f87171" />
+            Proposal Summary
+          </button>
+
           {/* Quick Log Touchpoint Action */}
           <button 
             className="btn" 
@@ -3115,6 +3331,9 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
 
             {renderPolicyPortfolioCard()}
 
+            {/* Proposals & Portfolio Suggestions Section */}
+            {renderProposalsCard()}
+
             {/* Claims Section */}
             <ClientClaimsSection 
               client={currentClient}
@@ -3161,6 +3380,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             {renderRemarksAndAiCard()}
             {renderTasksCard()}
             {renderPolicyPortfolioCard()}
+            {renderProposalsCard()}
             <ClientClaimsSection 
               client={currentClient}
               policies={policies}
@@ -4318,6 +4538,16 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
           </div>
         </div>
       )}
+
+      {/* Insurance Proposal Builder & BI Multimodal Ingestion Modal */}
+      <ProposalBuilderModal
+        isOpen={isProposalModalOpen}
+        onClose={() => setIsProposalModalOpen(false)}
+        client={currentClient}
+        existingProposal={selectedProposal}
+        consultantSettings={appSettings}
+        onSaveSuccess={handleProposalSaveSuccess}
+      />
     </div>
   );
 }

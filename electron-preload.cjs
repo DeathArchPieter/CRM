@@ -91,6 +91,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateProjectionGraphBreakdown: (payload) => ipcRenderer.invoke('generate-projection-graph-breakdown', payload),
   exportFinancialPlanPdf: (payload) => ipcRenderer.invoke('export-financial-plan-pdf', payload),
 
+  // Client Insurance Proposals & Portfolio Suggestions API
+  getProposals: (clientId) => ipcRenderer.invoke('get-proposals', clientId),
+  saveProposal: (proposalData) => ipcRenderer.invoke('save-proposal', proposalData),
+  deleteProposal: (proposalId) => ipcRenderer.invoke('delete-proposal', proposalId),
+  parseProposalBiDocuments: (payload) => ipcRenderer.invoke('parse-proposal-bi-documents', payload),
+  exportProposalPdf: (payload) => ipcRenderer.invoke('export-proposal-pdf', payload),
+
   // Claims & Payout Reconciliation API
   getClaims: (clientId) => ipcRenderer.invoke('get-claims', clientId),
   getAllClaims: () => ipcRenderer.invoke('get-all-claims'),

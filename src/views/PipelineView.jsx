@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, LayoutGrid, List, Trash2, TrendingUp, DollarSign, 
-  Briefcase, Percent, CheckCircle2, ArrowRight, Sparkles 
+  Briefcase, Percent, CheckCircle2, ArrowRight, Sparkles, FileText 
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
+import ProposalBuilderModal from '../components/ProposalBuilderModal';
 import { useToast } from '../components/Toast';
 import { useAdvisorContext } from '../context/AdvisorContext';
 
@@ -51,6 +52,9 @@ export default function PipelineView({ onSelectClient }) {
   const [isPromptOpen, setIsPromptOpen] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
   const [isWeightedView, setIsWeightedView] = useState(false);
+  const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
+  const [proposalClient, setProposalClient] = useState(null);
+  const [appSettings, setAppSettings] = useState(null);
 
   const { setAdvisorContext } = useAdvisorContext();
 
@@ -72,14 +76,16 @@ export default function PipelineView({ onSelectClient }) {
       const promises = [
         window.electronAPI.getPipeline ? window.electronAPI.getPipeline() : Promise.resolve({ success: true, data: [] }),
         window.electronAPI.getClients ? window.electronAPI.getClients() : Promise.resolve({ success: true, data: [] }),
-        window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: true, data: [] })
+        window.electronAPI.getProject100Contacts ? window.electronAPI.getProject100Contacts() : Promise.resolve({ success: true, data: [] }),
+        window.electronAPI.getAppSettings ? window.electronAPI.getAppSettings() : Promise.resolve({ success: false })
       ];
       
-      const [pipelineRes, clientsRes, p100Res] = await Promise.all(promises);
+      const [pipelineRes, clientsRes, p100Res, settingsRes] = await Promise.all(promises);
       
       if (pipelineRes?.success) setCases(pipelineRes.data);
       if (clientsRes?.success) setClients(clientsRes.data);
       if (p100Res?.success) setProject100Contacts(p100Res.data);
+      if (settingsRes?.success && settingsRes.settings) setAppSettings(settingsRes.settings);
     }
     setLoading(false);
   };
@@ -243,6 +249,19 @@ export default function PipelineView({ onSelectClient }) {
       setIsModalOpen(false); 
       load(); 
     }
+  };
+
+  const handleOpenProposal = () => {
+    const matchingClient = clients.find(cl => 
+      (cl.fullName || '').toLowerCase().trim() === (formData.clientName || '').toLowerCase().trim()
+    );
+    setProposalClient({
+      id: matchingClient?.id || 'temp-' + Date.now(),
+      fullName: formData.clientName || 'Client',
+      familyMembers: matchingClient?.familyMembers || [],
+      dependents: matchingClient?.dependents || []
+    });
+    setIsProposalModalOpen(true);
   };
 
   // Summary stats — exclude Closed/Lost from totals
@@ -442,10 +461,30 @@ export default function PipelineView({ onSelectClient }) {
               </datalist>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
+                <div style={{ display: 'flex', gap: '8px' }}>
                   {editingId && (
                     <button type="button" className="btn" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={handleDelete}>
                       <Trash2 size={16} /> Delete
+                    </button>
+                  )}
+                  {formData.clientName && (
+                    <button 
+                      type="button" 
+                      className="btn" 
+                      style={{ 
+                        backgroundColor: 'rgba(239,68,68,0.15)', 
+                        color: '#f87171', 
+                        border: '1px solid rgba(239,68,68,0.35)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        fontSize: '12px',
+                        fontWeight: '600'
+                      }} 
+                      onClick={handleOpenProposal}
+                      title="Open or Generate Proposal for this Client"
+                    >
+                      <FileText size={14} /> Proposal Builder
                     </button>
                   )}
                 </div>
@@ -500,6 +539,18 @@ export default function PipelineView({ onSelectClient }) {
           </div>
         </div>
       )}
+
+      {/* Insurance Proposal Builder & BI Multimodal Ingestion Modal */}
+      <ProposalBuilderModal
+        isOpen={isProposalModalOpen}
+        onClose={() => setIsProposalModalOpen(false)}
+        client={proposalClient}
+        consultantSettings={appSettings}
+        onSaveSuccess={() => {
+          setIsProposalModalOpen(false);
+          addToast('Proposal saved successfully!', 'success');
+        }}
+      />
     </div>
   );
 }

@@ -145,7 +145,7 @@ function getGeminiUrl() {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 }
 
-let db = { clients: [], policies: [], claims: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], aiBriefing: { text: '', generatedAt: null } };
+let db = { clients: [], policies: [], claims: [], pipeline: [], tasks: [], project100Contacts: [], initiatives: [], proposals: [], aiBriefing: { text: '', generatedAt: null } };
 let dbPath;
 let logPath;
 let authServer = null;
@@ -188,6 +188,7 @@ function initDatabase() {
       if (!db.claims) db.claims = [];
       if (!db.pipeline) db.pipeline = [];
       if (!db.tasks) db.tasks = [];
+      if (!db.proposals) db.proposals = [];
       if (!db.aiBriefing) db.aiBriefing = { text: '', generatedAt: null };
       if (!db.googleCalendarSettings) db.googleCalendarSettings = { clientId: '', clientSecret: '', tokens: null, email: '' };
       if (!db.project100Contacts) db.project100Contacts = [];
@@ -5014,6 +5015,501 @@ Generate a clear, authoritative, and educational actuarial breakdown.`;
       return { success: true, filePath: saveResult.filePath };
     } catch (error) {
       writeToLogFile(`[IPC] export-financial-plan-pdf failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════
+  // PROPOSALS & PORTFOLIO SUGGESTIONS ENGINE
+  // ══════════════════════════════════════════════════════════════════
+
+  function generateProposalReportHtml(proposal = {}, consultantSettings = null) {
+    const consultant = consultantSettings || (db && db.appSettings) || {};
+    const consultantName = consultant.consultantName || 'Pieter Beetsma';
+    const consultantTitle = consultant.consultantTitle || 'Financial Services Consultant';
+    const agencyName = consultant.agencyName || consultant.companyName || 'AIA Singapore Private Limited';
+    const consultantPhone = consultant.phone || '+65 9656 7678';
+
+    const clientName = proposal.clientName || 'Client Proposal';
+    const sections = Array.isArray(proposal.sections) ? proposal.sections : [];
+
+    const formatCur = (val) => {
+      if (val === undefined || val === null || isNaN(val) || val === '') return '$0.00';
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(val) || 0);
+    };
+
+    let calculatedTotal = 0;
+    sections.forEach(sec => {
+      (sec.items || []).forEach(it => {
+        calculatedTotal += Number(it.annualPremium || it.premium || 0);
+      });
+    });
+    const totalAmount = proposal.totalAnnualPremium !== undefined ? Number(proposal.totalAnnualPremium) : calculatedTotal;
+
+    let rowsHtml = '';
+    sections.forEach((section) => {
+      const items = Array.isArray(section.items) ? section.items : [];
+      const planningLevel = section.planningLevel || '';
+      const mergeRemarks = section.mergeRemarks !== false;
+      const sectionRemarks = section.remarks || '';
+      const customRowNote = section.customRowNote || '';
+
+      if (customRowNote) {
+        rowsHtml += `
+          <tr>
+            <td class="col-planning">${planningLevel}</td>
+            <td colspan="5" class="col-custom-note">${customRowNote}</td>
+          </tr>
+        `;
+        return;
+      }
+
+      if (items.length === 0) {
+        rowsHtml += `
+          <tr>
+            <td class="col-planning">${planningLevel}</td>
+            <td class="col-coverage">-</td>
+            <td class="col-plan">-</td>
+            <td class="col-sum">-</td>
+            <td class="col-premium">-</td>
+            <td class="col-remarks">${sectionRemarks || '-'}</td>
+          </tr>
+        `;
+        return;
+      }
+
+      items.forEach((item, idx) => {
+        const isFirst = idx === 0;
+        rowsHtml += `<tr>`;
+        if (isFirst) {
+          rowsHtml += `<td class="col-planning" rowspan="${items.length}">${planningLevel}</td>`;
+        }
+
+        rowsHtml += `
+          <td class="col-coverage">${item.coverage || ''}</td>
+          <td class="col-plan">${item.planName || ''}</td>
+          <td class="col-sum">${item.sumAssured || ''}</td>
+          <td class="col-premium">${formatCur(item.annualPremium || item.premium || 0)}</td>
+        `;
+
+        if (mergeRemarks) {
+          if (isFirst) {
+            rowsHtml += `<td class="col-remarks" rowspan="${items.length}">${sectionRemarks || item.remarks || ''}</td>`;
+          }
+        } else {
+          rowsHtml += `<td class="col-remarks">${item.remarks || ''}</td>`;
+        }
+
+        rowsHtml += `</tr>`;
+      });
+    });
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Portfolio Suggestion - ${clientName}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 18mm 16mm 16mm 16mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #FFFFFF;
+      color: #000000;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 255mm;
+    }
+    .client-title {
+      text-align: center;
+      font-size: 26px;
+      font-weight: 700;
+      margin: 15px 0 25px 0;
+      letter-spacing: -0.2px;
+      color: #000000;
+    }
+    table.proposal-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #111111;
+      table-layout: fixed;
+    }
+    table.proposal-table th {
+      background-color: #C00000;
+      color: #FFFFFF;
+      font-weight: bold;
+      font-size: 10.5px;
+      text-align: center;
+      padding: 9px 4px;
+      border: 1px solid #111111;
+      vertical-align: middle;
+      letter-spacing: 0.1px;
+    }
+    table.proposal-table td {
+      border: 1px solid #111111;
+      font-size: 9px;
+      line-height: 1.35;
+      padding: 8px 6px;
+      vertical-align: middle;
+      text-align: center;
+      color: #1E3A8A; /* distinctive blue text as seen in original */
+    }
+    .col-planning {
+      width: 17%;
+      font-weight: 500;
+      text-align: center;
+    }
+    .col-coverage {
+      width: 17%;
+      text-align: center;
+    }
+    .col-plan {
+      width: 19%;
+      text-align: center;
+    }
+    .col-sum {
+      width: 16%;
+      text-align: center;
+    }
+    .col-premium {
+      width: 12%;
+      text-align: center;
+    }
+    .col-remarks {
+      width: 19%;
+      text-align: center;
+      font-size: 8px;
+      line-height: 1.3;
+    }
+    .col-custom-note {
+      text-align: center;
+      font-style: italic;
+      color: #2563EB;
+      padding: 14px 6px;
+      font-size: 9.5px;
+    }
+    .empty-row td {
+      height: 38px;
+    }
+    .total-row td {
+      border: 1px solid #111111;
+      padding: 9px 6px;
+      color: #000000;
+      font-weight: bold;
+      font-size: 12px;
+    }
+    .footer-container {
+      margin-top: 25px;
+      text-align: center;
+    }
+    .consultant-line {
+      font-size: 11px;
+      font-weight: 600;
+      color: #C00000;
+      margin-bottom: 12px;
+      letter-spacing: 0.2px;
+    }
+    .disclaimer {
+      font-size: 8px;
+      line-height: 1.45;
+      color: #333333;
+      text-align: justify;
+      font-style: italic;
+      margin: 0;
+      padding: 0 4px;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <div class="client-title">${clientName}</div>
+    
+    <table class="proposal-table">
+      <thead>
+        <tr>
+          <th style="width: 17%;">Planning Level</th>
+          <th style="width: 17%;">Coverage</th>
+          <th style="width: 19%;">Plan Name</th>
+          <th style="width: 16%;">Sum Assured</th>
+          <th style="width: 12%;">Annual Premium</th>
+          <th style="width: 19%;">Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="empty-row">
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+          <td>&nbsp;</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="3" style="text-align: right; border-right: none; font-size: 12.5px; font-weight: bold;">Total</td>
+          <td colspan="1" style="text-align: center; border-left: none; border-right: none; font-size: 12.5px; font-weight: bold;">Yearly</td>
+          <td colspan="2" style="text-align: center; border-left: none; font-size: 13.5px; font-weight: bold;">${formatCur(totalAmount)}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer-container">
+    <div class="consultant-line">
+      ${consultantName} &nbsp;|&nbsp; ${consultantTitle} &nbsp;|&nbsp; ${agencyName} &nbsp;|&nbsp; HP: ${consultantPhone}
+    </div>
+    <p class="disclaimer">
+      <strong>Disclaimer:</strong> This portfolio suggestion acts as a reference for your potential insurance cover and is designed based on information on your financial needs provided by you. It is not and does not form any part of an insurance contract(s). You should refer to your insurance policy contract(s) or insurer for the full terms and conditions of the coverage of each insurance policy. Whilst we endeavor to ensure that the information provided in this suggested portfolio is accurate, we make no representation or warranty of any kind as to the accuracy or completeness of the information or any part of it. Further, we accept no liability or responsibility for any loss or damage suffered as a result of direct or indirect use of the information contained in this suggestion.
+    </p>
+  </div>
+</body>
+</html>`;
+  }
+
+  // Proposals CRUD Handlers
+  ipcMain.handle('get-proposals', (event, clientId) => {
+    try {
+      if (!db.proposals) db.proposals = [];
+      if (clientId) {
+        return { success: true, data: db.proposals.filter(p => p.clientId === clientId) };
+      }
+      return { success: true, data: db.proposals };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('save-proposal', (event, proposalData) => {
+    try {
+      if (!db.proposals) db.proposals = [];
+      const now = new Date().toISOString();
+      let id = proposalData.id;
+
+      if (!id) {
+        id = 'prop-' + crypto.randomUUID();
+        const newProposal = {
+          ...proposalData,
+          id,
+          createdAt: now,
+          updatedAt: now
+        };
+        db.proposals.push(newProposal);
+      } else {
+        const idx = db.proposals.findIndex(p => p.id === id);
+        if (idx !== -1) {
+          db.proposals[idx] = {
+            ...db.proposals[idx],
+            ...proposalData,
+            updatedAt: now
+          };
+        } else {
+          db.proposals.push({
+            ...proposalData,
+            id,
+            createdAt: now,
+            updatedAt: now
+          });
+        }
+      }
+      saveDatabase();
+      writeToLogFile(`[IPC] Successfully saved proposal ${id} for: ${proposalData.clientName || proposalData.clientId}`);
+      return { success: true, id, proposal: db.proposals.find(p => p.id === id) };
+    } catch (error) {
+      writeToLogFile(`[IPC] save-proposal failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('delete-proposal', (event, proposalId) => {
+    try {
+      if (!db.proposals) db.proposals = [];
+      db.proposals = db.proposals.filter(p => p.id !== proposalId);
+      saveDatabase();
+      writeToLogFile(`[IPC] Deleted proposal ${proposalId}`);
+      return { success: true };
+    } catch (error) {
+      writeToLogFile(`[IPC] delete-proposal failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Export Proposal PDF Handler
+  ipcMain.handle('export-proposal-pdf', async (event, payload) => {
+    try {
+      const { proposal, defaultFilename } = payload || {};
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) throw new Error('No active window found for PDF export');
+
+      const consultant = payload?.consultantSettings || (db && db.appSettings) || {};
+      const clientCleanName = (proposal?.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_');
+      const fallbackFilename = `Portfolio_Suggestion_${clientCleanName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      const saveResult = await dialog.showSaveDialog(win, {
+        title: 'Export Client Insurance Proposal PDF Document',
+        defaultPath: defaultFilename || fallbackFilename,
+        filters: [{ name: 'PDF Documents', extensions: ['pdf'] }]
+      });
+
+      if (saveResult.canceled || !saveResult.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      const htmlContent = generateProposalReportHtml(proposal, consultant);
+
+      const printWin = new BrowserWindow({
+        show: false,
+        width: 1200,
+        height: 1600,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+
+      const pdfBuffer = await printWin.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+        landscape: false,
+        preferCSSPageSize: true,
+        margins: {
+          marginType: 'none'
+        }
+      });
+
+      printWin.close();
+
+      fs.writeFileSync(saveResult.filePath, pdfBuffer);
+      writeToLogFile(`[IPC] Successfully exported proposal PDF to: ${saveResult.filePath}`);
+      return { success: true, filePath: saveResult.filePath };
+    } catch (error) {
+      writeToLogFile(`[IPC] export-proposal-pdf failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // AI Multimodal BI Document Parsing Handler
+  ipcMain.handle('parse-proposal-bi-documents', async (event, payload) => {
+    try {
+      const { files = [], clientContext = {}, additionalInstructions = '' } = payload || {};
+      if (!files || files.length === 0) {
+        throw new Error('No files or screenshots provided for analysis.');
+      }
+
+      const systemInstruction = `You are an elite Singapore financial advisory and insurance analysis AI at Beetsma Consultancy.
+Your task is to analyze one or more Benefit Illustrations (BIs), insurance quotation summaries, premium schedules, or screenshot snippets from Singapore insurers (e.g. AIA, Prudential, Great Eastern, Singlife, Manulife, Income, etc.) and extract them into a structured client proposal table matching the Beetsma Consultancy Portfolio Suggestion format.
+
+You MUST extract and structure the data into a valid JSON object adhering strictly to this schema:
+{
+  "clientName": "The primary client or prospect name (e.g. 'Kazu Toh')",
+  "proposalTitle": "A concise title (e.g. 'Family Health & Mission Risk Portfolio Suggestion')",
+  "sections": [
+    {
+      "id": "sec-1",
+      "planningLevel": "The planning level category (e.g. 'Risk Management - Hospitalization & Emergency Evacuation', 'Risk Management - Humanitarian Mission Risk', 'Risk Management - Critical Illness', 'Wealth Management')",
+      "remarks": "Common remarks applying to this category (e.g. 'Deductible of $1,500 and Co-Insurance of 10% applies. Emergency Evacuation does not incur the Deductible and Co-Insurance.')",
+      "mergeRemarks": true,
+      "customRowNote": "Optional note if this section has no active policies yet (e.g. 'To be discussed at a later date')",
+      "items": [
+        {
+          "id": "it-1",
+          "person": "Name of insured person (e.g. 'Kazu', 'Naomi', 'River', 'Bear', 'Self')",
+          "coverage": "Coverage line description (e.g. 'Hospitalization Expenses/Emergency Evacuation - Kazu', 'Death/TPD - Naomi')",
+          "planName": "Official Insurer Plan Name (e.g. 'AIA Platinum International Health', 'AIA Secure Flexi Term 5Y')",
+          "sumAssured": "Sum Assured or Limit (e.g. 'As Charged up to $1,500,000/Yr', '$1,000,000')",
+          "annualPremium": 3190.00,
+          "remarks": "Item-specific remark if mergeRemarks is false"
+        }
+      ]
+    }
+  ],
+  "totalAnnualPremium": 10764.00,
+  "summaryNotes": "2-3 short bullet points summarizing the key benefits for the client discussion"
+}
+
+CRITICAL RULES:
+1. Carefully read all insured names from the documents. Match them to the client and their family members (e.g. spouse, children) if present.
+2. Group related policies by Planning Level (e.g. International Health/Hospital Shield together under 'Risk Management - Hospitalization & Emergency Evacuation', Term Life/Death/TPD together under 'Risk Management - Term / Life').
+3. Accurately extract the Annual Premium for each item. If a monthly premium is stated, multiply by 12 or use the annual figure if available. All premiums should be positive numbers with 2 decimal precision.
+4. Extract important policy terms in 'remarks': deductibles, co-insurance percentages, renewability terms (e.g. 5-year renewable), and conversion privileges.
+5. If the user mentions or requests future planning areas like 'Wealth Management', include a section with customRowNote: 'To be discussed at a later date' and empty items array.
+6. Calculate 'totalAnnualPremium' as the exact sum of all item annual premiums.
+7. Return ONLY valid JSON. Do not include markdown code block formatting (like \`\`\`json) or conversational preamble.`;
+
+      const parts = [];
+
+      for (const file of files) {
+        if (file.base64) {
+          parts.push({
+            inline_data: {
+              mime_type: file.mimeType || (file.name?.endsWith('.pdf') ? 'application/pdf' : 'image/png'),
+              data: file.base64
+            }
+          });
+        }
+      }
+
+      let promptText = `Please analyze the attached ${files.length} Benefit Illustration / Quotation document(s) and extract the complete portfolio proposal table.`;
+      if (clientContext.fullName) {
+        promptText += `\nPrimary Client Name: ${clientContext.fullName}`;
+      }
+      if (clientContext.familyMembers && clientContext.familyMembers.length > 0) {
+        promptText += `\nKnown Family Members / Dependents:\n` + clientContext.familyMembers.map(m => `- ${m.name || m.fullName} (${m.relationship || 'Family'})`).join('\n');
+      }
+      if (additionalInstructions && additionalInstructions.trim()) {
+        promptText += `\nAdvisor Instructions: ${additionalInstructions.trim()}`;
+      }
+
+      parts.push({ text: promptText });
+
+      const response = await fetch(getGeminiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: 'user', parts: parts }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 3500,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errBody}`);
+      }
+
+      const json = await response.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      let parsed;
+      try {
+        parsed = JSON.parse(text.trim());
+      } catch (err) {
+        let cleanText = text.trim();
+        if (cleanText.startsWith('```')) {
+          cleanText = cleanText.replace(/^```json\s*/i, '').replace(/```$/, '');
+        }
+        parsed = JSON.parse(cleanText.trim());
+      }
+
+      writeToLogFile(`[IPC] parse-proposal-bi-documents successfully extracted proposal with ${(parsed.sections || []).length} sections.`);
+      return { success: true, data: parsed };
+    } catch (error) {
+      writeToLogFile(`[IPC] parse-proposal-bi-documents failed: ${error.message}`);
       return { success: false, error: error.message };
     }
   });

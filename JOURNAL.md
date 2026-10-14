@@ -1521,6 +1521,72 @@ In the **Action Centre: Priorities & Due Items** banner on the Dashboard, adviso
 - Built desktop installer package via `npm run electron:build`.
 - Committed, pushed to `origin master`, and published release `v0.1.19` to GitHub Releases for automatic desktop updates.
 
+---
+
+## Feature: Multimodal AI Insurance Proposal Generator & Publication A4 Export (v0.1.20 - October 2026)
+
+### Context & Advisor Problem Statement
+Advisors frequently prepare consolidated "Portfolio Suggestions" or "Insurance Proposal Summaries" across multiple family members (e.g. husband, wife, children). When quotes or Benefit Illustrations (BIs) are generated from insurer portals (e.g. AIA LifePlanner, iPOS, eQuote), manual transcription of plan titles, sum assured limits, deductibles, co-insurance clauses, and annual premiums across multiple PDFs or screen captures is time-consuming and error-prone. The advisor required an automated, publication-grade proposal generator where Benefit Illustration screenshots or PDFs can be dropped and auto-parsed into a standardized single-page A4 proposal table.
+
+### Architecture & Implementation Details
+
+#### 1. Gemini Vision Multimodal Extraction Engine (`electron-main.cjs`)
+- Added `parse-proposal-bi-documents` IPC handler in `electron-main.cjs`.
+- Ingests multiple PDF and image files (`PNG`, `JPG`, `WebP`) as `inline_data` base64.
+- Ingests client context (primary client name, family tree, dependents) and optional custom advisor prompts.
+- Instructs Google Gemini to parse and structure the benefit schedules, riders, limits, and premiums into a strictly typed JSON schema:
+  - `clientName` & `proposalTitle`
+  - Array of `sections` categorized by `planningLevel` (*Risk Management - Hospitalization & Emergency Evacuation*, *Risk Management - Humanitarian Mission Risk*, *Critical Illness*, *Wealth Management*, etc.)
+  - Section-level `remarks` with cell-merging flag (`mergeRemarks: true`) for common deductibles and terms
+  - Future planning roadmap placeholders (`customRowNote: "To be discussed at a later date"`)
+  - Array of line `items` (*Person*, *Coverage*, *Plan Name*, *Sum Assured*, *Annual Premium*)
+  - Live calculated `totalAnnualPremium` with 2-decimal precision.
+
+#### 2. Publication-Grade Single-Page A4 PDF Generator (`generateProposalReportHtml`)
+- Implemented `generateProposalReportHtml(proposal, consultantSettings)` in `electron-main.cjs`.
+- Matches the advisor's signature single-page A4 layout:
+  - Centered bold Client Legal Name title.
+  - High-impact red header row (`#C00000`, white bold text).
+  - Clean `1px solid #111111` borders, distinct tabular blue text (`#1E3A8A`), and vertically centered cells.
+  - Proper `rowSpan` cell merging for Planning Level and Section Remarks.
+  - Colspan-spanning custom rows for roadmap topics (*Wealth Management*).
+  - Bold Total Yearly summary row.
+  - Dynamic consultant credentials line pulled from CRM Settings (`Pieter Beetsma | Financial Services Consultant | AIA Singapore Private Limited | HP: +65 9656 7678`).
+  - Standard MAS/AIA financial portfolio disclaimer paragraph in fine print.
+- Added `export-proposal-pdf` IPC handler utilizing an offscreen `BrowserWindow` and Electron `webContents.printToPDF` with native `dialog.showSaveDialog`.
+
+#### 3. Proposal Database Store & Preload API (`electron-main.cjs`, `electron-preload.cjs`)
+- Initialized `db.proposals = []` in `initDatabase()` with JSON persistence in `crm_data.json`.
+- Added IPC handlers `get-proposals`, `save-proposal`, and `delete-proposal`.
+- Exposed methods in `electron-preload.cjs`: `getProposals`, `saveProposal`, `deleteProposal`, `parseProposalBiDocuments`, `exportProposalPdf`.
+
+#### 4. Interactive Proposal Builder Modal (`src/components/ProposalBuilderModal.jsx`)
+- Built dedicated workspace modal featuring two synchronized modes: **Builder & Ingestion** and **Document Preview**.
+- **Ingestion Dropzone & Clipboard Paste**:
+  - Drag-and-drop zone supporting multiple PDF/image files simultaneously.
+  - Native clipboard listener (`Ctrl+V`) allowing advisors to paste screenshot snippets directly from their clipboard.
+  - One-click trigger for Gemini Vision analysis with live progress status.
+- **Interactive Section & Item Editor**:
+  - Live calculation of Total Annual Premium and Monthly Equivalent.
+  - Quick family member chips for 1-click insertion into Person/Coverage fields.
+  - Toggle between merged section remarks and item-level remarks.
+  - Toggle for future roadmap stage rows.
+- **Advisory Pitch Tools**:
+  - "Copy WhatsApp Pitch": Generates friendly, mobile-ready proposal breakdown ready to send with the PDF.
+  - "Export A4 PDF": Generates pixel-perfect PDF report.
+
+#### 5. Integration into Client Profile & Sales Pipeline (`ClientProfileView.jsx`, `PipelineView.jsx`)
+- Added **Portfolio Proposals** collapsible section in `ClientProfileView.jsx` (inside `Policies, Proposals & Claims` tab and All-in-One mode).
+- Added `Proposal Summary` header action button in `ClientProfileView.jsx` adjacent to `Financial Planning Blueprint`.
+- Added `Proposal Builder` direct trigger button inside the deal modal in `PipelineView.jsx`.
+
+### Build & Release
+- Verified build via `npm run build` (1,786 modules transformed, 0 errors).
+- Bumped `package.json` to `0.1.20`.
+- Built desktop installer package via `npm run electron:build`.
+- Automatically committed, pushed to `origin master`, tagged `v0.1.20`, and published to GitHub Releases for background auto-updating.
+
+
 
 
 
