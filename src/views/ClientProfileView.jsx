@@ -13,6 +13,7 @@ import ClientSocialIntelligenceSection from '../components/ClientSocialIntellige
 import ClientClaimsSection from '../components/ClientClaimsSection';
 import CollapsibleSection from '../components/CollapsibleSection';
 import ProposalBuilderModal from '../components/ProposalBuilderModal';
+import DeleteClientModal from '../components/DeleteClientModal';
 import { getEngagementStatus } from './ClientsView';
 import { useAdvisorContext } from '../context/AdvisorContext';
 
@@ -93,7 +94,7 @@ const calculateAge = (dobString) => {
   return age >= 0 ? age : null;
 };
 
-export default function ClientProfileView({ client, onBack, onOpenFinancialPlan, onUpdateClient }) {
+export default function ClientProfileView({ client, onBack, onOpenFinancialPlan, onUpdateClient, onDeleteClient }) {
   const [currentClient, setCurrentClient] = useState(client);
   const [policies, setPolicies] = useState([]);
   const [allPolicies, setAllPolicies] = useState([]);
@@ -102,6 +103,7 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
   const [tasks, setTasks] = useState([]);
   const [proposals, setProposals] = useState([]);
   const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -998,6 +1000,14 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             }}
           >
             <Share2 size={12} /> Social Links
+          </button>
+          <button 
+            className="btn" 
+            style={{ padding: '4px 10px', fontSize: '11px', backgroundColor: 'rgba(239, 68, 68, 0.08)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.25)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            onClick={() => setIsDeleteModalOpen(true)}
+            title="Delete Client"
+          >
+            <Trash2 size={12} /> Delete
           </button>
         </div>
       }
@@ -3177,6 +3187,27 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
             {touchpointSuccess ? 'Touchpoint Logged!' : 'Log Touchpoint'}
           </button>
 
+          {/* Delete Client Action Button */}
+          <button 
+            className="btn" 
+            style={{ 
+              backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+              color: '#f87171', 
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px',
+              padding: '8px 14px',
+              fontSize: '13px',
+              fontWeight: '500'
+            }}
+            onClick={() => setIsDeleteModalOpen(true)}
+            title="Delete Client Profile & Associated Records"
+          >
+            <Trash2 size={15} color="#f87171" />
+            Delete Client
+          </button>
+
           {/* Layout Mode Switcher */}
           <div style={{ display: 'flex', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '2px', border: '1px solid var(--border-light)' }}>
             <button
@@ -3495,9 +3526,31 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
                   />
                 </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={() => setIsClientModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save Changes</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                <button 
+                  type="button" 
+                  className="btn" 
+                  style={{ 
+                    backgroundColor: 'rgba(239, 68, 68, 0.12)', 
+                    border: '1px solid rgba(239, 68, 68, 0.3)', 
+                    color: '#f87171',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '13px',
+                    padding: '8px 14px'
+                  }} 
+                  onClick={() => {
+                    setIsClientModalOpen(false);
+                    setIsDeleteModalOpen(true);
+                  }}
+                >
+                  <Trash2 size={14} /> Delete Client
+                </button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button type="button" className="btn" style={{ backgroundColor: 'transparent', border: '1px solid var(--border-light)', color: 'var(--text-secondary)' }} onClick={() => setIsClientModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">Save Changes</button>
+                </div>
               </div>
             </form>
           </div>
@@ -4549,6 +4602,21 @@ export default function ClientProfileView({ client, onBack, onOpenFinancialPlan,
         existingProposal={selectedProposal}
         consultantSettings={appSettings}
         onSaveSuccess={handleProposalSaveSuccess}
+      />
+
+      {/* Delete Client Confirmation Modal */}
+      <DeleteClientModal
+        isOpen={isDeleteModalOpen}
+        client={currentClient}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onDeleted={() => {
+          setIsDeleteModalOpen(false);
+          if (onDeleteClient) {
+            onDeleteClient();
+          } else if (onBack) {
+            onBack();
+          }
+        }}
       />
     </div>
   );

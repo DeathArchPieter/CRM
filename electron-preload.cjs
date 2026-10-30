@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClients: () => ipcRenderer.invoke('get-clients'),
   addClient: (clientData) => ipcRenderer.invoke('add-client', clientData),
   updateClient: (clientData) => ipcRenderer.invoke('update-client', clientData),
+  deleteClient: (clientId) => ipcRenderer.invoke('delete-client', clientId),
   logClientTouchpoint: (clientId, touchpointDate) => ipcRenderer.invoke('log-client-touchpoint', clientId, touchpointDate),
   getPolicies: (clientId) => ipcRenderer.invoke('get-policies', clientId),
   getAllPolicies: () => ipcRenderer.invoke('get-all-policies'),

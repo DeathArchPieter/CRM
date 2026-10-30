@@ -1612,16 +1612,44 @@ Advisors frequently prepare consolidated "Portfolio Suggestions" or "Insurance P
 - Verified `node -c electron-main.cjs`.
 - Bumped `package.json` to `v0.1.21`.
 - Built desktop installer package via `npm run electron:build`.
-- Published `v0.1.21` to GitHub Releases for desktop auto-updater.
 
+## 2026-10-30 — v0.1.22 Feature Release: Client Profile Deletion & Cascading Record Purge
 
+### Summary of Completed Architecture & Capabilities
+1. **Client Deletion IPC Handler (`electron-main.cjs`)**:
+   - Added `ipcMain.handle('delete-client', ...)` with cascading database purge:
+     - Removes client record from `db.clients`.
+     - Automatically purges all linked `policies` (`clientId`).
+     - Automatically purges all linked `claims` (`clientId`).
+     - Automatically purges all linked `pipeline` cases (`clientId`).
+     - Automatically purges all linked `tasks` (`clientId`).
+     - Automatically purges all linked `proposals` (`clientId`).
+     - Disassociates ported prospect links in `project100Contacts` (`contact.portedClientId = null`).
+     - Persists database changes safely via `saveDatabase()`.
+   - Local Disk Cleanup:
+     - Recursively deletes physical claims documents vault at `userData/claims_documents/<safeClientId>`.
+     - Purges scraped media attachments at `userData/client_media/<safeClientId>_*`.
+     - Detailed audit logging via `writeToLogFile`.
 
+2. **IPC Preload Exposure (`electron-preload.cjs`)**:
+   - Exposed `deleteClient: (clientId) => ipcRenderer.invoke('delete-client', clientId)` safely without modifying existing API method names.
 
+3. **Delete Client Safety Modal (`src/components/DeleteClientModal.jsx`)**:
+   - Modern dark-mode glassmorphic modal with crimson warning theme.
+   - Dynamic real-time calculation and presentation of associated records to be purged (policies, claims & vault receipts, tasks & calendar events, pipeline deals, proposals & financial blueprints, social dossier).
+   - Accidental deletion protection: Requires typing `"DELETE"` into the confirmation field before enabling the permanent delete button.
+   - Loading indicator and user feedback via toast notifications.
 
+4. **UI Integration**:
+   - **Client Directory (`src/views/ClientsView.jsx`)**: Added an "Actions" column to the client directory table with a quick-access Delete button for each client, plus modal trigger.
+   - **Client Profile (`src/views/ClientProfileView.jsx`)**:
+     - Added primary "Delete Client" button in the top action toolbar alongside Financial Planning Blueprint and Proposal Summary.
+     - Added "Delete" action in the Profile & Contact Details collapsible card header.
+     - Added "Delete Client" button in the Edit Profile modal footer.
+     - Automatically navigates back to client directory and refreshes state on successful deletion.
 
-
-
-
-
-
-
+### Build & Release
+- Verified frontend build via `npm run build` (1,787 modules transformed, 0 errors).
+- Bumped `package.json` to `v0.1.22`.
+- Built desktop installer package via `npm run electron:build`.
+- Published `v0.1.22` to GitHub Releases for seamless desktop auto-update.

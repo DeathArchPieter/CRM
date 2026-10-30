@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Mail, Phone, Clock, AlertTriangle, 
-  Shield, Tag, Check, Filter, Calendar, Sparkles, X 
+  Shield, Tag, Check, Filter, Calendar, Sparkles, X, Trash2 
 } from 'lucide-react';
 import ClientProfileView from './ClientProfileView';
 import ClientFinancialPlanView from './ClientFinancialPlanView';
 import AddressAutocomplete from '../components/AddressAutocomplete';
+import DeleteClientModal from '../components/DeleteClientModal';
 import { useToast } from '../components/Toast';
 
 const PRESET_TAGS = ['VIP', 'HNW', 'Doctor', 'Tech', 'Business Owner', 'Young Family', 'Retiree', 'Referral Partner'];
@@ -37,6 +38,7 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState(initialSelectedClient || null);
   const [clientSubView, setClientSubView] = useState('profile'); // 'profile' | 'financial-plan'
+  const [clientToDelete, setClientToDelete] = useState(null);
   const [engagementFilter, setEngagementFilter] = useState('all'); // 'all' | 'active' | 'due' | 'overdue'
   const [selectedTagFilter, setSelectedTagFilter] = useState('all'); // 'all' | tag string
 
@@ -186,6 +188,11 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
         }}
         onUpdateClient={(updated) => {
           setSelectedClient(updated);
+          loadData();
+        }}
+        onDeleteClient={() => {
+          setSelectedClient(null);
+          setClientSubView('profile');
           loadData();
         }}
       />
@@ -342,6 +349,7 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Engagement Recency</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Status</th>
                 <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Policies</th>
+                <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500', textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -421,6 +429,28 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
                         <Shield size={13} color="var(--accent-blue)" />
                         {clientPoliciesCount} {clientPoliciesCount === 1 ? 'Policy' : 'Policies'}
                       </div>
+                    </td>
+                    <td style={{ padding: '14px 20px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        className="btn"
+                        style={{ 
+                          padding: '5px 10px', 
+                          fontSize: '12px', 
+                          backgroundColor: 'rgba(239, 68, 68, 0.08)', 
+                          color: '#f87171', 
+                          border: '1px solid rgba(239, 68, 68, 0.25)',
+                          borderRadius: '6px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => setClientToDelete(client)}
+                        title={`Delete ${client.fullName}`}
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 );
@@ -543,6 +573,17 @@ export default function ClientsView({ initialSelectedClient, onClearInitialClien
           </div>
         </div>
       )}
+
+      {/* Delete Client Confirmation Modal */}
+      <DeleteClientModal
+        isOpen={Boolean(clientToDelete)}
+        client={clientToDelete}
+        onClose={() => setClientToDelete(null)}
+        onDeleted={() => {
+          setClientToDelete(null);
+          loadData();
+        }}
+      />
     </div>
   );
 }

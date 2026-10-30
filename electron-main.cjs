@@ -694,6 +694,114 @@ function createWindow() {
     }
   });
 
+  ipcMain.handle('delete-client', (event, clientId) => {
+    writeToLogFile(`[IPC] delete-client started for ID: ${clientId}`);
+    try {
+      if (!clientId) throw new Error("Client ID is required");
+
+      const clientIndex = db.clients.findIndex(c => c.id === clientId);
+      if (clientIndex === -1) {
+        throw new Error("Client not found");
+      }
+
+      const clientName = db.clients[clientIndex].fullName;
+
+      // 1. Remove client from clients list
+      db.clients.splice(clientIndex, 1);
+
+      // 2. Cascade delete policies
+      const policiesCountBefore = db.policies ? db.policies.length : 0;
+      if (Array.isArray(db.policies)) {
+        db.policies = db.policies.filter(p => p.clientId !== clientId);
+      }
+      const policiesDeleted = policiesCountBefore - (db.policies ? db.policies.length : 0);
+
+      // 3. Cascade delete claims
+      const claimsCountBefore = db.claims ? db.claims.length : 0;
+      if (Array.isArray(db.claims)) {
+        db.claims = db.claims.filter(c => c.clientId !== clientId);
+      }
+      const claimsDeleted = claimsCountBefore - (db.claims ? db.claims.length : 0);
+
+      // 4. Cascade delete pipeline cases
+      const pipelineCountBefore = db.pipeline ? db.pipeline.length : 0;
+      if (Array.isArray(db.pipeline)) {
+        db.pipeline = db.pipeline.filter(item => item.clientId !== clientId);
+      }
+      const pipelineDeleted = pipelineCountBefore - (db.pipeline ? db.pipeline.length : 0);
+
+      // 5. Cascade delete tasks
+      const tasksCountBefore = db.tasks ? db.tasks.length : 0;
+      if (Array.isArray(db.tasks)) {
+        db.tasks = db.tasks.filter(t => t.clientId !== clientId);
+      }
+      const tasksDeleted = tasksCountBefore - (db.tasks ? db.tasks.length : 0);
+
+      // 6. Cascade delete proposals
+      const proposalsCountBefore = db.proposals ? db.proposals.length : 0;
+      if (Array.isArray(db.proposals)) {
+        db.proposals = db.proposals.filter(prop => prop.clientId !== clientId);
+      }
+      const proposalsDeleted = proposalsCountBefore - (db.proposals ? db.proposals.length : 0);
+
+      // 7. Clear portedClientId from project100Contacts
+      if (Array.isArray(db.project100Contacts)) {
+        db.project100Contacts.forEach(contact => {
+          if (contact.portedClientId === clientId) {
+            contact.portedClientId = null;
+          }
+        });
+      }
+
+      // 8. Save updated database
+      saveDatabase();
+
+      // 9. Purge local filesystem data associated with this client
+      try {
+        const userData = app.getPath('userData');
+        const safeClientId = String(clientId).replace(/[^a-zA-Z0-9_\-]/g, '_');
+        
+        // Clean up claims documents folder
+        const clientClaimsDir = path.join(userData, 'claims_documents', safeClientId);
+        if (fs.existsSync(clientClaimsDir)) {
+          fs.rmSync(clientClaimsDir, { recursive: true, force: true });
+          writeToLogFile(`[IPC] delete-client: purged claims documents directory for ${safeClientId}`);
+        }
+
+        // Clean up client media
+        const mediaDir = path.join(userData, 'client_media');
+        if (fs.existsSync(mediaDir)) {
+          const files = fs.readdirSync(mediaDir);
+          for (const file of files) {
+            if (file.startsWith(`${safeClientId}_`)) {
+              try {
+                fs.unlinkSync(path.join(mediaDir, file));
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (diskErr) {
+        writeToLogFile(`[IPC] delete-client disk cleanup warning: ${diskErr.message}`);
+      }
+
+      writeToLogFile(`[IPC] delete-client successfully deleted ${clientName} (ID: ${clientId}). Purged: ${policiesDeleted} policies, ${claimsDeleted} claims, ${tasksDeleted} tasks, ${pipelineDeleted} pipeline cases, ${proposalsDeleted} proposals.`);
+      return { 
+        success: true, 
+        deletedClientName: clientName,
+        stats: {
+          policies: policiesDeleted,
+          claims: claimsDeleted,
+          tasks: tasksDeleted,
+          pipeline: pipelineDeleted,
+          proposals: proposalsDeleted
+        }
+      };
+    } catch (error) {
+      writeToLogFile(`[IPC] delete-client failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('update-policy', (event, policyData) => {
     try {
       const index = db.policies.findIndex(p => p.id === policyData.id);
