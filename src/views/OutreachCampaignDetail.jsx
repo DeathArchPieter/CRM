@@ -183,6 +183,7 @@ export default function OutreachCampaignDetail({ campaign: campaignProp, onBack,
     policyName: campaign.productName || campaign.productFocus || 'Strategic Protection Plan',
     policyType: 'Life',
     estimatedPremium: '3600',
+    estimatedSinglePremium: '',
     estimatedFYC: '1440',
     stage: 'Prospect',
     expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
@@ -509,6 +510,7 @@ export default function OutreachCampaignDetail({ campaign: campaignProp, onBack,
       policyName: campaign.productName || campaign.productFocus || 'Strategic Advisory Plan',
       policyType: 'Life',
       estimatedPremium: target.anp ? String(target.anp) : '3600',
+      estimatedSinglePremium: '',
       estimatedFYC: target.fyc ? String(target.fyc) : '1440',
       stage: target.stage === '5. Case Closed' ? 'Case Issued' : target.stage === '4. Appt Booked' ? 'Fact Finding' : 'Prospect',
       expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
@@ -551,6 +553,7 @@ export default function OutreachCampaignDetail({ campaign: campaignProp, onBack,
         policyName: pipelineForm.policyName,
         policyType: pipelineForm.policyType,
         estimatedPremium: Number(pipelineForm.estimatedPremium) || 0,
+        estimatedSinglePremium: Number(pipelineForm.estimatedSinglePremium) || 0,
         estimatedFYC: Number(pipelineForm.estimatedFYC) || 0,
         stage: pipelineForm.stage,
         expectedCloseDate: pipelineForm.expectedCloseDate || null,
@@ -2070,14 +2073,18 @@ Generated on: ${new Date().toLocaleDateString()}`;
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Est. Annual Premium ($)</label>
-                  <input type="number" className="input-field" value={pipelineForm.estimatedPremium} onChange={e => setPipelineForm({ ...pipelineForm, estimatedPremium: e.target.value })} placeholder="3600" />
+                  <input type="number" step="0.01" min="0" className="input-field" value={pipelineForm.estimatedPremium} onChange={e => setPipelineForm({ ...pipelineForm, estimatedPremium: e.target.value })} placeholder="3600" />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Est. Single Premium ($)</label>
+                  <input type="number" step="0.01" min="0" className="input-field" value={pipelineForm.estimatedSinglePremium} onChange={e => setPipelineForm({ ...pipelineForm, estimatedSinglePremium: e.target.value })} placeholder="0.00" />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Est. FYC ($)</label>
-                  <input type="number" className="input-field" value={pipelineForm.estimatedFYC} onChange={e => setPipelineForm({ ...pipelineForm, estimatedFYC: e.target.value })} placeholder="1440" />
+                  <input type="number" step="0.01" min="0" className="input-field" value={pipelineForm.estimatedFYC} onChange={e => setPipelineForm({ ...pipelineForm, estimatedFYC: e.target.value })} placeholder="1440" />
                 </div>
               </div>
 

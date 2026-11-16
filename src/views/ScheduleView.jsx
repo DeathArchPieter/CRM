@@ -1440,7 +1440,11 @@ export default function ScheduleView() {
                           {c.clientName} — {c.policyName}
                         </span>
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          Stage: {c.stage} | Est. Premium: ${c.estimatedPremium.toLocaleString()}
+                          {Number(c.estimatedSinglePremium) > 0 && Number(c.estimatedPremium) > 0
+                            ? `Stage: ${c.stage} | Est. Annual: $${Number(c.estimatedPremium).toLocaleString()} | Est. Single: $${Number(c.estimatedSinglePremium).toLocaleString()}`
+                            : Number(c.estimatedSinglePremium) > 0
+                              ? `Stage: ${c.stage} | Est. Single Premium: $${Number(c.estimatedSinglePremium).toLocaleString()}`
+                              : `Stage: ${c.stage} | Est. Premium: $${(Number(c.estimatedPremium) || 0).toLocaleString()}`}
                         </span>
                       </div>
                     ))}

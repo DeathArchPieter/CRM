@@ -32,7 +32,7 @@ const POLICY_TYPES = ['Life','Term','A&H','Shield','HI','ILP','Endowment','LTC',
 
 const INITIAL_FORM = {
   clientName: '', policyName: '', policyType: 'Life',
-  estimatedPremium: '', estimatedFYC: '',
+  estimatedPremium: '', estimatedSinglePremium: '', estimatedFYC: '',
   expectedCloseDate: '', stage: 'Prospect', notes: ''
 };
 
@@ -102,7 +102,11 @@ export default function PipelineView({ onSelectClient }) {
 
   const openEdit = (c) => {
     setEditingId(c.id);
-    setFormData(c);
+    setFormData({
+      ...INITIAL_FORM,
+      ...c,
+      estimatedSinglePremium: c.estimatedSinglePremium ?? ''
+    });
     setIsModalOpen(true);
   };
 
@@ -271,7 +275,8 @@ export default function PipelineView({ onSelectClient }) {
     const prob = STAGE_PROBABILITIES[c.stage] || 0.3;
     return s + ((Number(c.estimatedFYC) || 0) * prob);
   }, 0);
-  const totalPremium = activeCases.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
+  const totalAnnualPremium = activeCases.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
+  const totalSinglePremium = activeCases.reduce((s, c) => s + (Number(c.estimatedSinglePremium) || 0), 0);
 
   return (
     <div className="view-container animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -322,7 +327,7 @@ export default function PipelineView({ onSelectClient }) {
       </header>
 
       {/* Stats Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '20px' }}>
         <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa' }}>
             <Briefcase size={18} />
@@ -338,8 +343,18 @@ export default function PipelineView({ onSelectClient }) {
             <DollarSign size={18} />
           </div>
           <div>
-            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '2px' }}>Pipeline Premium</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{fmt(totalPremium)}</div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '2px' }}>Est. Annual Premium</div>
+            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{fmt(totalAnnualPremium)}</div>
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ padding: '10px', borderRadius: '10px', backgroundColor: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa' }}>
+            <DollarSign size={18} />
+          </div>
+          <div>
+            <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '2px' }}>Est. Single Premium</div>
+            <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)' }}>{fmt(totalSinglePremium)}</div>
           </div>
         </div>
 
@@ -376,7 +391,7 @@ export default function PipelineView({ onSelectClient }) {
       {/* Add / Edit Modal */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '560px', padding: '32px', maxHeight: '90vh', overflowY: 'auto', animation: 'fadeIn 0.2s ease-out' }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '600px', padding: '32px', maxHeight: '90vh', overflowY: 'auto', animation: 'fadeIn 0.2s ease-out' }}>
             <h2 style={{ fontSize: '20px', marginBottom: '24px', color: 'var(--text-primary)' }}>
               {editingId ? 'Edit Case' : 'Add Pipeline Case'}
             </h2>
@@ -428,12 +443,19 @@ export default function PipelineView({ onSelectClient }) {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Est. Annual Premium</label>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
                     <input type="number" step="0.01" min="0" name="estimatedPremium" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} placeholder="0.00" value={formData.estimatedPremium} onChange={handleChange} />
+                  </div>
+                </div>
+                <div>
+                  <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Est. Single Premium</label>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: '12px', top: '10px', color: 'var(--text-muted)' }}>$</span>
+                    <input type="number" step="0.01" min="0" name="estimatedSinglePremium" className="input-field" style={{ width: '100%', paddingLeft: '24px' }} placeholder="0.00" value={formData.estimatedSinglePremium} onChange={handleChange} />
                   </div>
                 </div>
                 <div>
@@ -568,7 +590,9 @@ function KanbanBoard({ cases, onEdit, onAddToStage, onStageDrop, isWeightedView 
         
         const nominalFyc = stageCases.reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0);
         const displayFyc = isWeightedView ? nominalFyc * prob : nominalFyc;
-        const totalPrem = stageCases.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
+        const totalAnnualPrem = stageCases.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
+        const totalSinglePrem = stageCases.reduce((s, c) => s + (Number(c.estimatedSinglePremium) || 0), 0);
+        const totalPrem = totalAnnualPrem + totalSinglePrem;
         const isTargetDrop = dragOverStage === stage;
 
         return (
@@ -619,7 +643,7 @@ function KanbanBoard({ cases, onEdit, onAddToStage, onStageDrop, isWeightedView 
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', borderTop: `1px solid ${color.border}`, paddingTop: '4px', marginTop: '2px' }}>
                 <span>{fmt(displayFyc)} {isWeightedView ? `(${Math.round(prob * 100)}%)` : 'FYC'}</span>
-                <span>{fmt(totalPrem)} Prem</span>
+                <span title={`Annual Prem: ${fmt(totalAnnualPrem)} | Single Prem: ${fmt(totalSinglePrem)}`}>{fmt(totalPrem)} Prem</span>
               </div>
             </div>
 
@@ -661,10 +685,38 @@ function KanbanBoard({ cases, onEdit, onAddToStage, onStageDrop, isWeightedView 
                       {c.policyType}
                     </div>
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
-                        <span style={{ color: 'var(--text-muted)' }}>Premium</span>
-                        <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(c.estimatedPremium)}</span>
-                      </div>
+                      {(() => {
+                        const hasAnnualPrem = Number(c.estimatedPremium) > 0;
+                        const hasSinglePrem = Number(c.estimatedSinglePremium) > 0;
+                        if (hasAnnualPrem && hasSinglePrem) {
+                          return (
+                            <>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Annual Prem</span>
+                                <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(c.estimatedPremium)}</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Single Prem</span>
+                                <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(c.estimatedSinglePremium)}</span>
+                              </div>
+                            </>
+                          );
+                        }
+                        if (hasSinglePrem) {
+                          return (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                              <span style={{ color: 'var(--text-muted)' }}>Single Prem</span>
+                              <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(c.estimatedSinglePremium)}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Annual Prem</span>
+                            <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>{fmt(c.estimatedPremium)}</span>
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
                         <span style={{ color: 'var(--text-muted)' }}>{isWeightedView ? 'Wt. FYC' : 'FYC'}</span>
                         <span style={{ color: color.text, fontWeight: '700' }}>{fmt(cardDisplayFyc)}</span>
@@ -712,7 +764,7 @@ function TableView({ cases, onEdit }) {
   const sorted = [...cases].sort((a, b) => {
     let valA = a[sortKey] || '';
     let valB = b[sortKey] || '';
-    if (sortKey === 'estimatedPremium' || sortKey === 'estimatedFYC') {
+    if (sortKey === 'estimatedPremium' || sortKey === 'estimatedSinglePremium' || sortKey === 'estimatedFYC') {
       valA = Number(valA) || 0;
       valB = Number(valB) || 0;
     }
@@ -730,7 +782,8 @@ function TableView({ cases, onEdit }) {
             <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Policy / Plan</th>
             <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Type</th>
             <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Stage</th>
-            <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Premium</th>
+            <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Annual Premium</th>
+            <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Single Premium</th>
             <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>FYC</th>
             <th style={{ padding: '14px 20px', color: 'var(--text-secondary)', fontWeight: '500' }}>Close Date</th>
           </tr>
@@ -755,6 +808,7 @@ function TableView({ cases, onEdit }) {
                   </span>
                 </td>
                 <td style={{ padding: '14px 20px', color: 'var(--text-secondary)' }}>{fmt(c.estimatedPremium)}</td>
+                <td style={{ padding: '14px 20px', color: 'var(--text-secondary)' }}>{fmt(c.estimatedSinglePremium)}</td>
                 <td style={{ padding: '14px 20px', color: color.text, fontWeight: '600' }}>{fmt(c.estimatedFYC)}</td>
                 <td style={{ padding: '14px 20px', color: 'var(--text-muted)', fontSize: '12px' }}>
                   {c.expectedCloseDate ? new Date(c.expectedCloseDate).toLocaleDateString() : '—'}

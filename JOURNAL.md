@@ -1653,3 +1653,32 @@ Advisors frequently prepare consolidated "Portfolio Suggestions" or "Insurance P
 - Bumped `package.json` to `v0.1.22`.
 - Built desktop installer package via `npm run electron:build`.
 - Published `v0.1.22` to GitHub Releases for seamless desktop auto-update.
+
+---
+
+## 2026-11-16 — v0.1.23 Feature Release: Single Premium Support for Sales Pipeline Cases
+
+### Summary of Completed Architecture & Capabilities
+1. **Main Process Persistence & AI Context (`electron-main.cjs`)**:
+   - Added `estimatedSinglePremium: Number(caseData.estimatedSinglePremium) || 0` to `add-pipeline-case` and `update-pipeline-case` IPC handlers in `electron-main.cjs`.
+   - Updated `generate-client-ai-insights` active pipeline context prompt to include `Est. Single Premium` whenever `estimatedSinglePremium > 0`.
+
+2. **Sales Pipeline View (`src/views/PipelineView.jsx`)**:
+   - Added `estimatedSinglePremium` to `INITIAL_FORM` and populated it safely in `openEdit`.
+   - Expanded the Add / Edit Pipeline Case modal (`maxWidth: '600px'`) with a 3-column premium/FYC row: **Est. Annual Premium**, **Est. Single Premium**, and **Est. FYC**.
+   - Updated the top Stats Bar to 4 KPI cards (`Active Deals`, `Est. Annual Premium`, `Est. Single Premium`, and `Total Pipeline FYC` / `Weighted Expected FYC`).
+   - Updated `KanbanBoard` stage column headers to combine Annual and Single Premium totals with a detailed tooltip breakdown, and updated Kanban deal cards to render `Single Prem`, `Annual Prem`, or both depending on entered values.
+   - Updated `TableView` with sorting support for `estimatedSinglePremium` and separate `Annual Premium` and `Single Premium` columns.
+
+3. **Secondary Pipeline Entry & Aggregation Views**:
+   - **`src/views/Project100Detail.jsx`**: Added `Est. Single Premium ($)` input to the Create Pipeline Case modal and passed `estimatedSinglePremium` to `addPipelineCase`.
+   - **`src/views/OutreachCampaignDetail.jsx`**: Added `Est. Single Premium ($)` input to the Create Pipeline Deal modal and passed `estimatedSinglePremium` to `addPipelineCase`.
+   - **`src/views/SalesTrackingView.jsx`**: Separated YTD Annual vs Single Premium aggregates, combined them in monthly velocity and product mix premium totals, and displayed `RP` / `SP` breakdown in the KPI card subtitle when Single Premium cases exist.
+   - **`src/views/DashboardView.jsx`**: Updated `totalPipelinePremium` to include both Annual and Single Premium amounts.
+   - **`src/views/ScheduleView.jsx`**: Updated `pipelineCloses` event subtitles to display Single Premium and/or Annual Premium cleanly.
+
+### Build & Release
+- Verified frontend build via `npm run build` and syntax check via `node -c electron-main.cjs`.
+- Bumped `package.json` to `v0.1.23`.
+- Built Windows desktop installer package via `npm run electron:build`.
+- Committed, pushed to `origin master`, and published `v0.1.23` to GitHub Releases for automatic desktop updates.

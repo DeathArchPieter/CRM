@@ -87,9 +87,15 @@ export default function SalesTrackingView() {
     return issuedCases.reduce((sum, c) => sum + (Number(c.estimatedFYC) || 0), 0);
   }, [issuedCases]);
 
-  const totalYtdPremium = useMemo(() => {
+  const totalYtdAnnualPremium = useMemo(() => {
     return issuedCases.reduce((sum, c) => sum + (Number(c.estimatedPremium) || 0), 0);
   }, [issuedCases]);
+
+  const totalYtdSinglePremium = useMemo(() => {
+    return issuedCases.reduce((sum, c) => sum + (Number(c.estimatedSinglePremium) || 0), 0);
+  }, [issuedCases]);
+
+  const totalYtdPremium = totalYtdAnnualPremium + totalYtdSinglePremium;
 
   const issuedCount = issuedCases.length;
   const avgCaseFyc = issuedCount > 0 ? totalYtdFyc / issuedCount : 0;
@@ -123,7 +129,7 @@ export default function SalesTrackingView() {
       const mIdx = d.getMonth();
       if (mIdx >= 0 && mIdx < 12) {
         months[mIdx].fyc += Number(c.estimatedFYC) || 0;
-        months[mIdx].premium += Number(c.estimatedPremium) || 0;
+        months[mIdx].premium += (Number(c.estimatedPremium) || 0) + (Number(c.estimatedSinglePremium) || 0);
         months[mIdx].cases += 1;
       }
     });
@@ -152,7 +158,7 @@ export default function SalesTrackingView() {
         types[type] = { type, fyc: 0, premium: 0, count: 0 };
       }
       types[type].fyc += Number(c.estimatedFYC) || 0;
-      types[type].premium += Number(c.estimatedPremium) || 0;
+      types[type].premium += (Number(c.estimatedPremium) || 0) + (Number(c.estimatedSinglePremium) || 0);
       types[type].count += 1;
     });
 
@@ -277,7 +283,9 @@ export default function SalesTrackingView() {
             {formatCurrency(totalYtdPremium)}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Across {issuedCount} in-force policies
+            {totalYtdSinglePremium > 0
+              ? `RP: ${formatCurrency(totalYtdAnnualPremium)} • SP: ${formatCurrency(totalYtdSinglePremium)}`
+              : `Across ${issuedCount} in-force policies`}
           </div>
         </div>
 

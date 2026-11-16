@@ -1847,6 +1847,7 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
         policyName: caseData.policyName || '',
         policyType: caseData.policyType || 'Life',
         estimatedPremium: Number(caseData.estimatedPremium) || 0,
+        estimatedSinglePremium: Number(caseData.estimatedSinglePremium) || 0,
         estimatedFYC: Number(caseData.estimatedFYC) || 0,
         expectedCloseDate: caseData.expectedCloseDate || null,
         stage: caseData.stage || 'Prospect',
@@ -1872,6 +1873,7 @@ Context: ${customContext || 'General requirements and traps to avoid'}`;
         ...db.pipeline[index],
         ...caseData,
         estimatedPremium: Number(caseData.estimatedPremium) || 0,
+        estimatedSinglePremium: Number(caseData.estimatedSinglePremium) || 0,
         estimatedFYC: Number(caseData.estimatedFYC) || 0,
         updatedAt: new Date().toISOString()
       };
@@ -2776,7 +2778,7 @@ POLICIES IN PORTFOLIO:
 ${clientPolicies.map(p => `- ${p.policyName} (${p.policyType}) by ${p.provider}: Premium ${p.premiumAmount} ${p.premiumFrequency}, Status: ${p.status}, Coverages: ${JSON.stringify(p.coverages)}`).join('\n') || 'No policies active.'}
 
 ACTIVE SALES PIPELINE:
-${clientPipeline.map(c => `- ${c.policyName} (${c.policyType}): Stage: ${c.stage}, Est. Premium: $${c.estimatedPremium}, Est. FYC: $${c.estimatedFYC}`).join('\n') || 'No pipeline cases active.'}
+${clientPipeline.map(c => `- ${c.policyName} (${c.policyType}): Stage: ${c.stage}, Est. Annual Premium: $${c.estimatedPremium}${Number(c.estimatedSinglePremium) > 0 ? `, Est. Single Premium: $${c.estimatedSinglePremium}` : ''}, Est. FYC: $${c.estimatedFYC}`).join('\n') || 'No pipeline cases active.'}
 
 Please analyze this client and provide your strategic thoughts, paying special attention to preparing the consultant for upcoming tasks, meetings, and follow-ups.`;
 

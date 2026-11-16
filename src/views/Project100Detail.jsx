@@ -107,6 +107,7 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
     policyName: 'Comprehensive Protection Plan',
     policyType: 'Life',
     estimatedPremium: '3000',
+    estimatedSinglePremium: '',
     estimatedFYC: '1200',
     stage: 'Prospect',
     expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
@@ -585,6 +586,7 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
       policyName: '',
       policyType: 'Life',
       estimatedPremium: '',
+      estimatedSinglePremium: '',
       estimatedFYC: '',
       stage: 'Prospect',
       expectedCloseDate: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
@@ -629,6 +631,7 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
           policyName: caseForm.policyName,
           policyType: caseForm.policyType,
           estimatedPremium: Number(caseForm.estimatedPremium) || 0,
+          estimatedSinglePremium: Number(caseForm.estimatedSinglePremium) || 0,
           estimatedFYC: Number(caseForm.estimatedFYC) || 0,
           stage: caseForm.stage,
           expectedCloseDate: caseForm.expectedCloseDate || null,
@@ -1783,14 +1786,18 @@ export default function Project100Detail({ onBack, onSelectClient, onNavigateTab
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div className="input-group">
                   <label className="input-label">Est. Annual Premium ($)</label>
-                  <input type="number" className="input-field" value={caseForm.estimatedPremium} onChange={e => setCaseForm({ ...caseForm, estimatedPremium: e.target.value })} placeholder="3000" />
+                  <input type="number" step="0.01" min="0" className="input-field" value={caseForm.estimatedPremium} onChange={e => setCaseForm({ ...caseForm, estimatedPremium: e.target.value })} placeholder="3000" />
+                </div>
+                <div className="input-group">
+                  <label className="input-label">Est. Single Premium ($)</label>
+                  <input type="number" step="0.01" min="0" className="input-field" value={caseForm.estimatedSinglePremium} onChange={e => setCaseForm({ ...caseForm, estimatedSinglePremium: e.target.value })} placeholder="0.00" />
                 </div>
                 <div className="input-group">
                   <label className="input-label">Est. FYC ($)</label>
-                  <input type="number" className="input-field" value={caseForm.estimatedFYC} onChange={e => setCaseForm({ ...caseForm, estimatedFYC: e.target.value })} placeholder="1200" />
+                  <input type="number" step="0.01" min="0" className="input-field" value={caseForm.estimatedFYC} onChange={e => setCaseForm({ ...caseForm, estimatedFYC: e.target.value })} placeholder="1200" />
                 </div>
               </div>
 

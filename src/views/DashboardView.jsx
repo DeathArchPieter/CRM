@@ -1363,7 +1363,7 @@ export default function DashboardView({ onNavigateTab, onSelectClient }) {
     return updated.getMonth() === now.getMonth() && updated.getFullYear() === now.getFullYear();
   });
   const totalPipelineFYC     = activePipeline.reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0);
-  const totalPipelinePremium = activePipeline.reduce((s, c) => s + (Number(c.estimatedPremium) || 0), 0);
+  const totalPipelinePremium = activePipeline.reduce((s, c) => s + (Number(c.estimatedPremium) || 0) + (Number(c.estimatedSinglePremium) || 0), 0);
   const issuedFYCThisMonth   = issuedThisMonth.reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0);
 
   const recentCases = [...pipeline].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
