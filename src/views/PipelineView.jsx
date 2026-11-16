@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, LayoutGrid, List, Trash2, TrendingUp, DollarSign, 
-  Briefcase, Percent, CheckCircle2, ArrowRight, Sparkles, FileText 
+  Briefcase, Percent, CheckCircle2, ArrowRight, Sparkles, FileText,
+  ChevronDown, X, User
 } from 'lucide-react';
 import DatePicker from '../components/DatePicker';
 import ProposalBuilderModal from '../components/ProposalBuilderModal';
@@ -55,6 +56,9 @@ export default function PipelineView({ onSelectClient }) {
   const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
   const [proposalClient, setProposalClient] = useState(null);
   const [appSettings, setAppSettings] = useState(null);
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const [clientFilterActive, setClientFilterActive] = useState(false);
+  const clientDropdownRef = useRef(null);
 
   const { setAdvisorContext } = useAdvisorContext();
 
@@ -94,9 +98,21 @@ export default function PipelineView({ onSelectClient }) {
     load();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target)) {
+        setIsClientDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const openAdd = (defaultStage = 'Prospect') => {
     setEditingId(null);
     setFormData({ ...INITIAL_FORM, stage: defaultStage });
+    setIsClientDropdownOpen(false);
+    setClientFilterActive(false);
     setIsModalOpen(true);
   };
 
@@ -107,6 +123,8 @@ export default function PipelineView({ onSelectClient }) {
       ...c,
       estimatedSinglePremium: c.estimatedSinglePremium ?? ''
     });
+    setIsClientDropdownOpen(false);
+    setClientFilterActive(false);
     setIsModalOpen(true);
   };
 
@@ -268,6 +286,37 @@ export default function PipelineView({ onSelectClient }) {
     setIsProposalModalOpen(true);
   };
 
+  // Combined scrollable Client & Project 100 Prospect options
+  const allClientOptions = useMemo(() => {
+    const clientItems = clients.map(c => ({
+      id: `c-${c.id}`,
+      name: c.fullName || '',
+      preferredName: c.preferredName || '',
+      badge: `Client: ${c.clientStatus || 'Active'}`,
+      isProspect: false
+    }));
+    const prospectItems = project100Contacts
+      .filter(p => !p.portedClientId)
+      .map(p => ({
+        id: `p-${p.id}`,
+        name: p.fullName || '',
+        preferredName: p.preferredName || '',
+        badge: `P100: ${p.category || 'Prospect'}`,
+        isProspect: true
+      }));
+    return [...clientItems, ...prospectItems].sort((a, b) => a.name.localeCompare(b.name));
+  }, [clients, project100Contacts]);
+
+  const clientSuggestions = useMemo(() => {
+    const q = (formData.clientName || '').trim().toLowerCase();
+    if (!clientFilterActive || !q) return allClientOptions;
+    return allClientOptions.filter(item =>
+      item.name.toLowerCase().includes(q) ||
+      (item.preferredName && item.preferredName.toLowerCase().includes(q)) ||
+      item.badge.toLowerCase().includes(q)
+    );
+  }, [allClientOptions, clientFilterActive, formData.clientName]);
+
   // Summary stats — exclude Closed/Lost from totals
   const activeCases = cases.filter(c => c.stage !== 'Closed/Lost');
   const totalNominalFYC = activeCases.reduce((s, c) => s + (Number(c.estimatedFYC) || 0), 0);
@@ -397,20 +446,208 @@ export default function PipelineView({ onSelectClient }) {
             </h2>
             <form onSubmit={handleSave}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                <div>
+                <div ref={clientDropdownRef} style={{ position: 'relative' }}>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Client Name *</label>
-                  <input 
-                    required 
-                    type="text" 
-                    name="clientName" 
-                    className="input-field" 
-                    style={{ width: '100%' }} 
-                    value={formData.clientName} 
-                    onChange={handleChange} 
-                    placeholder="e.g. John Tan" 
-                    list="clients-and-prospects-list"
-                    autoComplete="off"
-                  />
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <input
+                      required
+                      type="text"
+                      name="clientName"
+                      className="input-field"
+                      style={{
+                        width: '100%',
+                        paddingRight: formData.clientName ? '58px' : '34px'
+                      }}
+                      value={formData.clientName}
+                      onFocus={() => {
+                        setIsClientDropdownOpen(true);
+                        setClientFilterActive(false);
+                      }}
+                      onChange={(e) => {
+                        handleChange(e);
+                        setIsClientDropdownOpen(true);
+                        setClientFilterActive(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setIsClientDropdownOpen(false);
+                        }
+                      }}
+                      placeholder="Select or type client name..."
+                      autoComplete="off"
+                    />
+                    <div style={{ position: 'absolute', right: '8px', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                      {formData.clientName && (
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, clientName: '' }));
+                            setClientFilterActive(false);
+                            setIsClientDropdownOpen(true);
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '4px'
+                          }}
+                          title="Clear client name"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setClientFilterActive(false);
+                          setIsClientDropdownOpen(prev => !prev);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px'
+                        }}
+                        title="Toggle client & prospect list"
+                      >
+                        <ChevronDown
+                          size={15}
+                          style={{
+                            transform: isClientDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 0.15s ease'
+                          }}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isClientDropdownOpen && (
+                    <div
+                      onWheel={(e) => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        right: 0,
+                        zIndex: 9999,
+                        backgroundColor: '#0f172a',
+                        backgroundImage: 'linear-gradient(rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.99))',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid var(--border-light, rgba(255, 255, 255, 0.12))',
+                        borderRadius: '10px',
+                        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06)',
+                        maxHeight: '240px',
+                        overflowY: 'auto',
+                        padding: '4px'
+                      }}
+                    >
+                      <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Clients &amp; Prospects ({clientSuggestions.length})</span>
+                        <span style={{ fontSize: '10px', color: 'var(--accent-primary)' }}>Scroll or type to filter</span>
+                      </div>
+
+                      {clientSuggestions.length === 0 ? (
+                        <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                          No matching clients or prospects
+                        </div>
+                      ) : (
+                        clientSuggestions.map((item) => {
+                          const isSelected = (formData.clientName || '').trim().toLowerCase() === item.name.trim().toLowerCase();
+                          return (
+                            <div
+                              key={item.id}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setFormData(prev => ({ ...prev, clientName: item.name }));
+                                setIsClientDropdownOpen(false);
+                                setClientFilterActive(false);
+                              }}
+                              style={{
+                                padding: '8px 10px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                backgroundColor: isSelected ? 'rgba(139, 92, 246, 0.18)' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '8px',
+                                transition: 'background-color 0.1s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.06)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = isSelected ? 'rgba(139, 92, 246, 0.18)' : 'transparent';
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                                <User size={13} color={item.isProspect ? '#c084fc' : '#60a5fa'} style={{ flexShrink: 0 }} />
+                                <span style={{ fontSize: '13px', fontWeight: isSelected ? '600' : '500', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {item.name}
+                                </span>
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: '10.5px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: item.isProspect ? 'rgba(168, 85, 247, 0.16)' : 'rgba(59, 130, 246, 0.16)',
+                                  color: item.isProspect ? '#c084fc' : '#60a5fa',
+                                  whiteSpace: 'nowrap',
+                                  flexShrink: 0
+                                }}
+                              >
+                                {item.badge}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+
+                      {formData.clientName.trim() && !allClientOptions.some(o => o.name.toLowerCase() === formData.clientName.trim().toLowerCase()) && (
+                        <div
+                          style={{
+                            padding: '8px 10px',
+                            fontSize: '11.5px',
+                            color: 'var(--text-muted)',
+                            borderTop: '1px solid rgba(255,255,255,0.06)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            marginTop: '2px'
+                          }}
+                        >
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            New name: <strong style={{ color: 'var(--text-primary)' }}>{formData.clientName.trim()}</strong>
+                          </span>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setIsClientDropdownOpen(false);
+                              setClientFilterActive(false);
+                            }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--accent-primary)', fontSize: '11px', fontWeight: '600', cursor: 'pointer', padding: 0, flexShrink: 0 }}
+                          >
+                            Use Name
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Stage</label>
@@ -471,16 +708,6 @@ export default function PipelineView({ onSelectClient }) {
                 <label className="input-label" style={{ display: 'block', marginBottom: '8px' }}>Notes</label>
                 <textarea name="notes" className="input-field" style={{ width: '100%', minHeight: '72px', resize: 'vertical' }} value={formData.notes} onChange={handleChange} placeholder="Awaiting medical results, follow up on..." />
               </div>
-
-              {/* Datalist for suggestions */}
-              <datalist id="clients-and-prospects-list">
-                {clients.map(c => (
-                  <option key={`c-${c.id}`} value={c.fullName}>{`Client: ${c.clientStatus || 'Active'}`}</option>
-                ))}
-                {project100Contacts.filter(p => !p.portedClientId).map(p => (
-                  <option key={`p-${p.id}`} value={p.fullName}>{`Project 100 Prospect (${p.category})`}</option>
-                ))}
-              </datalist>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>

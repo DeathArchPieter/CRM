@@ -1682,3 +1682,21 @@ Advisors frequently prepare consolidated "Portfolio Suggestions" or "Insurance P
 - Bumped `package.json` to `v0.1.23`.
 - Built Windows desktop installer package via `npm run electron:build`.
 - Committed, pushed to `origin master`, and published `v0.1.23` to GitHub Releases for automatic desktop updates.
+
+---
+
+## 2026-11-16 — v0.1.24 UX Fix: Scrollable Client & Prospect Dropdown in Pipeline Modal
+
+### Root Cause
+In Electron/Chromium on Windows, the native HTML `<datalist id="clients-and-prospects-list">` used on the **Client Name \*** input inside the Add / Edit Pipeline Case modal (`src/views/PipelineView.jsx`) prevented mouse-wheel scrolling across long client lists and applied jarring white native autofill styles.
+
+### Fixes Implemented
+1. **Custom Dark-Mode Scrollable Client & Prospect Combobox (`src/views/PipelineView.jsx`)**:
+   - Replaced the native `<datalist>` with a custom glassmorphic autocomplete dropdown (`isClientDropdownOpen`, `clientFilterActive`, `clientDropdownRef`) combining all CRM `clients` and non-ported `project100Contacts` sorted alphabetically.
+   - Added a `maxHeight: '240px'`, `overflowY: 'auto'`, `onWheel={(e) => e.stopPropagation()}` dropdown container with dark styling, status/category badges (`Client: Active` vs `P100: Prospect`), clear (`X`) button, chevron toggle (`ChevronDown`), Escape key support, outside-click dismissal, and a footer prompt when typing a new client name.
+
+### Build & Release
+- Verified frontend build via `npm run build`.
+- Bumped `package.json` to `v0.1.24`.
+- Built Windows desktop installer package via `npm run electron:build`.
+- Committed, pushed to `origin master`, and published `v0.1.24` to GitHub Releases for automatic desktop updates.
