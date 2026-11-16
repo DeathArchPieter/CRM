@@ -1700,3 +1700,22 @@ In Electron/Chromium on Windows, the native HTML `<datalist id="clients-and-pros
 - Bumped `package.json` to `v0.1.24`.
 - Built Windows desktop installer package via `npm run electron:build`.
 - Committed, pushed to `origin master`, and published `v0.1.24` to GitHub Releases for automatic desktop updates.
+
+---
+
+## 2026-11-16 — v0.1.25 Maintenance Release: Upgrade AI Engine to `gemini-4-hydrogen`
+
+### Summary of Changes
+1. **Main Process Gemini Engine (`electron-main.cjs`)**:
+   - Updated `DEFAULT_GEMINI_MODEL` to `'gemini-4-hydrogen'`.
+   - Updated `getGeminiModel()` so legacy persisted overrides (`'gemini-2.5-flash'` and `'gemini-3.5-flash-lite'`) fall back cleanly to `'gemini-4-hydrogen'`.
+2. **Frontend UI Badges & Status Text**:
+   - **`src/views/SettingsView.jsx`**: Updated fallback model name to `'gemini-4-hydrogen'` and active engine badge to `Gemini 4 Hydrogen Active`.
+   - **`src/views/OutreachCampaignDetail.jsx`**: Updated playbook re-scan loading status to `Synthesizing with Gemini 4 Hydrogen...`.
+   - **`src/views/SpecialProjectsView.jsx`**: Updated brochure scanner loading status to `Scanning Brochure with Gemini 4 Hydrogen...`.
+
+### Build & Release
+- Verified frontend build via `npm run build` and syntax check via `node -c electron-main.cjs`.
+- Bumped `package.json` to `v0.1.25`.
+- Built Windows desktop installer package via `npm run electron:build`.
+- Committed, pushed to `origin master`, and published `v0.1.25` to GitHub Releases for automatic desktop updates.
